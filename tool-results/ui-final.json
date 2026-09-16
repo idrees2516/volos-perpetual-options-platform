@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "**Quality Check:**\n\n1.  **Layout:** Yes, the three-panel layout (Structure / Payoff / Risk) is highly professional and logically organized.\n2.  **Payoff:** Correct. The \"tent\" shape of an Iron Condor is clearly visible with the four distinct strike handles (73.5k, 80.0k, 110k, 120k).\n3.  **Data:** Fully populated. The Scenario Matrix (P&L grid), Greeks, and key metrics (Max Profit/Loss, Breakevens) are all active.\n4.  **Visual Polish: 9/10.** Excellent use of neon accents, clean typography, and high-density data presentation.\n\n**Issues:** None critical. The UI is a top-tier prototype. The \"RUST ENGINE\" branding adds a unique technical flavor.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1789545111,
+  "id": "202609161551448928fc0992f841ad",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "202609161551448928fc0992f841ad",
+  "usage": {
+    "completion_tokens": 173,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 2098,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 2271
+  }
+}

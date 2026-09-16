@@ -1,0 +1,23 @@
+[package]
+name = "volos-backend"
+version = "1.0.0"
+edition = "2021"
+description = "VolOS — high-performance pricing, risk and market-data engine for the perpetual options strategy builder"
+license = "MIT"
+
+[dependencies]
+axum = { version = "0.8", features = ["json"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal", "sync"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "limit", "set-header", "trace"] }
+rand = { version = "0.8", features = ["small_rng"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

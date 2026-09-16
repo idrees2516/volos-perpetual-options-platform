@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) Yes, the \"Payoff & Risk Profile\" chart displays multiple curves, including the payoff at horizon (solid teal), mark now (dashed yellow), time decay, and a probability cone.\n2) Yes, there is a strike handle (a circle with a crosshair) located at the bottom of the chart at the 97.5k price level.\n3) Yes, the left panel for strategy structure/legs and the right panel for risk and return metrics are properly laid out and well-organized.\n4) No significant visual glitches or overlapping text are visible; the interface is clean with a logical flow and no obvious empty or broken areas.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1789543856,
+  "id": "20260916153052085d6f99ea0144cf",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20260916153052085d6f99ea0144cf",
+  "usage": {
+    "completion_tokens": 134,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 2105,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 2239
+  }
+}

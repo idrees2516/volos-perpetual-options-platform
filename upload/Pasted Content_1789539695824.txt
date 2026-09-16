@@ -1,0 +1,2860 @@
+Deep product blueprint: building the missing “Volatility OS” for onchain options
+After drilling into the current infrastructure, APIs, RFQ systems, portfolio-margin engines, volatility-data providers, smart-account tooling, automated strategy products, and the latest 2026 market structure, I would change the product thesis slightly from the previous answer.
+
+The biggest opportunity is probably not to launch another options exchange first.
+
+It is to build the execution, abstraction, risk, and automation layer that sits above existing options liquidity, aggregates it, and turns options into understandable financial outcomes. Once that layer owns meaningful order flow, it can progressively internalize execution, create strategy-level markets, launch a volatility index, introduce perpetual-option primitives, and eventually become its own clearing/prime layer.
+
+That sequencing avoids the single hardest problem in derivatives:
+
+Launching an empty exchange and trying to manufacture both users and market makers simultaneously.
+
+That matters because the existing liquidity gap remains enormous. Derive alone currently shows about 
+3.05
+B
+o
+f
+t
+r
+a
+i
+l
+i
+n
+g
+−
+30
+−
+d
+a
+y
+o
+n
+c
+h
+a
+i
+n
+o
+p
+t
+i
+o
+n
+n
+o
+t
+i
+o
+n
+a
+l
+a
+n
+d
+3.05Boftrailing−30−dayonchainoptionnotionaland84.2M of premium volume, while Paradex shows roughly 
+65.8
+M
+o
+f
+30
+−
+d
+a
+y
+o
+p
+t
+i
+o
+n
+s
+n
+o
+t
+i
+o
+n
+a
+l
+∗
+∗
+.
+D
+e
+r
+i
+b
+i
+t
+,
+m
+e
+a
+n
+w
+h
+i
+l
+e
+,
+r
+e
+c
+o
+r
+d
+e
+d
+r
+o
+u
+g
+h
+l
+y
+∗
+∗
+65.8Mof30−dayoptionsnotional∗∗.Deribit,meanwhile,recordedroughly∗∗64.5B of options turnover in August 2026 alone across BTC, ETH and USDC options. (DefiLlama)
+
+And the competitive environment is getting tougher. Coinbase is currently integrating its International Exchange infrastructure with Deribit, with options, perps, dated futures and spot converging onto one derivatives platform; eligible Coinbase customers are also being given options access. CME has been trading crypto futures and options 24/7 since May 29, 2026. So merely being “decentralized,” “24/7,” or “having options and perps in the same account” is no longer enough. (help.coinbase.com)
+
+The differentiation needs to become:
+
+better abstraction + better execution + persistent automation + self-custody + composability + long-tail markets + cross-venue liquidity.
+
+1. Whatould actually build
+For clarity, I will call the hypothetical product Volatility OS.
+
+This is not a proposed brand name. It describes the architecture.
+
+The user should not initially see:
+
+BTC-27NOV26-95000-C
+IV 57.2
+Delta 0.34
+Vega 0.019
+Theta −0.0008
+
+The user should initially see:
+
+User goal	Product interaction
+“I think BTC goes to $120k”	Trade a View
+“Protect my BTC below $80k”	Protect
+“I would happily sell ETH at $6k”	Earn
+“I would buy SOL if it fell to $150”	Earn / Accumulate
+“I think BTC volatility will explode”	Trade Volatility
+“Give me upside without liquidation”	Defined-Risk Leverage
+“Always keep me 20% protected”	Persistent Hedge
+“Maintain long ETH convexity”	Perpetual/Auto-Rolled Exposure
+Behind this extremely simple interface would sit a sophisticated derivatives engine.
+
+The system architecture would be:
+
+Layer	Function
+Intent layer	Understand what economic outcome the user wants
+Strategy compiler	Convert intent into candidate options/perp/spot structures
+Volatility/risk engine	Price, stress-test and compare those structures
+Liquidity router	Query CLOBs, RFQs, combo books, AMMs and solvers
+Strategy execution engine	Execute entire packages rather than individual legs
+Smart account	Hold collateral and enforce permissions/policies
+Automation engine	Roll, hedge, rebalance and enforce carry budgets
+Collateral optimizer	Allocate capital efficiently across positions/venues
+Market-maker gateway	Give MMs one API to quote CLOB/RFQ/strategy flow
+Volatility-data layer	Composite IV surfaces, skew, forwards and vol indices
+Institutional layer	REST/FIX/WebSocket, OMS/PMS, reporting, audit
+Embedded SDK	Put all of this inside wallets, exchanges and treasuries
+This is why I think “options exchange” is too narrow a description.
+
+The product is really a volatility operating system.
+
+2. The key strategic insight: don't compete with Derive on Derive's strongest feature
+Derive has already done much of the very difficult infrastructure work.
+
+It offers portfolio margin, cross-asset collateral and multiple subaccounts, with its risk engine calculating maximum portfolio loss under spot and volatility shocks and adding contingencies for basis, oracles and other risks. Derive says its system recognizes offsets between multi-leg structures instead of margining every leg independently. (insights.derive.xyz)
+
+Paradex is building in essentially the same professional direction. Its portfolio-margin system currently stress-tests portfolios across 24 simultaneous spot/IV scenarios, although portfolio margin remains beta/whitelisted. (docs.paradex.trade)
+
+And Paradigm has already built sophisticated institutional multi-leg liquidity discovery. Paradigm's RFQ model supports private auctions, multiple makers and block-trade settlement in which all legs clear atomically or the entire trade is rejected. (Paradigm Documentation)
+
+Therefore I would not spend the first two years recreating:
+
+matching engine + appchain + margin engine + market-maker API + new token incentives
+
+just to arrive where these projects already are.
+
+Instead:
+
+Use existing venues as liquidity backends and build the product layer they have not yet fully solved.
+
+3. Why I think this is the correct wedge
+The latest Block Scholes study reached a strikingly similar diagnosis after interviewing Derive, Rysk, Panoptic and GammaSwap builders.
+
+The historical bottlenecks repeatedly came down to:
+
+UX, demand, collateral efficiency, education, two-sided liquidity and professional market-making infrastructure.
+
+The report explicitly argues that infrastructure improvements alone do not create options demand; users need products solving actual problems that perps or prediction markets do not solve as naturally. (blockscholes.com)
+
+That is the opening.
+
+The new company doesn't initially need to invent another option.
+
+It needs to answer:
+
+What are you trying to accomplish with your money?
+
+and construct the derivatives beneath that objective.
+
+4. Feature #1 — Intent-based optionshis is probably the most important consumer feature.
+There is already precedent in traditional markets.
+
+Interactive Brokers' options tools can start from a user's price or volatility forecast and generate relevant option strategies. Robinhood's strategy builder organizes multi-leg structures around market outlook and shows max gain/loss and payoff information.
+
+So “intent → options strategy” itself isn't the moat.
+
+The opportunity is extending it into:
+
+crypto + multiple venues + persistent automation + portfolio context + actual executable quotes.
+
+What the user specifies
+Instead of strike and expiry first, the order begins with economic constraints.
+
+Input	Example
+Asset	BTC
+View	Bullish
+Horizon	Next month
+Target	$120k
+Maximum loss	$2,000
+Desired exposure	Aggressive
+Maximum carry	$150/week
+Liquidation allowed?	No
+Profit preference	Unlimited vs capped
+Existing holdings	1.7 BTC
+Hedge existing position?	No
+Execution urgency	Patient
+Complexity	Simple
+The strategy compiler can construct several economically different solutions.
+
+For example:
+
+long call
+
+versus
+
+call spread
+
+versus
+
+perpetual call
+
+versus
+
+spot + protective put
+
+versus
+
+perp + liquidation-protection option
+
+The system shouldn't simply say:
+
+“We recommend strategy X.”
+
+Instead it should show the consequences.
+
+Strategy	Max loss	Upside	Carry	IV exposure	Liquidity
+Long call	$1,850	Unlimited	Paid upfront	High	High
+Call spread	$1,220	Capped	Paid upfront	Moderate	High
+Perpetual call	Variable	Unlimited	Ongoing	High	Medium
+Perp + put	$X	High	Funding + put	Mixed	High
+Then the user chooses.
+
+That preserves agency while making the trade intelligible.
+
+5. The compiler should be deterministic, not an LLM trading agent
+AI is useful at the language interface.
+
+For example:
+
+“I own 5 ETH. I think ETH probably stays flat for a month, but I don't want to lose the coins if it rallies massively.”
+
+An LLM can translate that into a structured intent:
+
+Field	Parsed value
+Underlying	ETH
+Existing holding	+5 ETH
+Bias	Neutral/slightly bullish
+Goal	Income
+Constraint	Preserve exposure beyond large upside
+Candidate structures	covered call, call spread overlay, etc.
+But the LLM should not calculate the option price, margin requirement, Greeks or risk.
+
+Those should come from deterministic financial libraries and venue data.
+
+The chain should be:
+
+natural language → structured schema → deterministic strategy engine → deterministic risk engine → firm market quotes → user authorization.
+
+That's a much safer architecture than:
+
+“AI thinks this trade looks good → sign transaction.”
+
+6. The strategy compiler becomes a surprisingly valuable proprietary asset
+The compiler would contain rules for transforming economic objectives into allowable structures.
+
+Its candidate universe could include:
+
+Objective	Candidate instruments
+Direction	call, put, spreads, perp
+Convex direction	long call/put, perpetual option
+Income	covered call, CSP
+Range	condor, butterfly
+Volatility	straddle, strangle
+Crash protection	put, put spread, collar
+Continuous protection	auto-rolled puts
+Continuous convexity	auto-roll/perpetual option
+Relative volatility	delta-neutral option baskets
+Event exposure	short-dated/binary/touch
+Long-tail token	AMM-native option
+The real intellectual property isn't the names of these strategies.
+
+It's:
+
+constraint solving + pricing + execution-aware strategy construction.
+
+A theoretical call spread quoted at 
+1
+,
+000
+i
+s
+i
+r
+r
+e
+l
+e
+v
+a
+n
+t
+i
+f
+e
+x
+e
+c
+u
+t
+i
+n
+g
+i
+t
+c
+o
+s
+t
+s
+1,000isirrelevantifexecutingitcosts1,800 because the second leg has no liquidity.
+
+So candidate ranking needs to use actual executable prices, not textbook Black-Scholes prices.
+
+That distinction is crucial.
+
+7. Feature #2 — the universal options liquidity router
+This could become the central infrastructure moat.
+
+Think of it as something between:
+
+Jupiter / 1inch
+
+and
+
+Paradigm
+
+and
+
+an institutional smart-order router.
+
+But for volatility.
+
+The system maintains a normalized instrument registry.
+
+Different venues might describe the same instrument differently, so internally everything needs canonical fields:
+
+Field	Example
+underlying	BTC
+quote	USD
+expiry	2026-10-30 08:00 UTC
+strike	100000
+type	Call
+style	European
+settlement	Cash
+settlement asset	USDC
+contract multiplier	1 BTC
+venue	Derive
+collateral	USDC/ETH/etc.
+exercise	Automatic
+tick size	...
+Then you have adapters for every venue.
+
+8. Routing should occur at the strategy level
+This is a big distinction from a conventional aggregator.
+
+Suppose the user wants:
+
+100 BTC 100k/120k call spreads.
+
+A naïve router says:
+
+Venue A has the cheapest 100k calls.
+Venue B has the best bid for 120k calls.
+
+That can be disastrous.
+
+You buy the calls on A.
+
+BTC jumps.
+
+Before you sell the calls on B, the market moves.
+
+You've acquired enormous unintended delta and vega exposure.
+
+So the objective function should be:
+
+best executable price for the entire payoff.
+
+Paradigm already demonstrates the importance of this concept. Its block trades are sent to settlement venues atomically; if one leg cannot clear, the block is rejected. Paradex's own RFQ API now supports up to 25 legs, including strategy legs and fixed-price hedge legs. (Paradigm Documentation)
+
+This tells us that strategy-native trading is technically quite realistic.
+
+9. How the router should decide where to send an order
+Execution could roughly follow:
+
+Trade	Preferred execution
+Small liquid single option	CLOB
+Standard spread	Combo/strategy book
+Large spread	Multi-dealer RFQ
+Very large institutional position	Private RFQ
+Long-tail token	AMM/perpetual primitive
+Highly customized strategy	Solver / RFQ
+Automated roll	Calendar-combo/RFQ
+Delta-neutral structure	Options + fixed hedge leg
+The cost function shouldn't simply be:
+
+lowest premium.
+
+It should approximately be:
+
+**option price
+
+venue fees
+gas
+bid/ask slippage
+expected hedge slippage
+collateral opportunity cost
+borrowing/funding
+settlement risk
+bridge/transfer cost.**
+That is much closer to true execution quality.
+
+10. Solver competition could become the next evolution of options RFQ
+The architecture of CoW Protocol and intent systems provides an interesting model.
+
+CoW uses combinatorial batch auctions and competing solvers to source liquidity. More generally, ERC-7683 now describes a solver-facing framework in which a user specifies an outcome and specialized fillers determine how to fulfill it. (docs.cow.fi)
+
+Imagine applying that model to an option strategy.
+
+The user signs:
+
+Deliver +100 BTC 100k calls
+and −100 BTC 120k calls
+expiring October 30
+net debit ≤ $820,000
+before 14:
+before 14:01:30 UTC.
+
+Several solvers compete.
+
+Solver A may execute entirely on Derive.
+
+Solver B may warehouse the option risk and hedge through Deribit.
+
+Solver C may quote using Paradex and its own inventory.
+
+Solver D may cross against another client intent.
+
+The user doesn't care.
+
+They receive the desired economic position at the best eligible firm price.
+
+This is potentially much bigger than a simple DEX aggregator.
+
+11. But cross-venue atomicity is the hardest problem
+This needs to be stated explicitly because many “aggregator” ideas hide it.
+
+A trade cannot magically be atomic across:
+
+Derive + Paradex + Deribit + a CEX + an AMM
+
+unless some intermediary takes settlement risk.
+
+Therefore cross-venue strategy execution ultimately requires one of three models.
+
+Model	How it works	Trade-off
+Same-venue package	Entire strategy stays on one venue	Safest, less price competition
+Sequential routing	Router executes legs in sequence	Leg risk
+Principal solver	Solver gives user firm package price and hedges wherever it wants	Solver needs capital and risk infrastructure
+The third model is the most powerful.
+
+It is also where the moat develops.
+
+The solver is effectively saying:
+
+“I guarantee you the strategy at this price. Whatever happens while I hedge it is my problem.”
+
+Now sophisticated market makers become part of the product's infrastructure.
+
+12. Feature #3 — atomic strategy markets
+This should be treated as a first-class primitive.
+
+An iron condor isn't four unrelated options.
+
+It's one economic position.
+
+A collar isn't three positions.
+
+It's one risk-management transaction.
+
+Paradigm's current public orderbook concept already supports globally available strategies containing multiple instruments and quantity ratios, while its RFQ workflow supports private one- or multi-leg structures. (Paradigm Documentation)
+
+Your internal object therefore shouldn't be:
+
+Order
+
+It should be:
+
+StrategyOrder.
+
+Conceptually:
+
+Parameter	Example
+Legs	Four
+Ratios	+1 / −1 / −1 / +1
+Net direction	Buy
+Quantity	100
+Limit	$X debit
+FOK	True
+Allowed venues	Derive, Paradex
+Hedge leg	Optional BTC perp
+Anonymous	Yes
+Quote validity	5 sec
+Maximum slippage	5 bps equivalent
+Margin pre-check	Passed
+Every quote returned by a market maker would be for the net package price.
+
+That makes option strategies behave more like perpetual-futures orders.
+
+13. This also creates “strategy liquidity”
+Today liquidity is fragmented among thousands of instruments.
+
+But users repeatedly trade:
+
+BTC call spread.
+
+ETH put spread.
+
+BTC straddle.
+
+BTC collar.
+
+ETH covered call.
+
+You can eventually create persistent markets in standardized structures.
+
+For example:
+
+BTC 30D 25Δ put spread
+
+instead of forcing users to independently locate two strikes.
+
+This allows liquidity to concentrate around an economic strategy rather than individual contracts.
+
+That's a significant potential improvement to the existing architecture.
+
+14. Feature #4 — perpetual-option Carry Budget
+This is one of the places I think a new product can do something genuinely differentiated.
+
+Block Scholes' analysis of perpetual options gets to the central problem: removing expiry does not remove complexity. Instead of a known upfront premium and expiry, the user now has an ongoing premium/funding process that is sensitive to the path and volatility of the underlying. (Block Scholes)
+
+So the UI should turn indefinite funding into a budget.
+
+Imagine:
+
+BTC Perpetual Call
+
+Position cost: 
+2
+,
+000
+E
+s
+t
+i
+m
+a
+t
+e
+d
+24
+h
+c
+a
+r
+r
+y
+:
+2,000Estimated24hcarry:18–
+27
+E
+s
+t
+i
+m
+a
+t
+e
+d
+7
+d
+c
+a
+r
+r
+y
+:
+27Estimated7dcarry:131–
+196
+C
+a
+r
+r
+y
+p
+a
+i
+d
+t
+o
+d
+a
+t
+e
+:
+196Carrypaidtodate:83
+Maximum carry budget: 
+500
+B
+u
+d
+g
+e
+t
+r
+e
+m
+a
+i
+n
+i
+n
+g
+:
+500Budgetremaining:417
+
+Then:
+
+At $100 remaining: warn.
+
+At $50: optionally reduce position.
+
+At $0: close or convert.
+
+This transforms an abstract funding mechanism into something a normal person understands.
+
+15. Don't show one funding estimate — show Carry-at-Risk
+A simple estimate like:
+
+“Funding = $15/day”
+
+is misleading.
+
+Option carry can change dramatically when volatility or utilization changes.
+
+Instead show:
+
+Scenario	Next-7-day carry
+Low volatility	$72
+Current conditions	$119
+IV +25%	$185
+High utilization	$241
+Stress scenario	$330
+I would call this:
+
+Carry-at-Risk
+Analogous conceptually to Value-at-Risk, but focused specifically on the uncertainty of maintaining the position.
+
+This metric could become one of the product's signature innovations.
+
+16. Different perpetual-option designs require different carry models
+This is another reason the abstraction layer matters.
+
+Panoptic's economics aren't identical to Paradex's documented perpetual-option model or GammaSwap's borrowing model.
+
+Panoptic uses AMM-native perpetual exposures with streaming premia; Block Scholes describes Panoptic premia as path-dependent and connected to AMM behavior. (Block Scholes)
+
+Therefore the abstraction layer should normalize everything into:
+
+Expected carrying cost.
+
+The user doesn't need to understand every implementation.
+
+But the advanced screen can show:
+
+protocol premium
+
+borrow component
+
+utilization
+
+AMM fee component
+
+volatility component
+
+path dependency
+
+and confidence range.
+
+17. “Maximum carry” can become an order type
+This could be genuinely useful.
+
+Existing markets mostly let you control:
+
+price;
+
+quantity;
+
+slippage.
+
+For perpetual options, create:
+
+Max Carry Order
+For example:
+
+Maintain this BTC convex position only while projected 7-day carry is below $200.
+
+or:
+
+Never allow cumulative funding to exceed 15% of original premium equivalent.
+
+or:
+
+Convert to the cheapest equivalent 30-day dated option when perpetual carry becomes more expensive.
+
+Now perpetual and dated options can compete dynamically.
+
+18. Feature #5 — persistent positions / Auto-Roll
+I think this could actually become more important than “true” perpetual options.
+
+Instead of inventing a new derivative, give a dated option a perpetual user experience.
+
+The user asks:
+
+“Always keep BTC protected 20% below spot.”
+
+The system maintains the exposure indefinitely.
+
+Underneath it might hold:
+
+today:
+
+30D 80%-moneyness BTC put
+
+and when 7 DTE remains:
+
+sell it and buy:
+
+new 30D 80%-moneyness put.
+
+Traditional finance already uses systematic rolling extensively; Cboe maintains rule-based option indices with explicit roll methodologies, and institutional broker tools already automate/assist option rolls.
+
+The opportunity is to make this native to crypto portfolios.
+
+19. There should be several roll policies
+A persistent option position needs a policy definition.
+
+Policy	Meaning
+Constant maturity	Always maintain ~30 DTE
+Constant delta	Always maintain ~25Δ put
+Constant moneyness	Always maintain 20% OTM
+Constant premium	Spend $500/month
+Constant portfolio protection	Target max portfolio drawdown
+Constant gamma	Maintain target convexity
+Event-aware	Don't roll through specified event
+Carry-aware	Choose dated/perpetual based on cost
+This is where options become dramatically more useful for wealth/treasury management.
+
+20. Rolling must itself be atomic
+You don't want:
+
+sell old put → market crashes → cannot buy new put.
+
+So a roll should be represented as a calendar spread package:
+
+sell old protection
+
+buy new protection
+at one net price.
+
+Again, strategy execution solves the problem.
+
+21. Auto-roll needs strict execution rules
+Automation should be allowed to skip a roll if conditions are unacceptable.
+
+Example policy:
+
+Guardrail	Rule
+Max spread	3% premium
+Max roll debit	$2,000
+Minimum maker quotes	3
+Minimum quote size	100% required
+Oracle confidence	High
+Maximum IV percentile	95th
+Emergency condition	Never go completely unhedged
+If liquidity is bad, don't blindly execute because a cron job fired.
+
+This is one reason an options automation system needs a risk engine, not merely a scheduler.
+
+22. Feature #6 — a native composite crypto volatility index
+This remains one of the strongest infrastructure opportunities, but the research changed my view somewhat.
+
+I would not simply build another IV data provider.
+
+Block Scholes already aggregates derivatives data from a large collection of venues and offers SVI-calibrated volatility surfaces, APIs and onchain signed oracle data. (Block Scholes)
+
+The opportunity is therefore narrower and more valuable:
+
+Create the canonical settlement and risk indices for the onchain volatility ecosystem.
+
+That is different from selling analytics.
+
+23. Why this is still needed
+Paradex currently documents that its dated BTC and ETH option Mark IV is fitted using Deribit as the reference exchange, while HYPE uses Derive. Its forward-rate calibration for those options also relies externally on Deribit. (Paradex Documentation)
+
+That is completely understandable given today's liquidity.
+
+But strategically it means the “decentralized” options ecosystem still depends substantially on centralized volatility discovery.
+
+You could instead construct:
+
+BTC-VOL-7D
+
+BTC-VOL-30D
+
+BTC-VOL-90D
+
+ETH-VOL-30D
+
+SOL-VOL-30D
+
+HYPE-VOL-30D
+
+plus:
+
+25Δ risk reversal
+
+25Δ butterfly
+
+realized volatility
+
+volatility risk premium
+
+forward variance
+
+24. How to build the index
+The raw inputs should come from multiple markets.
+
+Conceptually:
+
+**Deribit
+
+Derive
+Paradex
+Bybit/OKX where appropriate
+CME where appropriate
+OTC/RFQ indications where reliable.**
+Then:
+
+normalize instruments → remove stale quotes → calculate forwards → convert prices to IV → exclude unreliable wings → weight by liquidity/depth → fit an arbitrage-controlled SVI surface → publish surface parameters + confidence score.
+
+Deribit itself demonstrates that volatility can become a standalone tradable underlying: its DVOL futures cash settle against a 60-minute TWAP of its volatility index. (Deribit Support)
+
+That opens another product category entirely.
+
+25. The index should have two versions
+Analytics surface
+Fast.
+
+Rich.
+
+Frequent updates.
+
+Used for:
+
+trading;
+
+strategy generation;
+
+Greeks;
+
+relative value.
+
+Settlement surface
+Slower.
+
+Much harder to manipulate.
+
+Multiple-source confirmation.
+
+Used for:
+
+margin;
+
+liquidation;
+
+settlement;
+
+vol futures;
+
+structured products.
+
+You do not necessarily want the exact same feed serving both purposes.
+
+26. Confidence must be first-class data
+Imagine:
+
+ETH 30D IV = 62%
+
+That gives no information about reliability.
+
+Instead:
+
+ETH 30D IV = 62.1%
+confidence = 99/100
+6 venues contributing.
+
+And for a thin token:
+
+PEPE 30D IV = 142%
+confidence = 54/100
+1 direct venue + synthetic surface.
+
+Margin systems can react accordingly.
+
+Derive's existing PM design already explicitly considers oracle confidence as part of margin contingencies, illustrating why confidence information matters economically, not just analytically. (Derive Insights)
+
+27. The real moat is adoption of the index, not construction of it
+An index can be copied.
+
+A settlement standard cannot easily be copied once:
+
+20 protocols settle against it;
+
+lenders use it;
+
+options venues use it for margin;
+
+structured products reference it;
+
+risk dashboards report it;
+
+volatility futures settle against it.
+
+That creates network effects.
+
+The ambition shouldn't be:
+
+“we have great data.”
+
+It should be:
+
+“BTCVOL30 is the number everyone means when they talk about 30-day onchain BTC volatility.”
+
+28. Feature #7 — Market-Maker OS
+This may be the single most important B2B product.
+
+Users see a beautiful interface.
+
+But without market makers, there is no product.
+
+The MM system should unify:
+
+MM function	Product
+Pricing	Vol surface + theoretical engine
+Quoting	Mass quote API
+Inventory	Delta/gamma/vega/theta dashboard
+Protection	MMP / quote kill switch
+Hedging	Automated cross-venue perp/spot hedge
+RFQ	Automated strategy responder
+Capital	Margin/collateral optimization
+Risk	Shock scenarios
+Flow	Toxicity classification
+Execution	Smart hedge routing
+Attribution	Spread / vol / hedge / fee P&L
+Operations	Cancel-on-disconnect / heartbeat / recovery
+This isn't speculative. Paradigm exposes sophisticated real-time RFQ/WebSocket workflows and sequence management for professional clients, while Paradex's RFQs already support large multi-leg structures. (Paradigm Documentation)
+
+Those are clues about the infrastructure serious makers expect.
+
+29. Market makers need a “one integration, many venues” interface
+Today an MM may separately integrate:
+
+Derive API.
+
+Paradex API.
+
+Paradigm API.
+
+Deribit API.
+
+Panoptic contracts.
+
+Every venue has different:
+
+symbols;
+
+authentication;
+
+risk;
+
+margin;
+
+feeds;
+
+order types;
+
+settlement.
+
+The Market-Maker OS normalizes them.
+
+A maker could say:
+
+BTC 30D ATM inventory:
+
+target vega = ±
+500
+k
+m
+a
+x
+g
+a
+m
+m
+a
+=
+X
+m
+a
+x
+d
+e
+l
+t
+a
+=
+25
+B
+T
+C
+m
+i
+n
+i
+m
+u
+m
+e
+d
+g
+e
+=
+1.5
+v
+o
+l
+q
+u
+o
+t
+e
+s
+i
+z
+e
+=
+500kmaxgamma=Xmaxdelta=25BTCminimumedge=1.5volquotesize=250k
+widen 40% during low oracle confidence.
+
+The OS automatically manages venue-specific quotes.
+
+That's a real infrastructure business.
+
+30. Flow segmentation could materially improve retail execution
+Not every order has equal adverse-selection risk.
+
+A market maker will quote a random 
+500
+r
+e
+t
+a
+i
+l
+c
+a
+l
+l
+s
+p
+r
+e
+a
+d
+m
+o
+r
+e
+t
+i
+g
+h
+t
+l
+y
+t
+h
+a
+n
+a
+s
+o
+p
+h
+i
+s
+t
+i
+c
+a
+t
+e
+d
+l
+a
+t
+e
+n
+c
+y
+−
+s
+e
+n
+s
+i
+t
+i
+v
+e
+f
+u
+n
+d
+b
+u
+y
+i
+n
+g
+500retailcallspreadmoretightlythanasophisticatedlatency−sensitivefundbuying10M of options immediately before a volatility shock.
+
+Paradex already experiments with protected retail liquidity: its RPI architecture separates retail flow from professional/API flow with controls intended to reduce toxic-flow risk for makers.
+
+The product could create:
+
+retail RFQ
+
+institutional RFQ
+
+professional anonymous RFQ
+
+auction
+
+public CLOB
+
+with different maker economics.
+
+That can tighten spreads without pretending every order is equivalent.
+
+31. Liquidity incentives should reward quality, not volume
+A common crypto mistake:
+
+trade $1 billion → receive points.
+
+That creates meaningless circular volume.
+
+Instead maker incentives should be calculated from:
+
+time at competitive spread
+
+depth
+
+size
+
+RFQ response rate
+
+quote improvement
+
+replenishment speed
+
+number of organic counterparties served
+
+quote uptime during volatility
+
+post-trade execution quality.
+
+Block Scholes specifically cautions that onchain option volumes can be materially supported by incentives and rebates. (Block Scholes)
+
+The goal is for incentives to bootstrap a market, then disappear without destroying it.
+
+32. Feature #8 — unified collateral and volatility prime brokerage
+This is potentially the largest institutional opportunity.
+
+It is also the one most often described too casually.
+
+You cannot simply claim:
+
+“Portfolio margin across Derive, Paradex and Deribit.”
+
+Each venue independently controls its collateral.
+
+If one venue liquidates you, the fact that another account has excess collateral doesn't necessarily save you.
+
+Therefore there are four different products hiding behind the phrase “unified margin.”
+
+Level	Product	Difficulty
+1	Unified portfolio view	Low
+2	Automated collateral allocator	Medium
+3	Prime vault / credit intermediary	Very high
+4	Common clearinghouse	Extreme
+This distinction matters enormously.
+
+33. Level 1 — unified portfolio view
+This is immediately feasible.
+
+User connects:
+
+Derive;
+
+Paradex;
+
+CEX accounts if permitted;
+
+wallet.
+
+The system shows:
+
+net delta
+
+net gamma
+
+net vega
+
+margin by venue
+
+liquidation buffer
+
+collateral utilization
+
+concentration
+
+funding
+
+stress P&L.
+
+This alone is valuable.
+
+Institutional crypto infrastructure companies such as Talos already demonstrate demand for cross-venue portfolio/risk and execution infrastructure. The opportunity is to make that especially strong for options/onchain volatility.
+
+34. Level 2 — collateral allocator
+Now the software can actually move assets.
+
+Example:
+
+Derive margin utilization: 83%.
+
+Paradex: 14%.
+
+Wallet: $600k USDC idle.
+
+Policy says:
+
+Keep every venue ≥35% above projected maintenance requirement.
+
+The system moves $200k to Derive.
+
+For onchain venues this can potentially be automated with smart accounts.
+
+But there are problems:
+
+bridge delay;
+
+chain congestion;
+
+withdrawal delay;
+
+oracle changes during transfer;
+
+reorgs;
+
+venue maintenance.
+
+So the system needs an emergency collateral reserve, not 100% efficiency.
+
+35. Level 3 — real prime brokerage
+This is much more difficult.
+
+The user deposits collateral with a prime layer.
+
+The prime layer allocates credit/margin to several venues.
+
+Now the user sees:
+
+$10M collateral → one account.
+
+The prime decides:
+
+$4M Derive capacity.
+
+$2M Paradex capacity.
+
+$3M institutional/CEX capacity.
+
+$1M liquidity reserve.
+
+This creates enormous efficiency.
+
+But the prime layer now assumes:
+
+counterparty risk;
+
+liquidity risk;
+
+credit risk;
+
+custody risk;
+
+legal obligations.
+
+This isn't merely a smart-contract feature.
+
+It becomes a financial institution.
+
+36. Cross-venue portfolio margin is potentially the ultimate moat
+Suppose the user's true portfolio is:
+
++100 BTC spot
+−100 BTC perpetual
++100 80k puts
+−100 70k puts.
+
+On separate venues, each piece consumes capital.
+
+A common risk engine knows that much of this exposure cancels.
+
+That could produce enormous capital savings.
+
+But you need the ability to enforce claims across every venue before you can safely give the savings.
+
+Otherwise you've simply created unsecured leverage.
+
+So I would not build this first.
+
+I would earn the right to build it after owning substantial execution flow and risk data.
+
+37. Feature #9 — long-tail options
+This remains a major gap.
+
+Traditional option CLOBs are extremely inefficient for a small token because every token creates:
+
+multiple expiries × many strikes × calls/puts.
+
+Paradex demonstrates just how many dimensions a normal options listing creates: it lists daily, weekly and monthly expiries and dynamically lists strikes based on delta bands. (Paradex Documentation)
+
+For BTC this is reasonable.
+
+For token #187 by market cap it is probably absurd.
+
+That's why the long-tail product needs a different architecture.
+
+38. I would support three long-tail modes
+AMM-native perpetual options
+Panoptic-like architecture.
+
+Best where the token already has deep AMM liquidity.
+
+Panoptic explicitly uses AMM liquidity to create perpetual option exposure, which can extend optionality into assets that do not support conventional options markets. Block Scholes' research found this can potentially reach assets such as SHIB and PEPE that are not well represented on centralized options venues. (Block Scholes)
+
+Request-to-create RFQ
+No standing options chain.
+
+User asks:
+
+Quote me $100k of 30-day HYPE 20% OTM puts.
+
+Three makers respond.
+
+If none respond, no market exists.
+
+This avoids fragmenting liquidity into thousands of empty orderbooks.
+
+Binary/touch products
+For extremely short-dated retail speculation:
+
+SOL above $300 at 16:00?
+
+or:
+
+BTC touches $120k in the next 24 hours?
+
+These sacrifice option flexibility for extreme simplicity.
+
+Block Scholes' 2026 market review specifically notes that newer binary/touch products are simplifying convex trades into outcomes that compete more directly with perps and prediction markets. (Block Scholes)
+
+39. Long-tail assets should NOT receive the same margin treatment as BTC
+This is where a lot of protocols eventually get hurt.
+
+For a new asset:
+
+isolated margin
+
+low position cap
+
+high collateral haircut
+
+full collateralization where necessary
+
+strict oracle confidence
+
+limited short-option exposure
+
+lower max utilization
+
+no cross-collateral benefit
+
+until liquidity proves itself.
+
+Then risk parameters can relax gradually.
+
+Permissionless listing does not have to mean permissionless contagion.
+
+40. Feature #10 — embedded options APIs
+This could become the major distribution engine.
+
+Most users shouldn't have to discover an “options exchange.”
+
+The option should appear exactly where the problem exists.
+
+For example:
+
+Wallet
+You hold $84,000 ETH.
+
+Protect against a drop below $60,000 portfolio value?
+
+Lending app
+Your ETH collateral would become vulnerable if ETH falls 27%.
+
+Add protection?
+
+Treasury dashboard
+32% of treasury ETH has remained idle for six months.
+
+View covered-call premium at your existing sell targets.
+
+Token vesting platform
+Your next unlock is November 15.
+
+View hedge structures.
+
+Perp exchange
+Convert this 5× leveraged long to defined-risk upside?
+
+The user doesn't visit Volatility OS.
+
+Volatility OS visits the user.
+
+41. The API should operate on outcomes, not options
+A normal exchange API might expose:
+
+POST /order
+
+A differentiated API might expose:
+
+GET /protect
+
+Conceptually its inputs are:
+
+Input	Example
+Asset	ETH
+Amount	100
+Protection floor	−20%
+Duration	30 days
+Budget	$7,500
+Allowed venues	Derive, Paradex
+Preference	Cheapest
+Auto-roll	Yes
+and response:
+
+Structure: 100 × ETH put spreads
+Maximum premium: $6,940
+Protection begins at X
+Protection capped below Y
+4 market-maker quotes
+Best executable quote valid for 8 seconds.
+
+That's vastly easier for wallets to integrate.
+
+42. Embedded distribution creates a much stronger moat than a frontend
+Anybody can clone a frontend.
+
+It is much harder to replace a network where:
+
+40 wallets;
+
+12 treasury platforms;
+
+8 lenders;
+
+6 centralized exchanges;
+
+20 trading terminals
+
+all route options flow through your API.
+
+That becomes a distribution network.
+
+And distribution then attracts makers.
+
+More makers improve prices.
+
+Better prices attract more integrations.
+
+That's a genuine network effect.
+
+43. Feature #11 — institutional execution layer
+Institutional users should use the same backend but an entirely different surface.
+
+They need:
+
+Capability	Reason
+REST	General integration
+WebSocket	Realtime state
+FIX	Existing institutional systems
+Drop copy	Independent trade records
+Sequence numbers	Detect missed events
+Cancel-on-disconnect	Risk control
+Idempotent client IDs	Operational safety
+RFQ API	Large/complex strategies
+Subaccounts	Strategy separation
+Permissions	Trader vs withdrawals
+Historical Greeks	Risk/reporting
+TCA	Execution analysis
+Audit trail	Compliance
+Custody support	Asset control
+Margin simulator	Pre-trade capital planning
+Paradigm's current architecture illustrates some of these requirements directly: WebSocket sequencing, private RFQs, asynchronous order states, and clearing confirmations are all part of its professional workflow. (Paradigm Documentation)
+
+The consumer and institutional applications should be two different views into the same infrastructure.
+
+44. Privacy should be built into the RFQ architecture
+A large institution does not want to advertise:
+
+BUY 5,000 BTC PUTS.
+
+The RFQ should support:
+
+anonymous identity;
+
+hidden size where appropriate;
+
+limited counterparty set;
+
+short quote lifetime;
+
+no public pre-trade signal.
+
+Paradigm's RFQ workflow already allows disclosed or anonymous taker RFQs and keeps competing maker quotes private from other makers. (Paradigm Documentation)
+
+A serious onchain product needs equivalent functionality.
+
+“Everything public because blockchain” is not a viable institutional market-structure strategy.
+
+Settlement transparency and pre-trade privacy can coexist.
+
+45. Feature #12 — agentic options management
+This is one of the more exciting areas, but it needs to be built differently from most “AI trading agent” products.
+
+Do NOT give an AI:
+
+wallet private key + unrestricted execution.
+
+Instead create:
+
+AI proposes. Deterministic policy engine approves. Smart contract enforces.
+
+That distinction is fundamental.
+
+46. Smart accounts make this architecture feasible now
+Safe modules can execute automated/custom logic and support restrictions including allowlists, rate limits and spending caps. Safe guards can inspect transactions before execution and block them when policy conditions fail. ERC-4337 similarly supports smart accounts with custom validation logic around UserOperations. (docs.safe.global)
+
+This means an agent could have authorization to:
+
+roll BTC puts
+
+but not:
+
+withdraw BTC.
+
+Or:
+
+hedge delta with BTC perps
+
+but neverceed $100,000 notional.
+
+That is much safer.
+
+47. The policy engine should sit above the agent
+Example:
+
+Policy	Constraint
+Allowed assets	BTC, ETH
+Allowed protocols	Derive, Paradex
+Max gross notional	$2M
+Max premium/day	$10k
+Max weekly carry	$20k
+Minimum margin buffer	40%
+Max net delta	±2 BTC
+Max short gamma	X
+Max short vega	Y
+Naked short options	Forbidden
+Max slippage	40 bps
+Withdrawal	Forbidden
+New contract approvals	Human signature
+Policy modifications	2-of-3 multisig
+Emergency stop	Owner anytime
+Then the agent can operate freely inside the box.
+
+That's the right agent architecture.
+
+48. Four very useful agents could emerge
+This is the one list I'll use because the distinction matters:
+
+Hedge Agent — monitors portfolio delta/protection and trades approved instruments to maintain configured risk.
+Roll Agent — maintains persistent options such as 30D crash protection or continuously covered calls.
+Carry Agent — chooses between equivalent perpetual and dated structures based on actual carry/execution cost.
+Volatility Agent — maintains a predefined volatility exposure such as delta-neutral long gamma while respecting vega/gamma/capital constraints.
+The user defines the policy.
+
+The agent manages implementation.
+
+49. The agent should never be the final risk authority
+Example:
+
+Agent decides:
+
+Buy 100 ETH puts.
+
+Before execution:
+
+risk engine simulates trade.
+
+Then:
+
+policy engine checks limits.
+
+Then:
+
+smart-account guard verifies allowable destination/function/value.
+
+Then:
+
+execution router gets quotes.
+
+Then:
+
+trade executes.
+
+This creates multiple independent safety boundaries.
+
+Safe itself warns that modules and guards are extremely security-critical and that badly designed guards/modules can cause loss or denial of service, so recovery, auditing and restricted permissions are mandatory. (Safe Docs)
+
+50. The missing feature connecting everything: portfolio P&L attribution
+This should be core.
+
+Do not tell the user only:
+
++$14,822.
+
+Tell them why.
+
+For an options position:
+
+P&L source	P&L
+Delta	+$11,200
+Gamma	+$5,400
+Vega	−$2,100
+Theta/carry	−$1,850
+Perp hedge	+$2,600
+Funding	−$330
+Trading fees	−$98
+Slippage	−$240
+Net	$14,582
+Even if the exact decomposition uses approximation, this is far more educational.
+
+It also becomes essential for institutions.
+
+51. “Trade volatility” should become its own simplified asset class
+A sophisticated user shouldn't have to manually construct:
+
+straddle → calculate delta → hedge delta → rebalance → manage expiry
+
+just because they want:
+
+Long BTC volatility.
+
+The product can expose:
+
+BTC 30D Volatility
+Buy volatility
+
+Sell volatility
+
+Behind the scenes the strategy engine could construct and hedge the relevant options.
+
+The interface then shows:
+
+Current implied volatility: 52%.
+
+Realized volatility: 46%.
+
+Your entry IV: 49%.
+
+Net vega: X.
+
+Net gamma: X.
+
+Carry: Y.
+
+This makes volatility itself the product.
+
+Deribit already demonstrates that the concept can be separated from vanilla options through DVOL futures. (Deribit Support)
+
+The onchain opportunity is doing it in a composable, portfolio-aware way.
+
+52. Risk engine architecture
+This is the part I would invest heavily in.
+
+You cannot build the product above without a serious risk engine.
+
+Paradex's current SCAN architecture gives a useful reference: portfolio risk is computed across 24 simultaneous spot and volatility shocks. (Paradex Documentation)
+
+The new engine should extend that concept across:
+
+spot
+
+IV level
+
+skew
+
+term structure
+
+forward basis
+
+perp funding
+
+collateral price
+
+collateral depeg
+
+correlation
+
+liquidity
+
+oracle confidence.
+
+A portfolio could therefore be tested against scenarios such as:
+
+Scenario	BTC	ETH	IV	Stablecoin	Liquidity
+Crash	−30%	−40%	+80%	1.00	thin
+Melt-up	+35%	+50%	+10%	1.00	medium
+Vol collapse	0%	0%	−50%	1.00	high
+Depeg	−5%	−8%	+30%	0.92	thin
+Basis shock	−10%	−12%	+20%	1.00	medium
+Correlation break	−20%	+10%	mixed	1.00	thin
+Then margin corresponds to plausible worst loss plus buffers.
+
+53. Liquidation should preserve strategy topology
+This is very important.
+
+Suppose:
+
++100 $100k calls
+
+−100 $120k calls.
+
+It is a defined-risk spread.
+
+An unintelligent liquidation engine might sell the long calls first.
+
+Suddenly:
+
+−100 naked $120k calls.
+
+Risk explodes.
+
+Liquidation therefore needs to operate on risk groups:
+
+close 100 spreads.
+
+not:
+
+close whichever position appears first.
+
+Paradex's options liquidation documentation similarly emphasizes reducing exposures while preserving hedge relationships where possible; this is the direction a sophisticated risk engine should take.
+
+54. Build a “risk compiler” alongside the strategy compiler
+The strategy compiler asks:
+
+What positions achieve the user outcome?
+
+The risk compiler asks:
+
+What constraints make those positions safe to execute and automate?
+
+Every proposed strategy receives:
+
+margin impact;
+
+liquidation impact;
+
+collateral concentration;
+
+max loss;
+
+stress loss;
+
+vega;
+
+gamma;
+
+carry;
+
+oracle dependency;
+
+exit-liquidity score.
+
+If the strategy cannot pass the risk compiler, it never reaches execution.
+
+55. Exit liquidity needs to become a displayed metric
+Options platforms currently emphasize entry price.
+
+But options are notorious for becoming illiquid after spot moves away from a strike.
+
+So each instrument/strategy should have a:
+
+Liquidity Score
+Potential components:
+
+market-maker count;
+
+current spread;
+
+depth;
+
+historical RFQ response;
+
+open interest;
+
+strike distance;
+
+time to expiry;
+
+expected unwind slippage.
+
+The user might see:
+
+Entry liquidity: 93/100
+Estimated unwind liquidity after ±20% underlying move: 67/100.
+
+That's much more informative than an attractive opening premium alone.
+
+56. What the consumer product should actually look like
+I would make the initial home screen four tiles:
+
+Tile	Meaning
+Trade a View	Direction/range/event
+Protect	Hedge existing assets
+Earn	Monetize holdings/desired entry prices
+Trade Volatility	Trade movement itself
+Inside Trade a View, user selects:
+
+BTC → bullish → 30 days → target 
+120
+k
+→
+m
+a
+x
+l
+o
+s
+s
+120k→maxloss1,000.
+
+Then the system presents three clearly different payoff alternatives.
+
+Inside Protect:
+
+connect portfolio → choose acceptable drawdown → choose protection budget → system constructs hedge.
+
+Inside Earn:
+
+At what price would you happily sell ETH?
+
+This is precisely why Rysk's current product is interesting. It packages covered calls as “get paid to sell higher” and cash-secured puts as “get paid to buy lower,” while its RFQ obtains live maker bids. (docs.rysk.finance)
+
+The limitation is that Rysk currently says positions cannot yet be closed before expiry, although it is developing a secondary market. (Rysk Finance Docs)
+
+The opportunity is to combine Rysk's abstraction with institutional-grade secondary liquidity.
+
+57. Advanced users get an entirely different interface
+Toggle:
+
+Pro Mode
+Now show:
+
+option chain;
+
+volatility smile;
+
+SVI surface;
+
+term structure;
+
+25Δ risk reversal;
+
+butterflies;
+
+Greeks;
+
+orderbook;
+
+RFQ;
+
+strategy builder;
+
+portfolio Greeks;
+
+scenario matrix;
+
+margin impact;
+
+historical IV percentile;
+
+forward curve;
+
+funding curve.
+
+Don't eliminate complexity for people who want it.
+
+Progressively disclose it.
+
+That's an important design distinction.
+
+58. Full technical architecture
+At the backend, I would separate services approximately like this:
+
+Service	Responsibility
+Instrument Registry	Canonical contract definitions
+Market Data Bus	Normalize book/trades/marks
+Surface Engine	SVI / forwards / Greeks
+Risk Engine	Portfolio scenario calculations
+Strategy Compiler	Intent → candidate structures
+Quote Engine	Generate executable requests
+Venue Adapters	Derive/Paradex/etc.
+RFQ Coordinator	Maker communication
+Solver Network	Competitive complex execution
+Order Manager	State machine
+Smart Account Service	Permissions/collateral
+Automation Engine	Triggered policies
+Collateral Optimizer	Capital movement
+Analytics	P&L/risk/TCA
+Oracle Publisher	Signed onchain data
+Institutional Gateway	FIX/REST/WS
+Embedded SDK	B2B frontend components
+The services should not depend on one venue's representation.
+
+That prevents the entire product becoming a fancy Derive frontend.
+
+59. A particularly important primitive: the Strategy Quote Protocol
+I would seriously consider making this an open specification.
+
+Call it conceptually:
+
+SQP — Strategy Quote Protocol
+A strategy intent includes:
+
+underlying;
+
+desired payoff;
+
+legs if already defined;
+
+ratios;
+
+maximum net debit;
+
+minimum net credit;
+
+maximum loss;
+
+carry limit;
+
+settlement preference;
+
+collateral;
+
+deadline;
+
+privacy;
+
+allowed venues.
+
+A maker or solver returns:
+
+net executable price;
+
+all underlying legs;
+
+venue(s);
+
+required margin;
+
+fees;
+
+expected carry;
+
+quote expiry;
+
+settlement guarantees.
+
+The user signs the strategy, not each leg.
+
+ERC-7683 provides a useful conceptual precedent for creating common solver-facing intent representations while letting underlying protocols maintain their own settlement logic. (Ethereum Improvement Proposals)
+
+An options-specific standard could do something analogous.
+
+60. Why an open standard could actually strengthen the company
+At first glance:
+
+Why open the protocol?
+
+Because the moat isn't JSON fields.
+
+It's:
+
+maker network;
+
+order flow;
+
+routing intelligence;
+
+risk engine;
+
+distribution;
+
+historical execution dataset;
+
+collateral network.
+
+Making the order format open could make it easier for:
+
+Derive;
+
+Paradex;
+
+wallets;
+
+treasuries;
+
+MMs
+
+to integrate.
+
+Then your network becomes the common language.
+
+That's more powerful than protecting a private API schema.
+
+61. Product sequencing — what I would build first
+I would sequence the company roughly as follows:
+
+Phase	Product	Why
+0	Volatility data + strategy simulator	Establish pricing/risk correctness
+1	Intent UX + one/two venue execution	Validate user demand without liquidity cold start
+2	Strategy RFQ + multi-venue router	Build execution moat
+3	Auto-roll + persistent hedges	Create recurring user behavior
+4	Embedded SDK/API	Acquire distribution
+5	MM operating system	Deepen liquidity/network effect
+6	Smart-account automation	Make strategies autonomous
+7	Collateral optimizer	Increase capital efficiency
+8	Settlement-grade vol indices	Infrastructure moat
+9	Long-tail/perpetual primitives	Fill markets existing venues can't serve
+10	Prime vault/common clearing	Only after scale, risk history and regulatory work
+This ordering is important.
+
+I would not start with Phase 9 or 10.
+
+62. Why not launch the new perpetual-option primitive first?
+Because you'd simultaneously need to answer:
+
+Does anyone want it?
+
+How should it be priced?
+
+Who provides liquidity?
+
+How do makers hedge?
+
+How should funding work?
+
+How do users understand funding?
+
+What is the oracle?
+
+What is the margin model?
+
+How are liquidations handled?
+
+How is volatility marked?
+
+And:
+
+why move collateral here instead of Derive/Deribit?
+
+That's too many unproven variables simultaneously.
+
+Instead, first obtain users who say:
+
+“I want continuous BTC upside.”
+
+Then determine dynamically whether the best backend is:
+
+auto-rolled dated options;
+
+Panoptic;
+
+another perpetual primitive;
+
+or eventually your own.
+
+Demand first. Primitive second.
+
+63. Why I think Auto-Roll should come before native perpetual options
+This is one of my highest-conviction findings from the deeper research.
+
+A user doesn't necessarily care whether the exposure is mathematically a perpetual option.
+
+They care:
+
+“I don't want to keep managing expiries.”
+
+Auto-roll solves that immediately with existing liquidity.
+
+Then you collect extraordinarily valuable data:
+
+How long users maintain exposure.
+
+How much roll cost they tolerate.
+
+What delta they prefer.
+
+When they close.
+
+How much carry they tolerate.
+
+Which underlyings work.
+
+That data tells you how a future perpetual option should actually be designed.
+
+Rather than inventing it theoretically.
+
+64. The liquidity flywheel
+The company ultimately needs to create this cycle:
+
+simple products → more natural user flow → attractive non-toxic order flow → more market makers → tighter prices → better products → more integrations → more flow.
+
+The mistake is beginning with:
+
+token incentives → volume → token incentives → volume.
+
+The latter stops when subsidies stop.
+
+The former builds a market.
+
+65. Initial user segments
+I wouldn't target “everyone who trades crypto.”
+
+The earliest product-market fit is probably among four groups.
+
+Segment	Pain
+Large token holders	Want yield without selling immediately
+Active perp traders	Want defined-risk convex exposure
+Treasuries/DAOs	Want systematic hedging/income
+Pro volatility traders	Want better cross-venue execution
+This is interesting because one infrastructure stack can serve all four.
+
+But their interfaces should be completely different.
+
+66. The best initial consumer wedge may be “protect” rather than “trade options”
+Imagine a wallet tells a BTC holder:
+
+Portfolio value: $247,000.
+
+A 30% BTC drawdown would reduce it by roughly $74,000.
+
+Protect the next 30 days?
+
+Then offer:
+
+Basic protection — caps part of loss
+
+Strong protection — higher cost
+
+Custom
+
+Now options have an obvious purpose.
+
+The user isn't trying to “become an options trader.”
+
+They are purchasing insurance-like convexity.
+
+That's a far bigger conceptual market.
+
+67. The best yield wedge may be “set your price”
+Rysk's UX insight is excellent.
+
+Don't ask:
+
+“Which call strike?”
+
+Ask:
+
+“At what price would you happily sell?”
+
+Then show:
+
+Sell ETH at 
+6
+,
+000
+i
+f
+r
+e
+a
+c
+h
+e
+d
+a
+t
+e
+x
+p
+i
+r
+y
+R
+e
+c
+e
+i
+v
+e
+6,000ifreachedatexpiryReceiveX now.
+
+Similarly:
+
+At what price would you happily buy more?
+
+Then:
+
+Commit funds to buy at 
+3
+,
+500
+R
+e
+c
+e
+i
+v
+e
+3,500ReceiveY now.
+
+Rysk already validates the clarity of this product framing while using an underlying RFQ and fully collateralized option structure. (Rysk Finance Docs)
+
+The new platform's advantage would be:
+
+secondary liquidity;
+
+portfolio margin;
+
+auto-roll;
+
+cross-venue quoting;
+
+embedded distribution.
+
+68. Business model
+The strongest model would probably mix several revenue sources rather than relying exclusively on exchange fees.
+
+Revenue	Who pays
+Execution fee	End user
+RFQ/router fee	Institutional trader
+Price-improvement share	User/solver economics
+API/platform fee	Wallet/exchange
+Institutional SaaS	Funds/MMs
+MM OS	Market makers
+Data/oracle license	Protocols/institutions
+Vault/strategy management	Strategy users, where legally appropriate
+Prime/collateral services	Professional users, if properly structured
+I would intentionally keep basic consumer execution cheap.
+
+Why?
+
+Because owning the routing relationship can be more valuable than maximizing the fee on every option.
+
+69. The data moat could become enormous
+After millions of quotes/trades you learn:
+
+which strategies people actually want;
+
+what users accept as premium;
+
+which markets have latent demand;
+
+which MMs price which structures best;
+
+maker response behavior;
+
+true execution slippage;
+
+roll behavior;
+
+carry sensitivity;
+
+liquidity by delta;
+
+liquidity under stress.
+
+That's proprietary execution intelligence.
+
+Eventually the system can know:
+
+For $2M BTC 25Δ put spreads, Maker C usually wins under normal volatility, but Maker F is best during high-volatility periods.
+
+That's a meaningful moat.
+
+70. What I would absolutely NOT use as the moat
+Claimed moat	Why weak
+Lower fees	Competitor can cut fees
+Higher leverage	Easy to copy and increases risk
+More strikes	Can worsen fragmentation
+Token incentives	Temporary
+New L2	Infrastructure isn't the core demand problem
+Fancy option payoff	Replicable
+“AI trading”	Easy marketing claim
+One novel AMM curve	Difficult to bootstrap demand
+The strong moats are:
+
+order flow
+
+distribution
+
+maker relationships
+
+cross-venue connectivity
+
+risk data
+
+persistent automation
+
+canonical volatility indices
+
+collateral network effects.
+
+71. The Coinbase/Deribit development makes this strategy even more important
+As of September 2026, Coinbase says it is bringing Coinbase International Exchange and Deribit together around a unified derivatives infrastructure, with perps, options, dated futures and spot increasingly connected and options becoming available to more Coinbase users. (Coinbase Help)
+
+That validates one part of the thesis:
+
+Users increasingly want derivatives in one account.
+
+But it also means an onchain project cannot win merely by copying:
+
+Deribit + wallet connection.
+
+The differentiators need to be things a centralized super-exchange cannot reproduce as naturally:
+
+self-custodial policies
+
+permissionless integrations
+
+smart-account automation
+
+long-tail assets
+
+composable structured products
+
+onchain settlement
+
+embedded wallet/lending/treasury distribution
+
+open solver execution.
+
+That's where I would position the company.
+
+72. Regulation has to influence the architecture from day one
+For a product serving U.S. retail users, derivatives access is not simply a frontend question. The CFTC states that a trading facility offering futures/options on commodities to non-eligible contract participants generally needs to operate as a designated contract market unless an exclusion or exemption applies. (cftc.gov)
+
+The regulatory structure is also changing quickly. On May 29, 2026, CFTC staff issued specific 24/7 trading/clearing guidance and separately enabled a path under specified conditions for Coinbase Financial Markets to intermediate certain foreign crypto derivatives through Deribit. TC](https://www.cftc.gov/PressRoom/PressReleases/9239-26?utm_source=chatgpt.com))
+
+So jurisdiction and user eligibility should be an architectural service:
+
+user → jurisdiction/eligibility → allowable venue → allowable instruments → allowable execution route.
+
+Not:
+
+build globally and add compliance later.
+
+For a startup, one reasonable architecture is to begin primarily as non-custodial technology/execution infrastructure integrating legally available venues for eligible users, rather than immediately attempting to become the legal counterparty, clearinghouse and retail derivatives exchange everywhere. The precise structure would require specialist counsel in each target jurisdiction.
+
+73. Product safety and failure modes
+A product this powerful has several ways to fail.
+
+Failure	Mitigation
+Oracle manipulation	Multi-source feeds + confidence + circuit breakers
+Vol-surface error	Robust fit + sanity/arbitrage checks
+Cross-venue leg risk	Same-venue atomic execution or principal solver
+Auto-roll during illiquidity	Spread/liquidity guards
+Carry explosion	Carry budget + emergency close
+Agent compromise	Scoped module permissions
+Bad smart-account guard	Audits + recovery path + multisig
+Long-tail manipulation	Isolated margin/caps
+Stablecoin depeg	Collateral haircuts/concentration limits
+Liquidation destroys hedge	Strategy-aware liquidation
+MM disappears	Multi-dealer RFQ
+Venue outage	Venue health service/failover
+Bridge outage	Collateral reserve
+Model failure	Conservative fallback margin
+Incentive farming	Quality-based rather than volume-based rewards
+This should be considered product functionality, not merely “risk management.”
+
+74. The five dashboards I would obsess over internally
+Demand dashboard
+Repeat traders.
+
+Premium paid organically.
+
+Protection users.
+
+Income users.
+
+Auto-roll retention.
+
+Strategy composition.
+
+Execution dashboard
+Spread to theoretical.
+
+Spread to best venue.
+
+RFQ makers responding.
+
+Time to firm quote.
+
+Price improvement.
+
+Failed/rejected packages.
+
+Liquidity dashboard
+Maker count.
+
+Quote depth.
+
+Inventory.
+
+RFQ response percentage.
+
+Strike coverage.
+
+Exit liquidity.
+
+Risk dashboard
+Portfolio stress.
+
+Margin concentration.
+
+Oracle confidence.
+
+Carry forecast error.
+
+Liquidations.
+
+Insurance/backstop exposure.
+
+Economics dashboard
+Revenue excluding incentives.
+
+Maker subsidies.
+
+Acquisition cost.
+
+Embedded-flow contribution.
+
+API revenue.
+
+Net contribution per executed strategy.
+
+The most important metric may ultimately be:
+
+How much organic premium changes hands after subsidies are removed?
+
+That is a much better measure of real options demand than headline notional.
+
+75. What an MVP should not contain
+This is perhaps counterintuitive, but I would initially avoid:
+
+native appchain;
+
+native perpetual option;
+
+native stablecoin;
+
+native oracle;
+
+full portfolio margin;
+
+cross-chain prime brokerage;
+
+permissionless 500-asset listings.
+
+The MVP is:
+
+best options UX + best strategy engine + best execution routing using other people's infrastructure.
+
+Something like:
+
+BTC / ETH / HYPE
+Protect
+
+Earn
+
+Trade a View
+
+plus:
+
+firm strategy quote
+
+payoff visualization
+
+risk decomposition
+
+one-click atomic execution
+
+persistent auto-roll
+
+using existing venues.
+
+That is enough to test the core thesis.
+
+76. Then build downward into infrastructure
+This is a major strategic concept.
+
+Most crypto options projects build:
+
+protocol → liquidity → frontend → hopefully users.
+
+I would reverse it:
+
+user intent → distribution → order flow → market-maker network → execution infrastructure → specialized liquidity → proprietary primitives.
+
+Once you control $X billion of routed volatility flow, launching your own market is completely different from launching an empty exchange.
+
+You already know:
+
+what users trade;
+
+what makers want;
+
+where spreads are bad;
+
+what structures don't exist;
+
+where routing fails.
+
+Then you build only the infrastructure the market has proven it needs.
+
+77. The eventual end-state
+If this works, I would expect the final product to resemble:
+
+For an ordinary user
+Something nearly as simple as a prediction market.
+
+BTC going up?
+Choose target.
+Choose max loss.
+Choose duration.
+
+For an asset holder
+Something like a treasury/yield app.
+
+Sell higher.
+Buy lower.
+Protect portfolio.
+
+For an active trader
+Something like a perp exchange.
+
+Defined-risk leverage.
+No liquidation.
+Persistent positions.
+
+For a volatility trader
+Something comparable to a serious options terminal.
+
+Surface, Greeks, strategies, vol trading.
+
+For an institution
+Something closer to:
+
+Paradigm + Talos + prime brokerage.
+
+For a market maker
+A cross-venue volatility operating system.
+
+For developers
+A Stripe-like API for adding:
+
+protection, yield, convexity and volatility trading
+
+to any financial app.
+
+Those are all frontends to the same core risk/execution network.
+
+78. The deepest market gap
+After looking at all of these projects together, I think the gap can be stated very precisely:
+
+Crypto has increasingly good venues for trading options, but it still lacks a universal layer that converts user outcomes into executable, automated, cross-venue volatility positions.
+
+Derive is solving exchange/risk infrastructure.
+
+Paradigm is solving institutional liquidity discovery.
+
+Paradex is solving unified derivatives infrastructure and sophisticated RFQ/margin.
+
+Panoptic is experimenting with a new perpetual/AMM-native volatility primitive.
+
+Rysk is doing a very good job turning option selling into understandable user outcomes.
+
+Block Scholes is solving much of the volatility-data layer.
+
+Safe/ERC-4337 make policy-driven smart-account automation increasingly practical.
+
+CoW-style solver systems demonstrate how user intents can be competitively executed. (Block Scholes)
+
+Nobody fully combines all of those layers.
+
+That is the white space.
+
+79. The product thesis I would pursue
+The core product shouldn't be:
+
+“A decentralized perpetual options exchange.”
+
+It should be:
+
+“Tell us the risk or payoff you want. We construct it, find the liquidity, execute it atomically, manage the collateral, and keep the exposure within the limits you set.”
+
+And underneath:
+
+Derive where Derive is best.
+
+Paradex where Paradex is best.
+
+Paradigm/RFQ where blocks are best.
+
+AMM/perpetual systems where long-tail exposure is best.
+
+Eventually:
+
+your own liquidity where you have enough order flow to justify it.
+
+That is a much more defensible company.
+
+80. The highest-value proprietary innovation
+If I had to reduce all of the research to one product innovation, it would be this:
+
+Persistent Strategy Intents
+Instead of placing an order, a user creates a policy.
+
+Example:
+
+BTC Protection Policy
+
+Protect 80% of my BTC holdings against losses beyond 20%.
+Keep protection between 21 and 45 days maturity.
+Spend no more than $1,000/month.
+Use only defined-risk positions.
+Route between approved venues.
+Never trade when oracle confidence is below 95%.
+Require at least two market-maker quotes.
+Maximum execution slippage 1.5%.
+Maintain this until I cancel.
+
+Now the product isn't competing with Derive on its option chain.
+
+Derive becomes one of the engines powering the policy.
+
+The user's relationship is with your risk policy, not with a specific contract.
+
+That is much harder for a traditional exchange to displace.
+
+81. And this naturally solves perpetual options
+This is the most interesting consequence.
+
+The user doesn't have to choose:
+
+dated option vs perpetual option vs Panoptic vs auto-roll.
+
+They choose:
+
+persistent convexity.
+
+Your engine can evaluate:
+
+dated option + roll cost;
+
+perpetual option + expected carry;
+
+AMM-native option;
+
+structured spread;
+
+and continuously choose among the implementations permitted by the user's policy.
+
+At that point:
+
+“perpetual option” stops being a contract type and becomes a user experience.
+
+I think that is a much more powerful direction.
+
+Final conclusion
+The research suggests that the next major crypto-options company should probably not begin as another exchange. Exchange infrastructure is finally becoming fairly sophisticated, while user abstraction, cross-venue execution, persistent risk policies and distribution remain badly fragmented.
+
+The strongest product architecture is therefore:
+
+Intent UX
+→ Strategy Compiler
+→ Volatility/Risk Engine
+→ Strategy-Level RFQ & Solver Router
+→ Existing Liquidity Venues
+→ Smart-Account Policy Engine
+→ Auto-Roll / Carry Management
+→ Embedded APIs
+→ Market-Maker OS
+→ Composite Volatility Indices
+→ Collateral Optimization
+→ eventually Prime Clearing + Native Perpetual/Long-Tail Markets.
+
+The especially valuable innovations are strategy-level rather than contract-level: atomic package execution, carry budgets, persistent hedges, auto-roll, outcome APIs, constrained autonomous agents and eventually a standardized Strategy Quote Protocol.
+
+And I would build demand and routing before proprietary liquidity. Current liquidity concentration demonstrates why: Derive is already doing roughly 
+3
+B
+o
+f
+30
+−
+d
+a
+y
+o
+n
+c
+h
+a
+i
+n
+o
+p
+t
+i
+o
+n
+s
+n
+o
+t
+i
+o
+n
+a
+l
+w
+h
+i
+l
+e
+P
+a
+r
+a
+d
+e
+x
+i
+s
+a
+r
+o
+u
+n
+d
+3Bof30−dayonchainoptionsnotionalwhileParadexisaround66M, yet Deribit processed roughly $64.5B of options turnover in August alone. Trying to bootstrap another isolated pool of options liquidity is fighting the strongest network effect in the industry. (DefiLlama)
+
+Building the abstraction and execution layer that makes all of those liquidity pools behave like one intelligent volatility network attacks a far less solved problem—and, if it succeeds, gives you the order flow from which the rest of the stack can eventually be built
