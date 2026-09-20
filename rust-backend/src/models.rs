@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const MAX_LEGS: usize = 32;
+pub const MAX_LEGS: usize = 25;
 pub const MAX_QTY: f64 = 10_000.0;
 pub const MAX_EXPIRY_DAYS: f64 = 730.0;
 pub const MAX_FUNDING_PERIOD_DAYS: f64 = 60.0;
@@ -82,7 +82,8 @@ fn check_finite(v: f64, name: &str) -> Result<f64, ValidationError> {
 }
 
 /// Fully validated leg, ready for the analytics engine.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ValidLeg {
     pub kind: LegKind,
     pub side: Side,

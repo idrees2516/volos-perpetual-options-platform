@@ -1,0 +1,5045 @@
+{
+ "version": 2,
+ "generatedAt": "2026-09-24T06:57:43+00:00",
+ "maxLegs": 25,
+ "strategyCount": 118,
+ "strategies": [
+  {
+   "id": "long-call",
+   "name": "Long Call",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 1,
+   "description": "Buy a call: unlimited upside with premium at risk. The purest bullish expression with a convex payoff and no liquidation risk.",
+   "tags": [
+    "debit",
+    "defined-risk",
+    "unlimited-profit"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "long-call-everlasting",
+   "name": "Long Everlasting Call",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 2,
+   "description": "Everlasting call with no expiry: holds convexity indefinitely and pays funding each period instead of decaying to zero.",
+   "tags": [
+    "debit",
+    "everlasting",
+    "funding-carry"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "deep-itm-call",
+   "name": "Deep ITM Call (Stock Replacement)",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 1,
+   "description": "High-delta deep-in-the-money call replicates spot with far less capital at risk and no liquidation engine.",
+   "tags": [
+    "debit",
+    "defined-risk",
+    "high-delta"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.8,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "bull-call-spread",
+   "name": "Bull Call Spread",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 1,
+   "description": "Buy ATM call, sell OTM call: cheaper bullish exposure with capped upside and far lower theta bleed.",
+   "tags": [
+    "debit",
+    "defined-risk"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "bull-put-spread",
+   "name": "Bull Put Spread (Credit)",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 2,
+   "description": "Sell OTM put, buy further OTM put. Collects credit; profits if the market holds or rises. Defined tail risk.",
+   "tags": [
+    "credit",
+    "defined-risk",
+    "income"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.85,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "bull-call-spread-everlasting",
+   "name": "Everlasting Bull Call Spread",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 2,
+   "description": "Perpetual call debit spread: long ATM everlasting call, short OTM everlasting call \u2014 no rolls, funding-net carry.",
+   "tags": [
+    "debit",
+    "everlasting",
+    "defined-risk"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "pmcc",
+   "name": "Poor Man's Covered Call",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 3,
+   "description": "Long-dated deep ITM call financed by short near-dated OTM calls: covered-call economics at a fraction of the capital.",
+   "tags": [
+    "debit",
+    "diagonal",
+    "income"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.82,
+     "expiryDays": 180
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "zeabra",
+   "name": "ZEBRA (Zero-Extrinsic Back Ratio)",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 3,
+   "description": "Buy two ITM calls, sell one ATM call: ~100 delta stock replica with near-zero extrinsic value at entry.",
+   "tags": [
+    "debit",
+    "high-delta",
+    "stock-replica"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 2,
+     "strike": 0.88,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "call-ratio-1x2",
+   "name": "Call Ratio Spread 1x2",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 3,
+   "description": "Sell one ATM call, buy two OTM calls: cheap or free bullish structure with doubled upside beyond the wing.",
+   "tags": [
+    "debit",
+    "ratio",
+    "unlimited-profit"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 2,
+     "strike": 1.12,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "call-backspread",
+   "name": "Call Backspread",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 3,
+   "description": "Sell ITM call, buy two OTM calls: often entered for even or credit, with unlimited profit on a strong rally.",
+   "tags": [
+    "ratio",
+    "unlimited-profit"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 2,
+     "strike": 1.12,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "bull-call-ladder",
+   "name": "Bull Call Ladder",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 3,
+   "description": "Buy ATM call, sell two higher strikes: the shorts finance the long, capping profit above the top strike.",
+   "tags": [
+    "debit",
+    "ladder",
+    "capped"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.2,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "seagull-bullish",
+   "name": "Bullish Seagull",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 3,
+   "description": "Short OTM put funds a long call spread: near zero-cost bullish structure with downside risk below the put.",
+   "tags": [
+    "zero-cost",
+    "structured"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.15,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "risk-reversal-bullish",
+   "name": "Bullish Risk Reversal",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 3,
+   "description": "Sell OTM put, buy OTM call: the classic near-zero-cost bullish structure used to express direction with skew.",
+   "tags": [
+    "zero-cost",
+    "skew"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.08,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "synthetic-long",
+   "name": "Synthetic Long",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 2,
+   "description": "Buy call, sell put at the same strike: replicates the forward with no spot outlay and clean margin treatment.",
+   "tags": [
+    "synthetic",
+    "leverage"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "covered-call",
+   "name": "Covered Call",
+   "category": "income",
+   "view": "bullish",
+   "complexity": 1,
+   "description": "Own spot, sell calls against it: the classic income overlay that monetizes a flat-to-bullish view.",
+   "tags": [
+    "income",
+    "covered",
+    "capped"
+   ],
+   "legs": [
+    {
+     "kind": "spot",
+     "side": "buy",
+     "qty": 1
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "covered-call-perp",
+   "name": "Covered Call on Perp",
+   "category": "income",
+   "view": "bullish",
+   "complexity": 2,
+   "description": "Long perpetual future with a short everlasting call: continuous premium collection with no expiry to roll.",
+   "tags": [
+    "income",
+    "covered",
+    "everlasting"
+   ],
+   "legs": [
+    {
+     "kind": "perp",
+     "side": "buy",
+     "qty": 1
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.08,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "call-calendar",
+   "name": "Call Calendar Spread",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 3,
+   "description": "Sell near-dated, buy far-dated call at the same strike: profits from the steep front of the theta curve into expiry.",
+   "tags": [
+    "calendar",
+    "debit",
+    "theta-curve"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 90
+    }
+   ]
+  },
+  {
+   "id": "diagonal-call",
+   "name": "Diagonal Call Spread",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 3,
+   "description": "Long far-dated ITM call, short near-dated OTM call: PMCC-style diagonal with rollable structure.",
+   "tags": [
+    "diagonal",
+    "debit"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 90
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.08,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "ratio-call-1x3",
+   "name": "Call Ratio Spread 1x3",
+   "category": "direction",
+   "view": "bullish",
+   "complexity": 4,
+   "description": "Buy one ATM call, sell three OTM calls: large credit with naked upside risk above the short strike \u2014 for range-bound bulls.",
+   "tags": [
+    "credit",
+    "ratio",
+    "unlimited-risk"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 3,
+     "strike": 1.2,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "strap",
+   "name": "Strap",
+   "category": "volatility",
+   "view": "bullish",
+   "complexity": 2,
+   "description": "Two calls plus one put at the money: long volatility with a bullish tilt \u2014 double payoff on the upside.",
+   "tags": [
+    "debit",
+    "long-vol"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "long-put",
+   "name": "Long Put",
+   "category": "direction",
+   "view": "bearish",
+   "complexity": 1,
+   "description": "Buy a put: convex downside exposure that accelerates as price falls, with premium at risk only.",
+   "tags": [
+    "debit",
+    "defined-risk"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "long-put-everlasting",
+   "name": "Long Everlasting Put",
+   "category": "direction",
+   "view": "bearish",
+   "complexity": 2,
+   "description": "Perpetual put: permanent crash protection that pays off at any time, funded by period payments.",
+   "tags": [
+    "debit",
+    "everlasting",
+    "hedge"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.98,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "bear-put-spread",
+   "name": "Bear Put Spread",
+   "category": "direction",
+   "view": "bearish",
+   "complexity": 1,
+   "description": "Buy ATM put, sell OTM put: defined-risk bearish structure at reduced cost with capped downside capture.",
+   "tags": [
+    "debit",
+    "defined-risk"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.88,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "bear-call-spread",
+   "name": "Bear Call Spread (Credit)",
+   "category": "direction",
+   "view": "bearish",
+   "complexity": 2,
+   "description": "Sell call, buy higher call: collect credit in a falling or flat market with defined upside risk.",
+   "tags": [
+    "credit",
+    "defined-risk",
+    "income"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "bear-put-spread-everlasting",
+   "name": "Everlasting Bear Put Spread",
+   "category": "direction",
+   "view": "bearish",
+   "complexity": 2,
+   "description": "Perpetual put debit spread: durable bearish exposure without expiry risk, net funding carry positive.",
+   "tags": [
+    "debit",
+    "everlasting"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.98,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.88,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "protective-put",
+   "name": "Protective Put",
+   "category": "protection",
+   "view": "bearish",
+   "complexity": 1,
+   "description": "Hold spot and buy an OTM put: full upside with a hard floor \u2014 the benchmark institutional hedge.",
+   "tags": [
+    "hedge",
+    "debit",
+    "floor"
+   ],
+   "legs": [
+    {
+     "kind": "spot",
+     "side": "buy",
+     "qty": 1
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "put-backspread",
+   "name": "Put Backspread",
+   "category": "direction",
+   "view": "bearish",
+   "complexity": 3,
+   "description": "Sell one put, buy two lower puts: convex crash exposure often entered for even, paying multiples on a tail move.",
+   "tags": [
+    "ratio",
+    "convex",
+    "tail"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 2,
+     "strike": 0.92,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "ratio-put-1x2",
+   "name": "Put Ratio Spread 1x2",
+   "category": "direction",
+   "view": "bearish",
+   "complexity": 3,
+   "description": "Buy one ATM put, sell two OTM puts: cheap bearish with re-inverted risk if the market collapses through the wing.",
+   "tags": [
+    "ratio",
+    "credit"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 2,
+     "strike": 0.85,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "bear-put-ladder",
+   "name": "Bear Put Ladder",
+   "category": "direction",
+   "view": "bearish",
+   "complexity": 3,
+   "description": "Buy ATM put, sell two lower puts: the shorts finance the long, capping profit in a deep decline.",
+   "tags": [
+    "ladder",
+    "debit"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.8,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "seagull-bearish",
+   "name": "Bearish Seagull",
+   "category": "direction",
+   "view": "bearish",
+   "complexity": 3,
+   "description": "Short call funds a long put spread: zero-cost bearish structure with upside risk above the short call.",
+   "tags": [
+    "zero-cost",
+    "structured"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.85,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "risk-reversal-bearish",
+   "name": "Bearish Risk Reversal",
+   "category": "direction",
+   "view": "bearish",
+   "complexity": 3,
+   "description": "Sell OTM call, buy OTM put: near-zero-cost bearish structure; the staple of macro hedging desks.",
+   "tags": [
+    "zero-cost",
+    "skew",
+    "hedge"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.08,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "synthetic-short",
+   "name": "Synthetic Short",
+   "category": "direction",
+   "view": "bearish",
+   "complexity": 2,
+   "description": "Sell call, buy put at the same strike: replicates a short forward without borrowing spot.",
+   "tags": [
+    "synthetic",
+    "leverage"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "put-calendar",
+   "name": "Put Calendar Spread",
+   "category": "direction",
+   "view": "bearish",
+   "complexity": 3,
+   "description": "Sell near-dated, buy far-dated put at the same strike: monetizes front theta while keeping term-structure exposure.",
+   "tags": [
+    "calendar",
+    "debit"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 90
+    }
+   ]
+  },
+  {
+   "id": "diagonal-put",
+   "name": "Diagonal Put Spread",
+   "category": "direction",
+   "view": "bearish",
+   "complexity": 3,
+   "description": "Long far-dated ITM put, short near-dated OTM put: a rollable bearish diagonal with reduced carry.",
+   "tags": [
+    "diagonal",
+    "debit"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.06,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.94,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "strip",
+   "name": "Strip",
+   "category": "volatility",
+   "view": "bearish",
+   "complexity": 2,
+   "description": "Two puts plus one call at the money: long volatility with a bearish tilt \u2014 double payoff on the downside.",
+   "tags": [
+    "debit",
+    "long-vol"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "long-straddle",
+   "name": "Long Straddle",
+   "category": "volatility",
+   "view": "volatile",
+   "complexity": 1,
+   "description": "Buy ATM call and put: pure long gamma and vega \u2014 profits from any large move, bleeds theta while waiting.",
+   "tags": [
+    "debit",
+    "long-vol",
+    "unlimited-profit"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "long-strangle",
+   "name": "Long Strangle",
+   "category": "volatility",
+   "view": "volatile",
+   "complexity": 1,
+   "description": "Buy OTM call and OTM put: cheaper than a straddle with a wider breakeven \u2014 the classic tail bet.",
+   "tags": [
+    "debit",
+    "long-vol",
+    "unlimited-profit"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "long-straddle-everlasting",
+   "name": "Everlasting Straddle",
+   "category": "perpetual",
+   "view": "volatile",
+   "complexity": 2,
+   "description": "Long everlasting call and put: permanent long-gamma posture funded by period payments \u2014 no expiry to fight.",
+   "tags": [
+    "everlasting",
+    "long-vol",
+    "funding-carry"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.03,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.97,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "long-strangle-everlasting",
+   "name": "Everlasting Strangle",
+   "category": "perpetual",
+   "view": "volatile",
+   "complexity": 2,
+   "description": "Perpetual OTM call + put: always-on tail exposure without roll decay, carried via funding.",
+   "tags": [
+    "everlasting",
+    "long-vol",
+    "tail"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "long-guts",
+   "name": "Long Guts",
+   "category": "volatility",
+   "view": "volatile",
+   "complexity": 2,
+   "description": "Buy ITM call and ITM put: deep-intrinsic strangle with high delta on both sides \u2014 heavy but responsive.",
+   "tags": [
+    "debit",
+    "long-vol"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "calendar-straddle",
+   "name": "Calendar Straddle",
+   "category": "volatility",
+   "view": "volatile",
+   "complexity": 4,
+   "description": "Sell near-dated straddle, buy far-dated straddle: long back-month vol, short front-month pin risk.",
+   "tags": [
+    "calendar",
+    "long-vol",
+    "term-structure"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 90
+    }
+   ]
+  },
+  {
+   "id": "reverse-iron-condor",
+   "name": "Reverse Iron Condor",
+   "category": "volatility",
+   "view": "volatile",
+   "complexity": 2,
+   "description": "Buy the wings, sell the body: defined-debit long-vol structure that profits from a break beyond either wing.",
+   "tags": [
+    "debit",
+    "defined-risk",
+    "long-vol"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.85,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.08,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.15,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "reverse-iron-butterfly",
+   "name": "Reverse Iron Butterfly",
+   "category": "volatility",
+   "view": "volatile",
+   "complexity": 2,
+   "description": "Buy OTM wings, sell ATM body: the defined-risk way to be long a break in either direction.",
+   "tags": [
+    "debit",
+    "defined-risk",
+    "long-vol"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "reverse-call-butterfly",
+   "name": "Reverse Call Butterfly",
+   "category": "volatility",
+   "view": "volatile",
+   "complexity": 3,
+   "description": "Sell two ATM calls, buy ITM and OTM calls: long break-out through either call wing.",
+   "tags": [
+    "debit",
+    "defined-risk"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "reverse-put-butterfly",
+   "name": "Reverse Put Butterfly",
+   "category": "volatility",
+   "view": "volatile",
+   "complexity": 3,
+   "description": "Sell two ATM puts, buy ITM and OTM puts: long a large move through either put wing.",
+   "tags": [
+    "debit",
+    "defined-risk"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "wide-strangle-ladder",
+   "name": "Wide Strangle Ladder",
+   "category": "volatility",
+   "view": "volatile",
+   "complexity": 2,
+   "description": "Two OTM puts and two OTM calls at increasing distances: laddered convexity for an extended regime break.",
+   "tags": [
+    "debit",
+    "long-vol",
+    "ladder"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.88,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.82,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.12,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.18,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "long-vol-term-stack",
+   "name": "Long Vol Term Stack",
+   "category": "volatility",
+   "view": "volatile",
+   "complexity": 3,
+   "description": "Strangles at 30d and 90d: stacked long vol across the term structure to smooth theta and event timing.",
+   "tags": [
+    "debit",
+    "long-vol",
+    "term-structure"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 90
+    }
+   ]
+  },
+  {
+   "id": "everlasting-vol-stack",
+   "name": "Everlasting Vol Stack",
+   "category": "perpetual",
+   "view": "volatile",
+   "complexity": 3,
+   "description": "Everlasting strangles at short and long funding periods: always-on vol exposure across funding tenors.",
+   "tags": [
+    "everlasting",
+    "long-vol",
+    "funding-structure"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "fundingPeriodDays": 30
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "fundingPeriodDays": 30
+    }
+   ]
+  },
+  {
+   "id": "reverse-christmas-tree",
+   "name": "Reverse Christmas Tree (Puts)",
+   "category": "volatility",
+   "view": "volatile",
+   "complexity": 4,
+   "description": "Ratio put structure inverted for long downside vol: buy three puts, sell one higher and two lower.",
+   "tags": [
+    "ratio",
+    "long-vol",
+    "bearish-vol"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 3,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 2,
+     "strike": 0.85,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "sydney",
+   "name": "Sydney (Straddle-Strangle Hybrid)",
+   "category": "volatility",
+   "view": "volatile",
+   "complexity": 3,
+   "description": "Two straddles plus one strangle: amplified long-gamma position for an expected violent move.",
+   "tags": [
+    "debit",
+    "long-vol",
+    "long-gamma"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "short-straddle",
+   "name": "Short Straddle",
+   "category": "income",
+   "view": "low-vol",
+   "complexity": 3,
+   "description": "Sell ATM call and put: maximum theta collection, unlimited risk both ways \u2014 the professional pin trade.",
+   "tags": [
+    "credit",
+    "short-vol",
+    "unlimited-risk",
+    "high-margin"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "short-strangle",
+   "name": "Short Strangle",
+   "category": "income",
+   "view": "low-vol",
+   "complexity": 2,
+   "description": "Sell OTM call and put: collects premium outside an expected range with room to be wrong \u2014 naked tails.",
+   "tags": [
+    "credit",
+    "short-vol",
+    "unlimited-risk"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "iron-condor",
+   "name": "Iron Condor",
+   "category": "income",
+   "view": "low-vol",
+   "complexity": 2,
+   "description": "Sell an OTM put spread and call spread: the defined-risk income staple of every professional book.",
+   "tags": [
+    "credit",
+    "defined-risk",
+    "income"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.8,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.2,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "iron-butterfly",
+   "name": "Iron Butterfly",
+   "category": "income",
+   "view": "low-vol",
+   "complexity": 3,
+   "description": "Sell ATM straddle, buy OTM wings: max credit at the pin with defined tails \u2014 aggressive but bounded.",
+   "tags": [
+    "credit",
+    "defined-risk",
+    "short-vol"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "iron-condor-everlasting",
+   "name": "Everlasting Iron Condor",
+   "category": "perpetual",
+   "view": "low-vol",
+   "complexity": 3,
+   "description": "Perpetual iron condor: continuous premium harvesting from mean reversion, hedged wings, no expiry.",
+   "tags": [
+    "credit",
+    "defined-risk",
+    "everlasting"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.8,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.2,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "iron-butterfly-everlasting",
+   "name": "Everlasting Iron Butterfly",
+   "category": "perpetual",
+   "view": "low-vol",
+   "complexity": 3,
+   "description": "Short everlasting straddle with purchased wings: pin-risk economics carried through funding periods.",
+   "tags": [
+    "credit",
+    "defined-risk",
+    "everlasting"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.03,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.97,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "call-butterfly",
+   "name": "Call Butterfly",
+   "category": "income",
+   "view": "low-vol",
+   "complexity": 3,
+   "description": "Buy one ITM, sell two ATM, buy one OTM call: cheap pin bet with the maximum at the middle strike.",
+   "tags": [
+    "debit",
+    "defined-risk",
+    "pin"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "put-butterfly",
+   "name": "Put Butterfly",
+   "category": "income",
+   "view": "low-vol",
+   "complexity": 3,
+   "description": "Buy one ITM, sell two ATM, buy one OTM put: the put-side mirror of the call butterfly.",
+   "tags": [
+    "debit",
+    "defined-risk",
+    "pin"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "call-condor",
+   "name": "Call Condor",
+   "category": "income",
+   "view": "low-vol",
+   "complexity": 3,
+   "description": "All-call condor: buy, sell, sell, buy at rising strikes \u2014 a wide flat-topped pin structure.",
+   "tags": [
+    "debit",
+    "defined-risk"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.2,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "put-condor",
+   "name": "Put Condor",
+   "category": "income",
+   "view": "low-vol",
+   "complexity": 3,
+   "description": "All-put condor: the mirror of the call condor for the same neutral pin thesis.",
+   "tags": [
+    "debit",
+    "defined-risk"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.8,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "short-guts",
+   "name": "Short Guts",
+   "category": "income",
+   "view": "low-vol",
+   "complexity": 3,
+   "description": "Sell ITM call and ITM put: large credit, high probability of retaining a slice, naked tails.",
+   "tags": [
+    "credit",
+    "short-vol",
+    "unlimited-risk"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "jade-lizard",
+   "name": "Jade Lizard",
+   "category": "income",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Short put plus short call spread: no upside risk if the call spread is wide enough \u2014 the classic neutral credit combo.",
+   "tags": [
+    "credit",
+    "capped-upside"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.25,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "big-lizard",
+   "name": "Big Lizard",
+   "category": "income",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Short strangle with a long OTM call wing: retains the credit while capping the upside tail.",
+   "tags": [
+    "credit",
+    "capped-upside"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.3,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "reverse-jade-lizard",
+   "name": "Reverse Jade Lizard",
+   "category": "income",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Short call plus short put spread: mirror lizard with downside capped by the put spread.",
+   "tags": [
+    "credit",
+    "capped-downside"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.75,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "bwb-call",
+   "name": "Broken Wing Butterfly (Call)",
+   "category": "income",
+   "view": "low-vol",
+   "complexity": 3,
+   "description": "Call fly with an unbalanced upper wing: entered near zero-cost, keeps a credit zone below the body.",
+   "tags": [
+    "zero-cost",
+    "defined-risk"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.3,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "bwb-put",
+   "name": "Broken Wing Butterfly (Put)",
+   "category": "income",
+   "view": "low-vol",
+   "complexity": 3,
+   "description": "Put fly with an unbalanced lower wing: zero-cost put-side variant with a credit floor above the body.",
+   "tags": [
+    "zero-cost",
+    "defined-risk"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 2,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.7,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "double-calendar",
+   "name": "Double Calendar",
+   "category": "income",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Call calendar plus put calendar at different strikes: twin theta engines with a wide profit tent.",
+   "tags": [
+    "calendar",
+    "debit",
+    "tent"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "double-diagonal",
+   "name": "Double Diagonal",
+   "category": "income",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Diagonal call spread plus diagonal put spread: income structure that morphs into an iron condor at expiry.",
+   "tags": [
+    "diagonal",
+    "debit"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.15,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.85,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "christmas-tree-condor",
+   "name": "Christmas Tree Condor (Calls)",
+   "category": "income",
+   "view": "low-vol",
+   "complexity": 4,
+   "description": "1-3-2 call tree: buy one ITM, sell three ATM, buy two OTM \u2014 heavy pin exposure for a tiny debit.",
+   "tags": [
+    "ratio",
+    "defined-risk",
+    "pin"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 3,
+     "strike": 1.05,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 2,
+     "strike": 1.15,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "cash-secured-put",
+   "name": "Cash-Secured Put",
+   "category": "income",
+   "view": "neutral",
+   "complexity": 1,
+   "description": "Sell an OTM put against reserved cash: get paid to bid below the market \u2014 the wheel's first half.",
+   "tags": [
+    "credit",
+    "income",
+    "assigned"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "wheel-everlasting",
+   "name": "Everlasting Wheel",
+   "category": "perpetual",
+   "view": "neutral",
+   "complexity": 2,
+   "description": "Short everlasting put and short everlasting call: the wheel without assignment \u2014 rent both sides forever.",
+   "tags": [
+    "credit",
+    "everlasting",
+    "income"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.95,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.05,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "covered-strangle",
+   "name": "Covered Strangle",
+   "category": "income",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Own spot, sell OTM call and OTM put against it: double premium with an assignment bid below.",
+   "tags": [
+    "covered",
+    "income"
+   ],
+   "legs": [
+    {
+     "kind": "spot",
+     "side": "buy",
+     "qty": 1
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "calendar-call-income",
+   "name": "Front Call Calendar",
+   "category": "income",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Sell the 14d call, buy the 45d call at the same strike: rapid theta capture with a rollable back month.",
+   "tags": [
+    "calendar",
+    "income"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 14
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 45
+    }
+   ]
+  },
+  {
+   "id": "put-credit-ladder",
+   "name": "Put Credit Ladder",
+   "category": "income",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Sell puts at three descending strikes: laddered credit collection that averages into a dip.",
+   "tags": [
+    "credit",
+    "ladder",
+    "income"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.94,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.86,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "collar",
+   "name": "Collar",
+   "category": "protection",
+   "view": "neutral",
+   "complexity": 2,
+   "description": "Long spot, long OTM put, short OTM call: floor and ceiling around inventory \u2014 the institutional standard.",
+   "tags": [
+    "hedge",
+    "floor",
+    "capped"
+   ],
+   "legs": [
+    {
+     "kind": "spot",
+     "side": "buy",
+     "qty": 1
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "zero-cost-collar",
+   "name": "Zero-Cost Collar",
+   "category": "protection",
+   "view": "neutral",
+   "complexity": 2,
+   "description": "Collar struck so the call finances the put: protection with no premium outlay.",
+   "tags": [
+    "hedge",
+    "zero-cost"
+   ],
+   "legs": [
+    {
+     "kind": "spot",
+     "side": "buy",
+     "qty": 1
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.88,
+     "expiryDays": 90
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.12,
+     "expiryDays": 90
+    }
+   ]
+  },
+  {
+   "id": "fence",
+   "name": "Fence",
+   "category": "protection",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Collar plus an extra short put: cheapens the hedge further at the cost of a lower floor.",
+   "tags": [
+    "hedge",
+    "structured"
+   ],
+   "legs": [
+    {
+     "kind": "spot",
+     "side": "buy",
+     "qty": 1
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.06,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.82,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "put-spread-collar",
+   "name": "Put Spread Collar",
+   "category": "protection",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Long spot hedged with a long put spread: cheaper floor with a step-down zone of protection.",
+   "tags": [
+    "hedge",
+    "defined-risk"
+   ],
+   "legs": [
+    {
+     "kind": "spot",
+     "side": "buy",
+     "qty": 1
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.93,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.84,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "tail-hedge-convex",
+   "name": "Convex Tail Hedge",
+   "category": "protection",
+   "view": "bearish",
+   "complexity": 3,
+   "description": "Long OTM put plus double long further OTM put: negative-carry position with escalating crash payoff.",
+   "tags": [
+    "hedge",
+    "convex",
+    "tail"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.88,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 2,
+     "strike": 0.78,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "crash-ladder",
+   "name": "Crash Protection Ladder",
+   "category": "protection",
+   "view": "bearish",
+   "complexity": 3,
+   "description": "Four puts at descending strikes: laddered disaster insurance that layers in as the market falls.",
+   "tags": [
+    "hedge",
+    "ladder",
+    "tail"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.84,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.78,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.72,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "everlasting-tail-hedge",
+   "name": "Everlasting Tail Hedge",
+   "category": "perpetual",
+   "view": "bearish",
+   "complexity": 2,
+   "description": "Two everlasting OTM puts: always-on crash insurance carried through funding \u2014 no expiry cliff.",
+   "tags": [
+    "everlasting",
+    "hedge",
+    "tail"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.88,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.78,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "protective-everlasting-put",
+   "name": "Protective Everlasting Put",
+   "category": "protection",
+   "view": "neutral",
+   "complexity": 2,
+   "description": "Hold spot with an everlasting put floor: permanent insurance without roll execution risk.",
+   "tags": [
+    "hedge",
+    "everlasting",
+    "floor"
+   ],
+   "legs": [
+    {
+     "kind": "spot",
+     "side": "buy",
+     "qty": 1
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.92,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "collar-everlasting",
+   "name": "Everlasting Collar",
+   "category": "protection",
+   "view": "neutral",
+   "complexity": 2,
+   "description": "Long spot with everlasting put floor and everlasting call ceiling: a self-financing band held indefinitely.",
+   "tags": [
+    "hedge",
+    "everlasting"
+   ],
+   "legs": [
+    {
+     "kind": "spot",
+     "side": "buy",
+     "qty": 1
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.88,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.12,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "delta-hedged-call",
+   "name": "Delta-Hedged Long Call",
+   "category": "direction",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Long call with a short perp overlay: strips direction, isolates gamma and vega \u2014 the market-maker building block.",
+   "tags": [
+    "delta-hedge",
+    "long-gamma"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "perp",
+     "side": "sell",
+     "qty": 0.5
+    }
+   ]
+  },
+  {
+   "id": "term-structure-vol-hedge",
+   "name": "Term-Structure Vol Hedge",
+   "category": "volatility",
+   "view": "neutral",
+   "complexity": 4,
+   "description": "Long 30d straddle against a short everlasting straddle: trades realized carry against funding carry.",
+   "tags": [
+    "term-structure",
+    "long-vol",
+    "funding-structure"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.03,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.97,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "portfolio-guard-ladder",
+   "name": "Portfolio Guard Ladder",
+   "category": "protection",
+   "view": "bearish",
+   "complexity": 4,
+   "description": "Three descending puts financed by one covered call: self-funding insurance grid for a spot book.",
+   "tags": [
+    "hedge",
+    "ladder",
+    "self-funding"
+   ],
+   "legs": [
+    {
+     "kind": "spot",
+     "side": "buy",
+     "qty": 1
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.86,
+     "expiryDays": 45
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.8,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.15,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "box-spread",
+   "name": "Box Spread",
+   "category": "spread",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Synthetic long plus synthetic short at different strikes: a fixed payoff used to price and borrow at options rates.",
+   "tags": [
+    "synthetic",
+    "arbitrage",
+    "defined-risk"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "conversion",
+   "name": "Conversion",
+   "category": "spread",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Long spot, short call, long put at the same strike: pins the forward \u2014 the classic put-call parity trade.",
+   "tags": [
+    "arbitrage",
+    "parity"
+   ],
+   "legs": [
+    {
+     "kind": "spot",
+     "side": "buy",
+     "qty": 1
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "reversal",
+   "name": "Reversal",
+   "category": "spread",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Short perp, long call, short put at the same strike: the reverse conversion \u2014 parity in the other direction.",
+   "tags": [
+    "arbitrage",
+    "parity"
+   ],
+   "legs": [
+    {
+     "kind": "perp",
+     "side": "sell",
+     "qty": 1
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "time-butterfly",
+   "name": "Time Butterfly",
+   "category": "spread",
+   "view": "neutral",
+   "complexity": 4,
+   "description": "Short two mid-expiry calls, long near and far expiry calls: isolates the term structure around one date.",
+   "tags": [
+    "calendar",
+    "term-structure"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 14
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "diagonal-condor",
+   "name": "Diagonal Condor",
+   "category": "spread",
+   "view": "neutral",
+   "complexity": 4,
+   "description": "Condor built across two expiries: back-month wings, front-month body \u2014 term-structured income.",
+   "tags": [
+    "diagonal",
+    "income"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 90
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.02,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.2,
+     "expiryDays": 90
+    }
+   ]
+  },
+  {
+   "id": "unbalanced-condor",
+   "name": "Unbalanced Iron Condor",
+   "category": "income",
+   "view": "low-vol",
+   "complexity": 4,
+   "description": "Iron condor with doubled put side: skews the structure to lean bullish while collecting on both wings.",
+   "tags": [
+    "credit",
+    "skewed"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 2,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.82,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.2,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "skip-strike-butterfly",
+   "name": "Skip-Strike Butterfly",
+   "category": "spread",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Butterfly with a gap between body and wing: wider profit zone for a lower debit than the plain fly.",
+   "tags": [
+    "debit",
+    "wide-zone"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.05,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.15,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "albatross",
+   "name": "Albatross Condor",
+   "category": "income",
+   "view": "low-vol",
+   "complexity": 4,
+   "description": "Extra-wide iron condor with distant wings: slow-decaying, high-buffer income for patient books.",
+   "tags": [
+    "credit",
+    "wide-wings"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.75,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.25,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "put-ratio-1x2-income",
+   "name": "Put Ratio 1x2 (Income)",
+   "category": "income",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Buy one OTM put, sell two further OTM puts: credit generation with tail risk through the lower strike.",
+   "tags": [
+    "credit",
+    "ratio"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 2,
+     "strike": 0.85,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "butterfly-unbalanced-wings",
+   "name": "Unbalanced Butterfly",
+   "category": "spread",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "2-3-1 call butterfly with skewed wings: leans the pin zone toward the upside while keeping defined risk.",
+   "tags": [
+    "debit",
+    "skewed"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 2,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 3,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "calendar-iron-condor",
+   "name": "Calendar Iron Condor",
+   "category": "income",
+   "view": "neutral",
+   "complexity": 4,
+   "description": "Front-month iron condor with back-month wings: theta harvest that keeps long-dated protection in place.",
+   "tags": [
+    "calendar",
+    "credit",
+    "hedged"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.85,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.08,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.15,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.85,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.15,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "condor-with-hedge",
+   "name": "Hedged Call Condor",
+   "category": "spread",
+   "view": "neutral",
+   "complexity": 4,
+   "description": "Call condor with a long OTM put rider: defined structures on both sides for event windows.",
+   "tags": [
+    "debit",
+    "defined-risk"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.2,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.85,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "everlasting-csp",
+   "name": "Everlasting Cash-Secured Put",
+   "category": "perpetual",
+   "view": "neutral",
+   "complexity": 1,
+   "description": "Short everlasting OTM put: continuous premium on a bid below market, carried by funding with no expiry.",
+   "tags": [
+    "credit",
+    "everlasting",
+    "income"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.93,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "everlasting-cc-long-fp",
+   "name": "Everlasting Covered Call (Long Funding)",
+   "category": "perpetual",
+   "view": "bullish",
+   "complexity": 2,
+   "description": "Perp plus short everlasting call on a 14-day funding period: slower bleed, steadier income stream.",
+   "tags": [
+    "covered",
+    "everlasting",
+    "income"
+   ],
+   "legs": [
+    {
+     "kind": "perp",
+     "side": "buy",
+     "qty": 1
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.08,
+     "fundingPeriodDays": 14
+    }
+   ]
+  },
+  {
+   "id": "everlasting-straddle-long-fp",
+   "name": "Everlasting Straddle (Long Funding)",
+   "category": "perpetual",
+   "view": "volatile",
+   "complexity": 2,
+   "description": "Everlasting straddle on a 30-day funding period: long vol carried at the slow end of the funding curve.",
+   "tags": [
+    "everlasting",
+    "long-vol"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.03,
+     "fundingPeriodDays": 30
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.97,
+     "fundingPeriodDays": 30
+    }
+   ]
+  },
+  {
+   "id": "everlasting-risk-reversal",
+   "name": "Everlasting Risk Reversal",
+   "category": "perpetual",
+   "view": "bullish",
+   "complexity": 3,
+   "description": "Short everlasting put, long everlasting call: persistent near-zero-cost bullish posture in funding space.",
+   "tags": [
+    "zero-cost",
+    "everlasting"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.08,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "everlasting-butterfly",
+   "name": "Everlasting Butterfly",
+   "category": "perpetual",
+   "view": "low-vol",
+   "complexity": 3,
+   "description": "Everlasting 0.94-1.0-1.06 fly: pin exposure that persists across funding periods without expiry gamma cliff.",
+   "tags": [
+    "pin",
+    "everlasting"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.94,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.0,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.06,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "everlasting-funding-structure",
+   "name": "Everlasting Funding Structure",
+   "category": "perpetual",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Short 30-day-funding put against long 7-day-funding put: trades the funding term structure itself.",
+   "tags": [
+    "funding-structure",
+    "term-structure"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.95,
+     "fundingPeriodDays": 30
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "everlasting-collar-funding",
+   "name": "Everlasting Collar on Perp",
+   "category": "perpetual",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Long perp with everlasting put floor and call ceiling: a funding-space band around a perpetual position.",
+   "tags": [
+    "hedge",
+    "everlasting"
+   ],
+   "legs": [
+    {
+     "kind": "perp",
+     "side": "buy",
+     "qty": 1
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "everlasting-zebra",
+   "name": "Everlasting ZEBRA",
+   "category": "perpetual",
+   "view": "bullish",
+   "complexity": 3,
+   "description": "Two everlasting ITM calls against one ATM: perpetual stock replica with minimal extrinsic load.",
+   "tags": [
+    "stock-replica",
+    "everlasting"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 2,
+     "strike": 0.88,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "fundingPeriodDays": 7
+    }
+   ]
+  },
+  {
+   "id": "delta-hedged-strip-8",
+   "name": "Delta-Hedged Strip (8 Legs)",
+   "category": "multileg",
+   "view": "neutral",
+   "complexity": 3,
+   "description": "Straddle plus strangle plus a calendar leg, hedged with a perp: an eight-leg gamma book built like a desk position.",
+   "tags": [
+    "long-gamma",
+    "delta-hedge",
+    "multi-leg"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 60
+    },
+    {
+     "kind": "perp",
+     "side": "sell",
+     "qty": 0.6
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 90
+    }
+   ]
+  },
+  {
+   "id": "income-ladder-10",
+   "name": "Income Ladder (10 Legs)",
+   "category": "multileg",
+   "view": "low-vol",
+   "complexity": 4,
+   "description": "Five short calls and five short puts laddered by strike: an income grid that averages credit across the range.",
+   "tags": [
+    "credit",
+    "ladder",
+    "income",
+    "multi-leg"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.15,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.2,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.25,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.85,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.8,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.75,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "ladder-condor-10",
+   "name": "Ladder Condor (10 Legs)",
+   "category": "multileg",
+   "view": "low-vol",
+   "complexity": 4,
+   "description": "Put ladder plus call ladder around a short ATM straddle: ten legs of layered mean-reversion harvest.",
+   "tags": [
+    "credit",
+    "ladder",
+    "multi-leg"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.8,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.74,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.86,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.08,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.14,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.2,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.26,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    }
+   ]
+  },
+  {
+   "id": "grand-christmas-tree-12",
+   "name": "Grand Christmas Tree (12 Legs)",
+   "category": "multileg",
+   "view": "low-vol",
+   "complexity": 5,
+   "description": "Call tree and put tree at two expiries: twelve legs of ratio-structured pin harvesting across time.",
+   "tags": [
+    "ratio",
+    "pin",
+    "multi-leg"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 3,
+     "strike": 1.05,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 2,
+     "strike": 1.15,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 3,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 2,
+     "strike": 0.85,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 3,
+     "strike": 1.05,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 2,
+     "strike": 1.15,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 3,
+     "strike": 0.95,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 2,
+     "strike": 0.85,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "term-structure-ladder-12",
+   "name": "Term-Structure Ladder (12 Legs)",
+   "category": "multileg",
+   "view": "bullish",
+   "complexity": 4,
+   "description": "Calls at four strikes across three expiries: a twelve-leg ladder that layers direction over the whole curve.",
+   "tags": [
+    "ladder",
+    "term-structure",
+    "multi-leg"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 14
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 14
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 14
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 14
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 45
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 45
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 45
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 45
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 90
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 90
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 90
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 90
+    }
+   ]
+  },
+  {
+   "id": "spectrum-condor-16",
+   "name": "Spectrum Condor (16 Legs)",
+   "category": "multileg",
+   "view": "low-vol",
+   "complexity": 5,
+   "description": "Four iron condors at 7/14/30/60 days: sixteen legs of expiring and rolling income across the maturity spectrum.",
+   "tags": [
+    "credit",
+    "term-structure",
+    "multi-leg"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 7
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.85,
+     "expiryDays": 7
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.08,
+     "expiryDays": 7
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.15,
+     "expiryDays": 7
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 14
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.85,
+     "expiryDays": 14
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.08,
+     "expiryDays": 14
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.15,
+     "expiryDays": 14
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.85,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.08,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.15,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.85,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.08,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.15,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "terraced-put-ladder-15",
+   "name": "Terraced Put Ladder (15 Legs)",
+   "category": "multileg",
+   "view": "bearish",
+   "complexity": 4,
+   "description": "Five short near-dated puts, five bought mid-dated, five bought far-dated: a terraced put structure across time.",
+   "tags": [
+    "ladder",
+    "term-structure",
+    "multi-leg"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.96,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.88,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.84,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.8,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.96,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.88,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.84,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.8,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.86,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.82,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.78,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.74,
+     "expiryDays": 90
+    }
+   ]
+  },
+  {
+   "id": "multi-expiry-butterfly-mesh-18",
+   "name": "Butterfly Mesh (18 Legs)",
+   "category": "multileg",
+   "view": "neutral",
+   "complexity": 5,
+   "description": "Call and put butterflies at three expiries: an eighteen-leg mesh of pin zones layered across the calendar.",
+   "tags": [
+    "pin",
+    "term-structure",
+    "multi-leg"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 14
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 14
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 14
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 14
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 14
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 14
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 45
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 45
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 45
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 45
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 45
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 45
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 90
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 90
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 90
+    }
+   ]
+  },
+  {
+   "id": "perpetual-income-grid-20",
+   "name": "Perpetual Income Grid (20 Legs)",
+   "category": "multileg",
+   "view": "low-vol",
+   "complexity": 5,
+   "description": "Ten everlasting puts at descending strikes on two funding periods: a twenty-leg always-on income grid.",
+   "tags": [
+    "everlasting",
+    "income",
+    "grid",
+    "multi-leg"
+   ],
+   "legs": [
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.96,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.94,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.88,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.86,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.84,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.82,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.8,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.78,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.96,
+     "fundingPeriodDays": 14
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.94,
+     "fundingPeriodDays": 14
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "fundingPeriodDays": 14
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "fundingPeriodDays": 14
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.88,
+     "fundingPeriodDays": 14
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.86,
+     "fundingPeriodDays": 14
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.84,
+     "fundingPeriodDays": 14
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.82,
+     "fundingPeriodDays": 14
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.8,
+     "fundingPeriodDays": 14
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.78,
+     "fundingPeriodDays": 14
+    }
+   ]
+  },
+  {
+   "id": "convexity-cascade-21",
+   "name": "Convexity Cascade (21 Legs)",
+   "category": "multileg",
+   "view": "bearish",
+   "complexity": 5,
+   "description": "Twenty-one puts in an escalating ratio cascade across three expiries: engineered crash convexity.",
+   "tags": [
+    "convex",
+    "tail",
+    "cascade",
+    "multi-leg"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 2,
+     "strike": 0.92,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 3,
+     "strike": 0.89,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 3,
+     "strike": 0.86,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 4,
+     "strike": 0.83,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 4,
+     "strike": 0.8,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 4,
+     "strike": 0.77,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 2,
+     "strike": 0.86,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 3,
+     "strike": 0.8,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 4,
+     "strike": 0.74,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.89,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 2,
+     "strike": 0.83,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 3,
+     "strike": 0.77,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 4,
+     "strike": 0.71,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 5,
+     "strike": 0.65,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 5,
+     "strike": 0.6,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 6,
+     "strike": 0.55,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 6,
+     "strike": 0.5,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 7,
+     "strike": 0.45,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 7,
+     "strike": 0.4,
+     "expiryDays": 90
+    }
+   ]
+  },
+  {
+   "id": "vol-surface-portfolio-25",
+   "name": "Vol Surface Portfolio (25 Legs)",
+   "category": "multileg",
+   "view": "neutral",
+   "complexity": 5,
+   "description": "Strangle spreads at five expiries plus an everlasting strangle, perp hedge and spot anchor: a twenty-five-leg book spanning the whole surface.",
+   "tags": [
+    "term-structure",
+    "long-vol",
+    "delta-hedge",
+    "multi-leg"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 7
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 7
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.25,
+     "expiryDays": 7
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.75,
+     "expiryDays": 7
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 14
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 14
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.25,
+     "expiryDays": 14
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.75,
+     "expiryDays": 14
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.25,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.75,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.25,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.75,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 90
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.25,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.75,
+     "expiryDays": 90
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.12,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.88,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp",
+     "side": "sell",
+     "qty": 0.7
+    },
+    {
+     "kind": "spot",
+     "side": "buy",
+     "qty": 0.3
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 45
+    }
+   ]
+  },
+  {
+   "id": "full-spectrum-25",
+   "name": "Full Spectrum (25 Legs)",
+   "category": "multileg",
+   "view": "neutral",
+   "complexity": 5,
+   "description": "The showcase maximum: calls, puts, everlasting options, a perp and spot \u2014 every instrument class in one twenty-five-leg structure.",
+   "tags": [
+    "showcase",
+    "multi-leg",
+    "every-instrument"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.15,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.2,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.85,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.8,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 7
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 7
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 90
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.15,
+     "expiryDays": 180
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.85,
+     "expiryDays": 180
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.05,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "fundingPeriodDays": 7
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.1,
+     "fundingPeriodDays": 30
+    },
+    {
+     "kind": "perp_option",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.9,
+     "fundingPeriodDays": 30
+    },
+    {
+     "kind": "perp",
+     "side": "sell",
+     "qty": 1
+    }
+   ]
+  }
+ ]
+}

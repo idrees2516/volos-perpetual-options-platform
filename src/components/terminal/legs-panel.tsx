@@ -29,6 +29,7 @@ import {
 import type { Leg, LegAnalytics, LegKind, StrategyAnalysis } from '@/lib/types';
 import { kindLabel } from '@/lib/types';
 import { TEMPLATES, templateCategories } from '@/lib/templates';
+import { MAX_LEGS } from '@/lib/strategies';
 import { useStrategy } from '@/stores/strategy-store';
 import { fmtNum } from '@/lib/format';
 
@@ -69,6 +70,7 @@ export function LegsPanel({ spot, analysis }: LegsPanelProps) {
   };
 
   const netPremium = analysis?.netPremium ?? 0;
+  const atCap = legs.length >= MAX_LEGS;
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-hidden">
@@ -105,6 +107,19 @@ export function LegsPanel({ spot, analysis }: LegsPanelProps) {
             })}
           </DropdownMenuContent>
         </DropdownMenu>
+        <div
+          title={`${legs.length} of ${MAX_LEGS} legs used`}
+          className={`flex h-8 shrink-0 items-center gap-1 rounded-md border px-2 font-mono text-[10px] tabular-nums ${
+            atCap
+              ? 'border-amber-500/50 bg-amber-950/30 text-amber-400'
+              : legs.length > 0
+                ? 'border-teal-500/30 bg-teal-950/20 text-teal-300'
+                : 'border-zinc-800 bg-zinc-900/60 text-zinc-500'
+          }`}
+        >
+          {legs.length}/{MAX_LEGS}
+          <span className="text-[8px] uppercase tracking-wide">legs</span>
+        </div>
       </div>
 
       {/* Add leg buttons */}
@@ -113,8 +128,13 @@ export function LegsPanel({ spot, analysis }: LegsPanelProps) {
           <button
             key={kind}
             onClick={() => addLeg(kind, spot)}
-            title={`Add ${kindLabel(kind)} leg`}
-            className="flex flex-col items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900/60 py-2 text-[9px] font-medium text-zinc-400 transition hover:border-teal-500/50 hover:bg-teal-950/30 hover:text-teal-300"
+            disabled={atCap}
+            title={atCap ? `Maximum of ${MAX_LEGS} legs reached` : `Add ${kindLabel(kind)} leg`}
+            className={`flex flex-col items-center gap-1 rounded-md border py-2 text-[9px] font-medium transition ${
+              atCap
+                ? 'cursor-not-allowed border-zinc-800/60 bg-zinc-900/30 text-zinc-600'
+                : 'border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-teal-500/50 hover:bg-teal-950/30 hover:text-teal-300'
+            }`}
           >
             {KIND_ICONS[kind]}
             <span>{kind === 'perp_option' ? 'Everlast' : kind === 'perp' ? 'Perp' : kind === 'spot' ? 'Spot' : kind === 'call' ? 'Call' : 'Put'}</span>
@@ -129,7 +149,7 @@ export function LegsPanel({ spot, analysis }: LegsPanelProps) {
             <Sparkles className="h-5 w-5 text-zinc-600" />
             <p className="text-xs text-zinc-500">Add legs or start from a template.</p>
             <p className="max-w-52 text-[10px] leading-tight text-zinc-600">
-              Mix dated options, everlasting options, perps and spot — any structure, up to 32 legs.
+              Mix dated options, everlasting options, perps and spot — any structure, up to {MAX_LEGS} legs.
             </p>
           </div>
         )}
