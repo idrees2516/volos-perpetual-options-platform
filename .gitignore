@@ -52,3 +52,15 @@ prompt
 server.log
 # Skills directory
 /skills/
+# Rust build artifacts
+rust-backend/target/
+
+# Local runtime + private dirs
+/db/
+/tool-results/
+/upload/
+/download/
+/.zscripts/
+/mini-services/
+worklog.md
+TODO

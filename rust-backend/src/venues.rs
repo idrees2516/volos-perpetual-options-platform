@@ -61,6 +61,7 @@ pub struct VenueStatus {
 
 /// Live anchor data captured from the Derive public API.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)] // anchor payloads kept verbatim from the exchange
 pub struct LiveAnchor {
     pub spot: f64,
     pub bid: f64,
@@ -70,6 +71,7 @@ pub struct LiveAnchor {
 }
 
 #[derive(Default, Clone)]
+#[allow(dead_code)] // spots exposed for future parity checks
 pub struct LiveState {
     pub derive_reachable: bool,
     pub paradex_reachable: bool,
@@ -105,7 +107,7 @@ impl VenuePool {
             let qs = self.quotes.entry(inst.clone()).or_insert_with(|| {
                 EXTERNAL_VENUES
                     .iter()
-                    .map(|(v, _, q, lat, fee)| VenueQuote {
+                    .map(|(v, _, _q, lat, fee)| VenueQuote {
                         venue: v,
                         mode: FeedMode::Simulated,
                         bid: 0.0,

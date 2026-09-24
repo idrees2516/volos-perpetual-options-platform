@@ -15,6 +15,7 @@ pub enum OptionType {
     Put,
 }
 
+#[allow(dead_code)]
 impl OptionType {
     #[inline]
     pub fn sign(&self) -> f64 {
@@ -116,6 +117,7 @@ pub fn bs_greeks(s: f64, k: f64, t: f64, iv: f64, r: f64, ot: OptionType) -> Gre
 }
 
 /// Implied vol via Brent-style bisection+Newton hybrid. Robust bracketing.
+#[allow(dead_code)] // exercised by unit tests
 pub fn implied_vol(target: f64, s: f64, k: f64, t: f64, r: f64, ot: OptionType) -> Option<f64> {
     if target <= 0.0 || s <= 0.0 || k <= 0.0 || t <= 0.0 {
         return None;
@@ -159,7 +161,7 @@ pub fn everlasting_greeks(
     s: f64,
     k: f64,
     funding_period_days: f64,
-    iv: f64,
+    _iv: f64,
     r: f64,
     ot: OptionType,
     surface: &dyn Fn(f64) -> f64, // iv as a function of T (years)

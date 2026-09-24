@@ -2,7 +2,7 @@
 //! background schedule and stores real top-of-book anchors used by the
 //! venue pool. All failures degrade gracefully to simulated liquidity.
 
-use crate::venues::{LiveAnchor, LiveState, SharedLive};
+use crate::venues::{LiveAnchor, SharedLive};
 use crate::market::SharedSim;
 use std::collections::HashMap;
 use std::time::Duration;

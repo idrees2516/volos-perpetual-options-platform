@@ -118,6 +118,7 @@ pub struct IntentResponse {
     pub notes: Vec<String>,
 }
 
+#[allow(non_snake_case)]
 fn cLeg(kind: LegKind, side: Side, qty: f64, strike: Option<f64>, expiry: Option<f64>) -> CandidateLeg {
     CandidateLeg { kind, side, qty, strike, expiry_days: expiry, funding_period_days: None }
 }

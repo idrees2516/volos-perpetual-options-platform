@@ -48,6 +48,7 @@ pub struct StrategySpec {
     pub legs: Vec<StrategyLegSpec>,
 }
 
+#[allow(dead_code)]
 impl StrategySpec {
     pub fn leg_count(&self) -> usize {
         self.legs.len()

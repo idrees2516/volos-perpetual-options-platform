@@ -36,6 +36,7 @@ pub fn norm_cdf(x: f64) -> f64 {
 }
 
 /// Standard normal inverse CDF (Acklam + Halley refinement), |error| < 1e-9.
+#[allow(dead_code)] // inverse CDF is part of the numerics API
 pub fn norm_inv_cdf(p: f64) -> f64 {
     if p <= 0.0 {
         return f64::NEG_INFINITY;

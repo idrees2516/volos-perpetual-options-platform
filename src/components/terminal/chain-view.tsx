@@ -12,6 +12,7 @@ import type { Leg, UnderlyingId } from '@/lib/types';
 import { engine, RustChain } from '@/lib/api';
 import { useMarket } from '@/hooks/use-market';
 import { useStrategy } from '@/stores/strategy-store';
+import { MAX_LEGS } from '@/lib/strategies';
 import { bsGreeks, ivForStrike, forwardPrice, VOL_CONFIG } from '@/lib/pricing';
 import { fmtNum } from '@/lib/format';
 
@@ -19,12 +20,13 @@ const EXPIRIES = [1, 7, 14, 30, 60, 90, 180, 365];
 
 export function ChainView({ onOpenBuilder }: { onOpenBuilder: () => void }) {
   const { market, smooth, connected } = useMarket();
-  const { underlying, addLeg, setStrategyName } = useStrategy();
+  const { underlying, addLeg, setStrategyName, legs: builderLegs } = useStrategy();
   const asset = smooth[underlying] ?? market.assets[underlying];
   const [expiry, setExpiry] = useState(30);
   const [chain, setChain] = useState<RustChain | null>(null);
   const [loading, setLoading] = useState(false);
   const [added, setAdded] = useState<string | null>(null);
+  const [capHit, setCapHit] = useState(false);
 
   const fetchChain = useCallback(async () => {
     setLoading(true);
@@ -76,7 +78,12 @@ export function ChainView({ onOpenBuilder }: { onOpenBuilder: () => void }) {
   const atmIv = chain?.atmIv ?? rows.find((r) => r.isAtm)?.callIv ?? 50;
 
   const addFromChain = (kind: 'call' | 'put', strike: number) => {
-    addLeg(kind, asset.spot);
+    const ok = addLeg(kind, asset.spot);
+    if (!ok) {
+      setCapHit(true);
+      setTimeout(() => setCapHit(false), 2600);
+      return;
+    }
     const legs = useStrategy.getState().legs;
     const leg = legs[legs.length - 1];
     useStrategy.getState().updateLeg(leg.id, { strike, expiryDays: expiry });
@@ -106,6 +113,13 @@ export function ChainView({ onOpenBuilder }: { onOpenBuilder: () => void }) {
           ))}
         </div>
         <div className="ml-auto flex items-center gap-3 font-mono text-[10px] text-zinc-500">
+          <span className={`rounded border px-1.5 py-0.5 tabular-nums ${
+            builderLegs.length >= MAX_LEGS
+              ? 'border-amber-500/50 bg-amber-950/30 text-amber-400'
+              : 'border-zinc-800 bg-zinc-900/60 text-zinc-400'
+          }`}>
+            {builderLegs.length}/{MAX_LEGS} legs
+          </span>
           <span>spot <span className="text-zinc-200">{fmtNum(asset.spot, asset.spot >= 1000 ? 0 : 1)}</span></span>
           <span>fwd <span className="text-zinc-200">{fmtNum(chain?.forward ?? asset.spot, 0)}</span></span>
           <span>ATM IV <span className="text-teal-300">{atmIv.toFixed(1)}%</span></span>
@@ -115,6 +129,12 @@ export function ChainView({ onOpenBuilder }: { onOpenBuilder: () => void }) {
           </Badge>
         </div>
       </div>
+
+      {capHit && (
+        <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-950/30 px-4 py-1.5 text-[10px] text-amber-300">
+          Strategy is full — maximum {MAX_LEGS} legs. Remove a leg in the builder to add more.
+        </div>
+      )}
 
       {/* Table */}
       <div className="max-h-[calc(100vh-220px)] overflow-auto">

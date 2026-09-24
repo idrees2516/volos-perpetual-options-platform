@@ -4,14 +4,14 @@
 //! the analytics engine pattern; contention is negligible at this scale).
 
 use crate::clob::*;
-use crate::market::{MarketSnapshot, SharedSim};
+use crate::market::MarketSnapshot;
 use crate::models::ValidLeg;
 use crate::payoff::{self, MarketCtx};
 use crate::pricing::{self, OptionType};
-use crate::rfqs::{RfqBook, RfqExecution};
-use crate::risk::{self, Account, GreeksAgg, Position, PreTrade};
-use crate::surface::{asset_config, forward, ASSETS};
-use crate::venues::{FeedMode, RouteChild, RoutePlan, SharedLive, VenuePool};
+use crate::rfqs::RfqBook;
+use crate::risk::{self, Account, PreTrade};
+use crate::surface::{asset_config, ASSETS};
+use crate::venues::VenuePool;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use serde::Serialize;
@@ -20,8 +20,10 @@ use std::collections::HashMap;
 /// Quote-skew per unit of MM inventory (fraction of theo).
 pub const MM_INV_SKEW: f64 = 0.008;
 pub const MM_LEVELS: usize = 5;
+#[allow(dead_code)]
 pub const MAX_SUBSCRIBED: usize = 12;
 
+#[allow(dead_code)] // desk metadata type (table below is what executes)
 pub struct MmDesk {
     pub name: String,
     pub edge_bps: f64,
@@ -111,6 +113,7 @@ impl<'a> FillSink for Ledger<'a> {
 
 // ------------------------------------------------------------- the engine
 
+#[allow(dead_code)] // diagnostic/pacing fields + alternate pricing entry points
 pub struct TradingEngine {
     pub insts: HashMap<String, Instrument>,
     pub engines: HashMap<String, MatchingEngine>,
@@ -234,6 +237,7 @@ impl TradingEngine {
     }
 
     /// Theoretical price of an instrument under (spot_mult, vol_add) shocks.
+    #[allow(dead_code)] // public pricing entry point (parity with price_inst_ctx)
     pub fn price_inst(&self, inst: &Instrument, snapshot: &MarketSnapshot, spot_mult: f64, vol_add: f64) -> f64 {
         let ctx = match Self::ctx_of(snapshot, &inst.underlying) {
             Some(c) => c,
@@ -528,7 +532,7 @@ impl TradingEngine {
                                     lots: qty,
                                     stp: StpPolicy::CancelNewest,
                                 },
-                                usize::MAX / 2,
+                                0,
                                 Ok(()),
                                 &mut ledger,
                             );
@@ -555,7 +559,7 @@ impl TradingEngine {
                                     lots: qty,
                                     stp: StpPolicy::CancelNewest,
                                 },
-                                usize::MAX / 2,
+                                0,
                                 Ok(()),
                                 &mut ledger,
                             );
@@ -615,7 +619,7 @@ impl TradingEngine {
                         lots: qty,
                         stp: StpPolicy::CancelNewest,
                     },
-                    usize::MAX / 2,
+                    0,
                     Ok(()),
                     &mut ledger,
                 );
@@ -906,6 +910,7 @@ impl TradingEngine {
         Ok(order)
     }
 
+    #[allow(dead_code)] // public pricing entry point on last snapshot
     pub fn price_inst_now(&self, inst: &Instrument, spot_mult: f64, vol_add: f64) -> f64 {
         match self.last_snapshot_ctx(&inst.underlying) {
             Some(c) => Self::price_inst_ctx(inst, &c, spot_mult, vol_add),

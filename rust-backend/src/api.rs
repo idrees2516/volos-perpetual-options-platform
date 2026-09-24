@@ -11,7 +11,7 @@ use crate::rfqs;
 use crate::strategies::{self, StrategySpec};
 use crate::trading::{self, L1Dto, TradingEngine};
 use crate::venues::{SharedLive, VenuePool};
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::Json;

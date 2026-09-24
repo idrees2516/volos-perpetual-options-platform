@@ -1,7 +1,7 @@
 'use client';
 
 // VolOS — perpetual options strategy terminal.
-// Single-page app: Builder / Intent Wizard / Option Chain / Research.
+// Single-page app: Builder / Intent Wizard / Option Chain / Strategy Library / Trading.
 
 import React, { useState } from 'react';
 import { MarketProvider } from '@/hooks/use-market';
@@ -9,7 +9,8 @@ import { TopBar, type ViewId } from '@/components/terminal/topbar';
 import { BuilderView } from '@/components/terminal/builder-view';
 import { WizardView } from '@/components/terminal/wizard-view';
 import { ChainView } from '@/components/terminal/chain-view';
-import { ResearchView } from '@/components/terminal/research-view';
+import { StrategyLibraryView } from '@/components/terminal/strategy-library-view';
+import { TradeView } from '@/components/terminal/trade-view';
 
 function Terminal() {
   const [view, setView] = useState<ViewId>('builder');
@@ -21,15 +22,18 @@ function Terminal() {
         {view === 'builder' && <BuilderView />}
         {view === 'wizard' && <WizardView onOpenBuilder={() => setView('builder')} />}
         {view === 'chain' && <ChainView onOpenBuilder={() => setView('builder')} />}
-        {view === 'research' && <ResearchView />}
+        {view === 'library' && (
+          <StrategyLibraryView onOpenBuilder={() => setView('builder')} onOpenTrade={() => setView('trade')} />
+        )}
+        {view === 'trade' && <TradeView onOpenBuilder={() => setView('builder')} />}
       </main>
       <footer className="border-t border-zinc-800/60 px-4 py-2.5">
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-2 text-[9px] text-zinc-600">
           <p>
-            VolOS — perpetual options strategy terminal. Simulated market data; research prototype, not investment advice.
+            VolOS — perpetual options terminal. Simulated market data; research prototype, not investment advice.
           </p>
           <p className="font-mono">
-            rust engine: axum · black-scholes · svi · everlasting baskets &nbsp;|&nbsp; frontend: next.js 16.3.4
+            rust engine: axum · clob · svi · everlasting · 118 strategies/25 legs &nbsp;|&nbsp; frontend: next.js 16.3.4
           </p>
         </div>
       </footer>

@@ -14,7 +14,6 @@
 use crate::clob::Side;
 use crate::models::ValidLeg;
 use crate::venues::RouteChild;
-use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -192,6 +191,10 @@ impl RfqBook {
             }
             return;
         }
+        // Package theo noise scales with leg count: a 25-leg structure moves
+        // more between refreshes than a single leg, so the pull threshold
+        // widens with sqrt(legs) — dealers stay firm on real moves only.
+        let pull_bps_eff = PULL_BPS * (1.0 + (sess.legs.len() as f64).sqrt() - 1.0).max(0.0).min(4.0);
         let theo_move_bps = if sess.theo.abs() > 1e-9 {
             (current_theo - sess.theo) / sess.theo.abs() * 10_000.0
         } else {
@@ -208,7 +211,7 @@ impl RfqBook {
                         QuoteStatus::Live => {
                             now_ms > q.valid_until_ms
                                 || (q.issued_theo.abs() > 1e-9
-                                    && ((current_theo - q.issued_theo) / q.issued_theo.abs() * 10_000.0).abs() > PULL_BPS)
+                                    && ((current_theo - q.issued_theo) / q.issued_theo.abs() * 10_000.0).abs() > pull_bps_eff)
                         }
                         _ => true,
                     }
@@ -216,8 +219,13 @@ impl RfqBook {
             };
             if let Some(q) = cur.as_ref() {
                 if q.status == QuoteStatus::Pending && now_ms >= q.arrived_ms && now_ms <= q.valid_until_ms {
+                    // Arrival: a quote whose issuing theo has since moved
+                    // beyond PULL_BPS is pulled on arrival, not shown live.
+                    let stale = q.issued_theo.abs() > 1e-9
+                        && ((current_theo - q.issued_theo) / q.issued_theo.abs() * 10_000.0).abs()
+                            > pull_bps_eff;
                     if let Some(qm) = sess.quotes.iter_mut().rev().find(|qq| qq.dealer == d.name) {
-                        qm.status = QuoteStatus::Live;
+                        qm.status = if stale { QuoteStatus::Pulled } else { QuoteStatus::Live };
                     }
                     continue;
                 }
@@ -275,6 +283,7 @@ impl RfqBook {
         let _ = theo_move_bps;
     }
 
+    #[allow(dead_code)] // exercised by unit tests
     /// Best live quote for the taker (lowest ask if buying, highest bid if selling).
     pub fn best_quote(&self, id: u64, now_ms: u64) -> Option<&FirmQuote> {
         let sess = self.sessions.get(&id)?;

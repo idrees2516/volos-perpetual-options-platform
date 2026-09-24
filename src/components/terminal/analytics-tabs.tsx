@@ -40,6 +40,7 @@ export function AnalyticsTabs({ analysis, legs, underlying, market, size }: Anal
         </TabsTrigger>
         <TabsTrigger value="quote" className="h-7 shrink-0 gap-1.5 whitespace-nowrap px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-teal-300">
           <Radio className="h-3 w-3" /> Strategy RFQ
+          <span className="font-mono text-[9px] text-zinc-500">{legs.length}/25</span>
         </TabsTrigger>
       </TabsList>
       <TabsContent value="scenario" className="mt-2">

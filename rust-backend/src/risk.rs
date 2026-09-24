@@ -281,7 +281,7 @@ mod tests {
         let inst = test_inst("X");
         let mut a = acct();
         a.apply_fill(&inst, Side::Buy, 10.0, 2.0, 0.1, 0.0);
-        assert!((a.balance - (20.0 + 0.1)).abs() < 1e-9);
+        assert!((a.balance - (100_000.0 - 20.0 - 0.1)).abs() < 1e-9);
         let p = a.positions["X"].clone();
         assert!((p.qty - 2.0).abs() < 1e-9 && (p.avg_cost - 10.0).abs() < 1e-9);
         a.apply_fill(&inst, Side::Sell, 12.0, 1.0, 0.05, 0.0);

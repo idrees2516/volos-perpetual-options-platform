@@ -12,7 +12,7 @@
 //!   (mark = last trade or theoretical) are rejected, not matched.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 
 // ------------------------------------------------------------------ types
 
@@ -66,6 +66,7 @@ pub enum StpPolicy {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)] // Expired/other variants reserved for future flows
 pub enum OrderStatus {
     Pending,    // stop orders waiting for trigger
     Open,       // resting on the book
@@ -78,6 +79,7 @@ pub enum OrderStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)] // full reject vocabulary is API surface
 pub enum RejectReason {
     InvalidPrice,
     InvalidQty,
@@ -238,6 +240,7 @@ pub struct OrderBook {
     pub seq: u64,
 }
 
+#[allow(dead_code)] // L1/mid snapshots + counts are public API surface
 impl OrderBook {
     pub fn new(instrument: String) -> Self {
         OrderBook {
@@ -427,6 +430,7 @@ pub struct Level {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct L1 {
     pub instrument: String,
     pub bid: Option<f64>,
@@ -468,6 +472,7 @@ pub struct ExecOutcome {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // taker_id kept for audit-grade event records
 pub struct Fill {
     pub trade: Trade,
     pub maker_id: u64,
@@ -808,7 +813,10 @@ impl MatchingEngine {
 
         // residual handling
         if order.remaining_lots() > 0 {
-            if is_ioc || is_market || order.kind == OrderKind::Fok {
+            if order.status == OrderStatus::Canceled {
+                // self-trade prevention (CANCEL_NEWEST) stopped the incoming
+                // order — it must NOT rest on the book.
+            } else if is_ioc || is_market || order.kind == OrderKind::Fok {
                 order.status = if order.filled_lots > 0 {
                     OrderStatus::Canceled
                 } else {
@@ -993,7 +1001,7 @@ impl MatchingEngine {
             lots: replaced.remaining_lots(),
             stp: replaced.stp,
         };
-        let out = self.place(req, usize::MAX - 1, Ok(()), sink);
+        let out = self.place(req, 0, Ok(()), sink);
         let mut o = out.order;
         // keep the original order id for UX continuity
         if o.status == OrderStatus::Open || o.status == OrderStatus::Partially {
@@ -1026,7 +1034,7 @@ impl MatchingEngine {
             lots: order.remaining_lots(),
             stp: order.stp,
         };
-        let out = self.place(req, usize::MAX - 1, Ok(()), sink);
+        let out = self.place(req, 0, Ok(()), sink);
         out
     }
 }
@@ -1087,12 +1095,16 @@ mod tests {
         let i = inst();
         let mut e = MatchingEngine::new(i);
         let mut s = NoopSink;
-        e.place(req(Side::Sell, OrderKind::Limit, 5200.0, 1.0), 0, Ok(()), &mut s);
-        e.place(req(Side::Sell, OrderKind::Limit, 5200.0, 1.0), 0, Ok(()), &mut s);
+        let mut m1 = req(Side::Sell, OrderKind::Limit, 5200.0, 1.0);
+        m1.account = "m1".into();
+        e.place(m1, 0, Ok(()), &mut s);
+        let mut m2 = req(Side::Sell, OrderKind::Limit, 5200.0, 1.0);
+        m2.account = "m2".into();
+        e.place(m2, 0, Ok(()), &mut s);
         // taker crosses 1.5 → fills both makers at 5200
         let out = e.place(req(Side::Buy, OrderKind::Limit, 5201.0, 1.5), 0, Ok(()), &mut s);
         assert_eq!(out.fills.len(), 2);
-        assert_eq!(out.order.status, OrderStatus::Partially);
+        assert_eq!(out.order.status, OrderStatus::Filled);
         assert_eq!(out.order.filled_lots, 150);
         assert!((out.order.avg_fill_price - 5200.0).abs() < 1e-9);
     }
@@ -1116,7 +1128,9 @@ mod tests {
         let i = inst();
         let mut e = MatchingEngine::new(i);
         let mut s = NoopSink;
-        e.place(req(Side::Sell, OrderKind::Limit, 5200.0, 1.0), 0, Ok(()), &mut s);
+        let mut m = req(Side::Sell, OrderKind::Limit, 5200.0, 1.0);
+        m.account = "m".into();
+        e.place(m, 0, Ok(()), &mut s);
         // IOC for 2.0 → fills 1.0, cancels rest
         let out = e.place(req(Side::Buy, OrderKind::Ioc, 5200.0, 2.0), 0, Ok(()), &mut s);
         assert_eq!(out.order.filled_lots, 100);
@@ -1173,7 +1187,8 @@ mod tests {
         // amend price → priority lost (moves behind o2)
         let b = e.amend(&o1, Some(e.inst.ticks(5189.0)), 50, &mut s).unwrap();
         assert!(b.id > 0);
-        let best_level: &VecDeque<RestingOrder> = e.book.bids.levels.values().next().unwrap();
+        // bids: best level is the HIGHEST key in the BTreeMap
+        let best_level: &VecDeque<RestingOrder> = e.book.bids.levels.values().rev().next().unwrap();
         assert_eq!(best_level.front().unwrap().id, o2.id, "priority lost on reprice");
     }
 
@@ -1203,10 +1218,19 @@ mod tests {
         r4.account = "mm-b".into();
         r4.stp = StpPolicy::Decrement;
         e.place(r4, 0, Ok(()), &mut s);
-        let mut r5 = req(Side::Buy, OrderKind::Limit, 5210.0, 1.0);
+        let mut r5 = req(Side::Buy, OrderKind::Limit, 5210.0, 0.25);
         r5.account = "mm-a".into();
         r5.stp = StpPolicy::Decrement;
         let out5 = e.place(r5, 0, Ok(()), &mut s);
         assert!(out5.fills.is_empty(), "overlap decremented, no self-trade");
+        // mm-a's resting 1.0 was reduced by the 0.25 overlap → 0.75 rests
+        let ask_lots: u64 = e
+            .book
+            .asks
+            .levels
+            .get(&e.inst.ticks(5210.0))
+            .map(|q| q.iter().map(|o| o.lots).sum())
+            .unwrap_or(0);
+        assert_eq!(ask_lots, e.inst.lots(1.25), "mm-a reduced to 0.25, mm-b keeps 1.0");
     }
 }

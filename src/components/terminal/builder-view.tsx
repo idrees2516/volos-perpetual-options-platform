@@ -115,7 +115,7 @@ function EngineBadge({
   underlying: string;
   legs: { id: string; kind: string; side: string; qty: number; strike?: number; expiryDays?: number; fundingPeriodDays?: number }[];
   size: number;
-  localAnalysis: ReturnType<typeof analyzeStrategy>;
+  localAnalysis: ReturnType<typeof analyzeStrategy> | null;
 }) {
   const [state, setState] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
   const [result, setResult] = useState<RustAnalysis | null>(null);

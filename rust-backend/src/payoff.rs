@@ -9,7 +9,7 @@ use crate::pricing::{
     bs_greeks, everlasting_greeks, intrinsic, everlasting_funding, DAYS_PER_YEAR, Greeks,
     OptionType,
 };
-use crate::surface::{asset_config, atm_vol, iv_for_strike, AssetVolConfig};
+use crate::surface::{atm_vol, iv_for_strike, AssetVolConfig};
 
 pub struct MarketCtx {
     pub cfg: AssetVolConfig,
@@ -88,6 +88,7 @@ fn leg_horizon_pnl(l: &ResolvedLeg, s: f64, t_h: f64, iv_shift: f64, ctx: &Marke
     l.side_sign * (v - l.analytics.price)
 }
 
+#[allow(dead_code)] // analysis record kept for future engine parity
 pub struct StrategyAnalysis {
     pub legs: Vec<ResolvedLeg>,
     /// Common horizon in years (max dated expiry, else default 30d).
