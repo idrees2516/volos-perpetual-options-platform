@@ -4,11 +4,12 @@
 
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Waves, Activity, CircleDot, Layers, LineChart } from 'lucide-react';
+import { Waves, Activity, CircleDot, Layers, LineChart, Sparkles } from 'lucide-react';
 import type { UnderlyingId } from '@/lib/types';
 import { ASSET_META } from '@/lib/types';
 import { useMarket } from '@/hooks/use-market';
 import { useStrategy } from '@/stores/strategy-store';
+import { useCopilot } from '@/stores/copilot-store';
 import { fmtNum, fmtPctSigned } from '@/lib/format';
 
 export type ViewId = 'builder' | 'wizard' | 'chain' | 'library' | 'trade';
@@ -29,6 +30,7 @@ interface TopBarProps {
 export function TopBar({ view, onView }: TopBarProps) {
   const { market, smooth, connected, source, retry } = useMarket();
   const { underlying, setUnderlying } = useStrategy();
+  const { open: copilotOpen, toggle: toggleCopilot } = useCopilot();
 
   return (
     <header className="sticky top-0 z-40 border-b border-zinc-800/80 bg-[#05070a]/95 backdrop-blur">
@@ -86,6 +88,20 @@ export function TopBar({ view, onView }: TopBarProps) {
             );
           })}
         </div>
+
+        {/* AI Copilot toggle */}
+        <button
+          onClick={toggleCopilot}
+          title="VolOS Agentic Research Desk — AI agents for technical, chart, macro, volatility, profitability and strategy research"
+          className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition ${
+            copilotOpen
+              ? 'border-violet-500/50 bg-violet-950/60 text-violet-200 shadow-[0_0_14px_rgba(139,92,246,0.25)]'
+              : 'border-zinc-800 bg-zinc-900/50 text-zinc-400 hover:border-violet-800/60 hover:text-violet-300'
+          }`}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          AI Copilot
+        </button>
 
         {/* Engine status */}
         <button

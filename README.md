@@ -3,13 +3,62 @@
 A complete, production-style **perpetual options trading platform**: a Rust
 matching/trading engine with a Next.js terminal frontend. Strategy analytics,
 a full CLOB, strategy-level RFQ across a dealer network, multi-venue smart
-order routing (Derive / Paradex / Paradigm), portfolio risk — and a catalog
-of **118 pre-built strategies supporting up to 25 legs**.
+order routing (Derive / Paradex / Paradigm), portfolio risk — a catalog of
+**118 pre-built strategies supporting up to 25 legs** — and now a **deeply
+integrated agentic AI research desk** built on the **Vercel AI SDK**.
 
 > Research prototype. Simulated market data and liquidity (with live venue
 > anchoring when exchange APIs are reachable). Not investment advice.
 
 ---
+
+![VolOS walkthrough — every module + the agentic AI research desk](docs/assets/volos-agentic-ai-demo.gif)
+
+## The Agentic Research Desk (AI Copilot)
+
+An embedded **multi-agent options research team** running on the
+[Vercel AI SDK](https://sdk.vercel.ai) (`streamText` / `generateText`,
+multi-step tool-calling loops, `useChat` streaming), wired directly into the
+terminal's own analytics core:
+
+| Agent | Specialty | Toolset |
+|---|---|---|
+| 📈 **Trend Scout** — Technical Analyst | Trend structure, momentum, volume | market state · price history · indicator suite (EMA/RSI/MACD/Stoch/ADX/OBV/VWAP/ATR/Bollinger) |
+| 🕯️ **Pattern Hawk** — Chart Analyst | Price action & chart patterns | candlestick patterns (12) · S/R levels · trendlines · double top/bottom · H&S · triangles · channels · flags · Fibonacci |
+| 🦉 **Macro Owl** — Fundamental & Macro | Regimes, positioning, scenarios | market environment · funding/OI · cross-asset correlations · probability-weighted scenario map |
+| 🌊 **Vol Oracle** — Volatility Analyst | IV regime & relative value | IV term structure (7/30/90d) · 25Δ skew · HV vs IV · IV percentile & regime |
+| 🎯 **Risk Quant** — Profitability & Likelihood | Probability & expected value | Monte Carlo (up to 20k fat-tail paths) · POP/EV/breakevens · scenario stress · strategy comparison |
+| ⚒️ **Strategy Smith** — Strategy Architect | Trade design | 118-strategy catalog search · live-spot leg resolution · full strategy analytics · final ranking |
+
+A **Research Director** orchestrator (chat) understands intent, dispatches
+the right specialists, reconciles their findings, verifies economics and
+offers **one-click "Load into Strategy Builder"** for any recommendation.
+
+**Deep Research pipeline** — run the entire desk over an asset: the four
+research agents investigate sequentially, Risk Quant stress-tests likelihood,
+Strategy Smith designs the trade, and the Director streams a full
+**research dossier** (executive summary → technical/chart → macro/vol →
+likelihood → recommendation → risk notes) with loadable strategy cards.
+
+Two endpoints power it:
+
+- `POST /api/ai/copilot` — interactive Research Director chat
+  (`streamText` + tools + agent dispatch, AI SDK data stream → `useChat`)
+- `POST /api/ai/research` — the deep-research pipeline (NDJSON event stream:
+  stage progress, agent reports, strategy payloads, streaming dossier)
+
+**Provider bridge.** The agents run on a custom `LanguageModelV1` provider
+(`src/lib/ai/zai-provider.ts`) that adapts the z-ai-web-dev-sdk backend
+(GLM, OpenAI-compatible tool calling + SSE streaming) to the Vercel AI SDK —
+so the entire standard AI SDK toolkit works unchanged, with 429-aware retry
+and backoff built in.
+
+**Market intelligence engine** (`src/lib/ai/market-intel.ts`). Agents reason
+over the same market the terminal renders: seeded regime-switching GBM
+history (15m/1h/4h/1d OHLCV anchored to live spot), the full indicator
+suite, candlestick & chart pattern detection, volatility regime analysis,
+cross-asset correlation, environment scenarios and Monte Carlo simulation —
+all server-side, all consistent with the pricing core in `src/lib/pricing.ts`.
 
 ## What's inside
 
@@ -23,7 +72,7 @@ of **118 pre-built strategies supporting up to 25 legs**.
 | **Fees & equilibrium** (`fees.rs`) | — | Maker-taker schedule chosen so spread/2 − rebate ≥ adverse-selection + carry cost; inventory skew mean-reverts dealer inventory |
 | **Pricing core** (`pricing.rs`, `surface.rs`, `norm.rs`) | — | Black-Scholes-76 + Greeks, implied vol solver, Paradigm-paper-exact **everlasting options** (2⁻ⁿ weighted equivalent portfolio), SVI vol surface with term structure per asset (BTC/ETH/SOL) |
 | **Strategy catalog** (`strategies.rs` + shared `strategies.json`) | — | **118 strategies, 1–25 legs**, parametric strikes (multipliers of live spot), 7 families: direction / income / volatility / protection / spreads / perpetual-native / multi-leg monsters |
-| **Terminal** (`src/`) | Next.js 16, React 19, Tailwind, zustand | Strategy builder with interactive payoff canvas, intent wizard, option chain, **strategy library**, **trading view** (ticket + L2 book + tape + orders + positions + risk), RFQ desk, venue router panel — all wired to the Rust engine via REST + SSE |
+| **Terminal** (`src/`) | Next.js 16, React 19, Tailwind, zustand, **Vercel AI SDK** | Strategy builder with interactive payoff canvas, intent wizard, option chain, **strategy library**, **trading view** (ticket + L2 book + tape + orders + positions + risk), RFQ desk, venue router panel — and the **Agentic Research Desk**: 6 AI agents (technical · chart · macro · vol · profitability · strategy) with deep-research pipeline and one-click strategy loading |
 
 ## Quickstart
 
@@ -129,6 +178,17 @@ GET  /api/v1/risk                              margin, Greeks, limits, health
 GET  /api/v1/fees                              fee schedule + equilibrium notes
 ```
 
+### Agentic AI endpoints (Next.js, port 3000)
+
+```
+POST /api/ai/copilot                           Research Director chat — multi-step
+                                               agentic loop, agent dispatch, strategy
+                                               loading; AI SDK data stream
+POST /api/ai/research                          Deep Research pipeline — NDJSON events:
+                                               stages, agent reports, strategy
+                                               payloads, streaming dossier
+```
+
 ## Project structure
 
 ```
@@ -156,6 +216,10 @@ GET  /api/v1/fees                              fee schedule + equilibrium notes
 ├── scripts/
 │   └── gen_strategies.py      # catalog generator + validator (≥100, ≤25 legs)
 ├── src/                       # Next.js terminal (see src/components/terminal/)
+│   ├── app/api/ai/            # agentic endpoints: /copilot (chat) · /research (pipeline)
+│   ├── components/terminal/copilot/  # Agentic Research Desk UI
+│   ├── lib/ai/                # zai-provider · market-intel · agent-tools · agents
+│   ├── stores/copilot-store.ts        # copilot panel + deep-research state
 │   └── lib/strategies.json    # catalog mirror for the frontend
 └── tests/                     # runtime scripts
 ```
