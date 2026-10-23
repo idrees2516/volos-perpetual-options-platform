@@ -914,19 +914,82 @@ function interpSurface(
   return Math.min(Math.max(atm + adj, 0.08), 4);
 }
 
+const PARADEX_BRIDGE = process.env.PARADEX_BRIDGE_URL ?? 'http://127.0.0.1:3100';
+
+/** One real Paradex market summary pushed by the SBE bridge (1 frame/sec/market). */
+export interface ParadexQuote {
+  market: string;
+  ts: number;
+  markPrice: number | null;
+  indexPrice: number | null;
+  lastPrice: number | null;
+  volumeUsd24h: number | null;
+  openInterest: number | null;
+  bid: number | null;
+  ask: number | null;
+  bidSize: number | null;
+  askSize: number | null;
+  markIv: number | null; // fraction, e.g. 0.3652
+  bidIv: number | null;
+  askIv: number | null;
+  delta: number | null;
+  gamma: number | null;
+  vega: number | null;
+  theta: number | null;
+  forwardRate: number | null;
+}
+
+async function bridgeFetch<T>(path: string, init?: RequestInit, timeoutMs = 4000): Promise<T> {
+  return fetchJson<T>(`${PARADEX_BRIDGE}${path}`, timeoutMs, init);
+}
+
+/** Is the local Paradex SBE bridge process up and connected? (cached 20s) */
+export function paradexBridgeHealth(): Promise<boolean> {
+  return cached('paradex:bridge:health', 20_000, async () => {
+    const h = await bridgeFetch<{ connected?: boolean }>('/health');
+    return h.connected === true;
+  }).catch(() => false);
+}
+
+/** Ask the bridge to keep streaming these markets, then pull fresh snapshots. */
+export async function paradexLiveQuotes(markets: string[]): Promise<Map<string, ParadexQuote>> {
+  const out = new Map<string, ParadexQuote>();
+  if (markets.length === 0) return out;
+  await bridgeFetch('/ensure', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ markets: markets.slice(0, 400) }),
+  });
+  // frames arrive ~1/sec per market — poll until coverage stalls
+  const wanted = new Set(markets);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await new Promise((r) => setTimeout(r, attempt === 0 ? 1300 : 1100));
+    const snap = await bridgeFetch<{ quotes: Record<string, ParadexQuote> }>(
+      `/snapshot?markets=${encodeURIComponent(markets.slice(0, 200).join(','))}`,
+    );
+    for (const [m, q] of Object.entries(snap.quotes ?? {})) {
+      if (wanted.has(m) && q && (q.bid != null || q.ask != null || q.markPrice != null)) out.set(m, q);
+    }
+    // good coverage (or second attempt with stable count) → stop early
+    if (out.size >= Math.min(markets.length, 24) && attempt >= 1) break;
+    if (out.size >= markets.length * 0.7) break;
+  }
+  return out;
+}
+
 export async function paradexChain(asset: FeedAsset, expiryLabel?: string): Promise<VenueChain> {
   const t0 = Date.now();
   const all = await paradexMarkets();
   const opts = all.filter((m) => m.asset_kind === 'OPTION');
   const now = Date.now();
 
-  const byExpiry = new Map<string, { strike: number; isCall: boolean; expiryAt: number }[]>();
+  const byExpiry = new Map<string, { strike: number; isCall: boolean; expiryAt: number; symbol: string }[]>();
   for (const m of opts) {
     const p = parseParadexSymbol(m.symbol);
     if (!p || p.asset !== asset || !m.expiry_at) continue;
     const label = msToExpiryLabel(m.expiry_at);
     const arr = byExpiry.get(label) ?? [];
-    arr.push({ strike: p.strike, isCall: p.isCall, expiryAt: m.expiry_at });
+    arr.push({ strike: p.strike, isCall: p.isCall, expiryAt: m.expiry_at, symbol: m.symbol });
     byExpiry.set(label, arr);
   }
   const expiryLabels = [...byExpiry.keys()]
@@ -940,14 +1003,84 @@ export async function paradexChain(asset: FeedAsset, expiryLabel?: string): Prom
     expiryLabels.slice(0, 8).find((e) => e.ms > now + 86_400_000 * 2)?.label ??
     expiryLabels[0].label;
 
-  const expiryMs = Math.max(...(byExpiry.get(pick) ?? []).map((x) => x.expiryAt), parseExpiryLabel(pick));
+  const items = byExpiry.get(pick) ?? [];
+  const expiryMs = Math.max(...items.map((x) => x.expiryAt), parseExpiryLabel(pick));
   const t = Math.max((expiryMs - now) / 365 / 86_400_000, 1 / (365 * 24 * 8));
-  const { byExpiry: surface, spot } = await deribitSurface(asset);
+
+  // ---- REAL quotes through the SBE bridge (bid/ask/IV/greeks/OI, 1fps) ----
+  try {
+    const quotes = await paradexLiveQuotes(items.map((x) => x.symbol));
+    if (quotes.size >= Math.min(6, items.length)) {
+      const anyQ = quotes.values().next().value!;
+      const spot = anyQ.indexPrice ?? (await deribitSpot(asset));
+      const cfg = VOL_CONFIG[asset] ?? VOL_CONFIG.BTC;
+      const fwd = anyQ.forwardRate != null ? spot * (1 + anyQ.forwardRate * t) : forwardPrice(cfg, spot, t);
+
+      const rowMap = new Map<number, VenueChainRow>();
+      for (const item of items) {
+        const q = quotes.get(item.symbol);
+        const row =
+          rowMap.get(item.strike) ??
+          ({
+            strike: item.strike,
+            callIv: 0, callPrice: 0, callDelta: 0, callOi: 0, callVolume: 0,
+            putIv: 0, putPrice: 0, putDelta: 0, putOi: 0, putVolume: 0,
+            isAtm: false,
+          } satisfies VenueChainRow);
+        const iv = q?.markIv ?? 0;
+        if (item.isCall) {
+          if (q) {
+            row.callIv = iv > 0 ? iv * 100 : 0;
+            row.callPrice = q.markPrice ?? (iv > 0 ? bsPrice(spot, item.strike, t, iv, true) : 0);
+            row.callDelta = q.delta ?? 0;
+            row.callOi = q.openInterest ?? 0;
+            row.callVolume = q.volumeUsd24h ?? 0;
+            if (q.bid != null && q.bid > 0) row.callBid = q.bid;
+            if (q.ask != null && q.ask > 0) row.callAsk = q.ask;
+          }
+        } else if (q) {
+          row.putIv = iv > 0 ? iv * 100 : 0;
+          row.putPrice = q.markPrice ?? (iv > 0 ? bsPrice(spot, item.strike, t, iv, false) : 0);
+          row.putDelta = q.delta ?? 0;
+          row.putOi = q.openInterest ?? 0;
+          row.putVolume = q.volumeUsd24h ?? 0;
+          if (q.bid != null && q.bid > 0) row.putBid = q.bid;
+          if (q.ask != null && q.ask > 0) row.putAsk = q.ask;
+        }
+        rowMap.set(item.strike, row);
+      }
+
+      const rows = buildRows(rowMap, spot, fwd);
+      const quoted = rows.filter((r) => r.callBid || r.putBid || r.callAsk || r.putAsk).length;
+      if (quoted >= Math.min(4, rows.length)) {
+        return {
+          venue: 'paradex',
+          asset,
+          expiry: pick,
+          expiryMs,
+          daysOut: daysOut(expiryMs),
+          spot,
+          forward: fwd,
+          atmIv: rows.find((r) => r.isAtm)?.callIv ?? 50,
+          rows,
+          quoteSource: 'live',
+          instrumentCount: opts.length,
+          fetchMs: Date.now() - t0,
+          tsMs: Date.now(),
+        };
+      }
+    }
+  } catch {
+    // bridge down → fall through to the derived-surface fallback below
+  }
+
+  // ---- fallback: real listings priced off the live Deribit IV surface ----
+  const spot = await deribitSpot(asset);
   const cfg = VOL_CONFIG[asset] ?? VOL_CONFIG.BTC;
   const fwd = forwardPrice(cfg, spot, t);
-
+  const { byExpiry: surface } = await deribitSurface(asset);
   const rowMap = new Map<number, VenueChainRow>();
-  for (const item of byExpiry.get(pick) ?? []) {
+  for (const item of items) {
     const iv = interpSurface(surface, expiryMs, item.strike, spot, item.isCall);
     const row =
       rowMap.get(item.strike) ??
@@ -989,63 +1122,144 @@ export async function paradexChain(asset: FeedAsset, expiryLabel?: string): Prom
 }
 
 // =============================================================================
-// DERIVE v3 (ex-Lyra) — JSON-RPC adapter. The documented public host is
-// probed each call; when unreachable the venue reports 'unreachable' and
-// callers fall back to other venues.
+// DERIVE v3 (ex-Lyra) — REAL quotes from the v3 JSON-RPC REST API
+// (https://api.derive.xyz/v3). Instruments: BTC-20261024-83000-P (YYYYMMDD).
+// public/get_all_instruments → universe; public/get_tickers → per-expiry
+// snapshot with real bid/ask (price + size), IV, greeks, OI, volume, mark.
 // =============================================================================
 
-interface DeriveInstrument {
+interface DeriveV3Instrument {
   instrument_name: string;
+  instrument_type: string;
   is_active: boolean;
+  option_details: {
+    index: string;
+    expiry: number; // unix seconds, 08:00 UTC
+    strike: string;
+    option_type: 'C' | 'P';
+    settlement_price: number | null;
+  } | null;
 }
 
-async function deriveRpc<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-  const res = await fetch(`https://api.derive.xyz/${method}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-    signal: AbortSignal.timeout(8000),
-    cache: 'no-store',
+interface DeriveV3Ticker {
+  t: number;
+  b: string; // best bid price (USDC)
+  B: string; // best bid amount (underlying)
+  a: string; // best ask price
+  A: string; // best ask amount
+  I: string; // index price
+  M: string; // mark price
+  option_pricing: {
+    d: string; // delta
+    g: string; // gamma
+    v: string; // vega
+    t: string; // theta
+    r: string; // rho
+    i: string; // IV fraction
+    f: string; // forward
+    m: string; // model price
+  };
+  stats: { oi: string; v: string; n: number; h: string; l: string; c: string };
+}
+
+async function deriveV3Rpc<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  const r = await fetchJson<{ result?: T; error?: { message?: string } }>(
+    `https://api.derive.xyz/v3/${method}`,
+    12_000,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) },
+  );
+  if (r?.error) throw new Error(`derive v3: ${r.error.message ?? 'rpc error'}`);
+  if (r && typeof r === 'object' && 'result' in r) return r.result as T;
+  throw new Error(`derive v3: empty ${method}`);
+}
+
+function ymdToLabel(ymd: string): string {
+  // "20261024" → "24OCT26"
+  return msToExpiryLabel(Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(4, 6)) - 1, Number(ymd.slice(6, 8)), 8, 0, 0));
+}
+
+function labelToYmd(label: string): number {
+  const ms = parseExpiryLabel(label);
+  if (!ms) return 0;
+  const d = new Date(ms);
+  return Number(
+    `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`,
+  );
+}
+
+/** Live option instrument universe for an asset (cached 10 min). */
+export function deriveInstruments(asset: FeedAsset): Promise<DeriveV3Instrument[]> {
+  return cached(`derive:insts:${asset}`, 600_000, async () => {
+    const r = await deriveV3Rpc<{ instruments: DeriveV3Instrument[] }>('public/get_all_instruments', {
+      currency: asset,
+      expired: false,
+      instrument_type: 'option',
+      page_size: 1000,
+    });
+    const now = Date.now();
+    return (r.instruments ?? []).filter(
+      (i) => i.is_active && i.option_details && i.option_details.expiry * 1000 > now - 3_600_000,
+    );
   });
-  if (!res.ok) throw new Error(`derive host ${res.status}`);
-  return (await res.json()) as T;
+}
+
+/** Real per-expiry tickers (cached 10s). Keyed by instrument name. */
+export function deriveTickers(asset: FeedAsset, ymd: number): Promise<Map<string, DeriveV3Ticker>> {
+  return cached(`derive:tickers:${asset}:${ymd}`, 10_000, async () => {
+    const r = await deriveV3Rpc<{ tickers: Record<string, DeriveV3Ticker> }>('public/get_tickers', {
+      instrument_type: 'option',
+      currency: asset,
+      expiry_date: ymd,
+    });
+    return new Map(Object.entries(r.tickers ?? {}));
+  });
 }
 
 export async function deriveChain(asset: FeedAsset, expiryLabel?: string): Promise<VenueChain> {
   const t0 = Date.now();
-  const r = await deriveRpc<{ result?: { instruments?: DeriveInstrument[] } }>('public/get_instruments', {
-    currency: asset,
-    expired: false,
-    instrument_type: 'option',
-  });
-  const instruments = r.result?.instruments ?? [];
-  if (instruments.length === 0) throw new Error('derive: no instruments');
-  const spot = await deribitSpot(asset);
-  const now = Date.now();
+  const instruments = await deriveInstruments(asset);
+  if (instruments.length === 0) throw new Error('derive: no live option instruments');
 
-  const byExpiry = new Map<string, { strike: number; isCall: boolean }[]>();
+  const now = Date.now();
+  const byExpiry = new Map<string, { strike: number; isCall: boolean; expiryMs: number }[]>();
   for (const inst of instruments) {
-    const m = /^([A-Z]+)-(\d{1,2}[A-Z]{3}\d{2})-(\d+)-([CP])$/.exec(inst.instrument_name);
-    if (!m) continue;
-    const arr = byExpiry.get(m[2]) ?? [];
-    arr.push({ strike: Number(m[3]), isCall: m[4] === 'C' });
-    byExpiry.set(m[2], arr);
+    const m = /^([A-Z]+)-(\d{8})-(\d+)-([CP])$/.exec(inst.instrument_name);
+    if (!m || m[1] !== asset) continue;
+    const label = ymdToLabel(m[2]);
+    const expiryMs = inst.option_details!.expiry * 1000;
+    const arr = byExpiry.get(label) ?? [];
+    arr.push({ strike: Number(m[3]), isCall: m[4] === 'C', expiryMs });
+    byExpiry.set(label, arr);
   }
   const expiryLabels = [...byExpiry.keys()]
     .map((label) => ({ label, ms: parseExpiryLabel(label) }))
     .filter((x) => x.ms > now - 3_600_000)
     .sort((a, b) => a.ms - b.ms);
   if (expiryLabels.length === 0) throw new Error('derive: no live expiries');
-  const pick = (expiryLabel && byExpiry.has(expiryLabel) ? expiryLabel : null) ?? expiryLabels[0].label;
-  const expiryMs = parseExpiryLabel(pick);
-  const t = Math.max((expiryMs - now) / 365 / 86_400_000, 1 / (365 * 24 * 8));
-  const cfg = VOL_CONFIG[asset] ?? VOL_CONFIG.BTC;
-  const fwd = forwardPrice(cfg, spot, t);
 
-  const { byExpiry: surface } = await deribitSurface(asset);
+  const pick =
+    (expiryLabel && byExpiry.has(expiryLabel) ? expiryLabel : null) ??
+    expiryLabels.slice(0, 8).find((e) => e.ms > now + 86_400_000)?.label ??
+    expiryLabels[0].label;
+
+  const items = byExpiry.get(pick) ?? [];
+  const expiryMs = items[0]?.expiryMs ?? parseExpiryLabel(pick);
+  const t = Math.max((expiryMs - now) / 365 / 86_400_000, 1 / (365 * 24 * 8));
+  const ymd = labelToYmd(pick);
+
+  const tickers = await deriveTickers(asset, ymd);
+  if (tickers.size === 0) throw new Error('derive: no tickers for expiry');
+
+  // index + forward from any ticker (all share the index)
+  const first = tickers.values().next().value;
+  const spot = Number(first?.I ?? 0) || (await deribitSpot(asset));
+  const cfg = VOL_CONFIG[asset] ?? VOL_CONFIG.BTC;
+  const fwd = Number(first?.option_pricing?.f ?? 0) || forwardPrice(cfg, spot, t);
+
   const rowMap = new Map<number, VenueChainRow>();
-  for (const item of byExpiry.get(pick) ?? []) {
-    const iv = interpSurface(surface, expiryMs, item.strike, spot, item.isCall);
+  for (const item of items) {
+    const name = `${asset}-${ymd}-${item.strike}-${item.isCall ? 'C' : 'P'}`;
+    const tk = tickers.get(name);
     const row =
       rowMap.get(item.strike) ??
       ({
@@ -1054,18 +1268,38 @@ export async function deriveChain(asset: FeedAsset, expiryLabel?: string): Promi
         putIv: 0, putPrice: 0, putDelta: 0, putOi: 0, putVolume: 0,
         isAtm: false,
       } satisfies VenueChainRow);
-    if (item.isCall) {
-      row.callIv = iv * 100;
-      row.callPrice = bsPrice(spot, item.strike, t, iv, true);
-      row.callDelta = bsDelta(spot, item.strike, t, iv, true);
-    } else {
-      row.putIv = iv * 100;
-      row.putPrice = bsPrice(spot, item.strike, t, iv, false);
-      row.putDelta = bsDelta(spot, item.strike, t, iv, false);
+    if (tk) {
+      const iv = Number(tk.option_pricing?.i ?? 0);
+      const ivPct = iv > 0 && iv < 5 ? iv * 100 : 0;
+      const mark = Number(tk.M ?? 0);
+      const bid = Number(tk.b ?? 0);
+      const ask = Number(tk.a ?? 0);
+      const delta = Number(tk.option_pricing?.d ?? 0);
+      const oi = Number(tk.stats?.oi ?? 0);
+      const vol = Number(tk.stats?.v ?? 0);
+      if (item.isCall) {
+        row.callIv = ivPct;
+        row.callPrice = mark || (iv > 0 ? bsPrice(spot, item.strike, t, iv, true) : 0);
+        row.callDelta = delta;
+        row.callOi = oi;
+        row.callVolume = vol;
+        if (bid > 0) row.callBid = bid;
+        if (ask > 0) row.callAsk = ask;
+      } else {
+        row.putIv = ivPct;
+        row.putPrice = mark || (iv > 0 ? bsPrice(spot, item.strike, t, iv, false) : 0);
+        row.putDelta = delta;
+        row.putOi = oi;
+        row.putVolume = vol;
+        if (bid > 0) row.putBid = bid;
+        if (ask > 0) row.putAsk = ask;
+      }
     }
     rowMap.set(item.strike, row);
   }
+
   const rows = buildRows(rowMap, spot, fwd);
+  if (rows.length === 0) throw new Error('derive: empty chain');
   return {
     venue: 'derive',
     asset,
@@ -1076,7 +1310,7 @@ export async function deriveChain(asset: FeedAsset, expiryLabel?: string): Promi
     forward: fwd,
     atmIv: rows.find((x) => x.isAtm)?.callIv ?? 50,
     rows,
-    quoteSource: 'derived',
+    quoteSource: 'live',
     instrumentCount: instruments.length,
     fetchMs: Date.now() - t0,
     tsMs: Date.now(),
@@ -1374,6 +1608,41 @@ export async function getVenueExpiries(
         const p = parseDeribName(s.instrument_name);
         if (!p || p.asset !== asset) continue;
         counts.set(p.expiry, (counts.get(p.expiry) ?? 0) + 1);
+      }
+      const now = Date.now();
+      expiries.length = 0;
+      for (const [label, n] of counts) {
+        const ms = parseExpiryLabel(label);
+        if (ms < now - 3_600_000) continue;
+        expiries.push({ label, ms, daysOut: daysOut(ms), instruments: n });
+      }
+      expiries.sort((a, b) => a.ms - b.ms);
+    } else if (venue === 'derive') {
+      const instruments = await deriveInstruments(asset);
+      const counts = new Map<string, number>();
+      for (const inst of instruments) {
+        const m = /^([A-Z]+)-(\d{8})-(\d+)-([CP])$/.exec(inst.instrument_name);
+        if (!m || m[1] !== asset) continue;
+        const label = ymdToLabel(m[2]);
+        counts.set(label, (counts.get(label) ?? 0) + 1);
+      }
+      const now = Date.now();
+      expiries.length = 0;
+      for (const [label, n] of counts) {
+        const ms = parseExpiryLabel(label);
+        if (ms < now - 3_600_000) continue;
+        expiries.push({ label, ms, daysOut: daysOut(ms), instruments: n });
+      }
+      expiries.sort((a, b) => a.ms - b.ms);
+    } else if (venue === 'paradex') {
+      const all = await paradexMarkets();
+      const counts = new Map<string, number>();
+      for (const mkt of all) {
+        if (mkt.asset_kind !== 'OPTION') continue;
+        const p = parseParadexSymbol(mkt.symbol);
+        if (!p || p.asset !== asset || !mkt.expiry_at) continue;
+        const label = msToExpiryLabel(mkt.expiry_at);
+        counts.set(label, (counts.get(label) ?? 0) + 1);
       }
       const now = Date.now();
       expiries.length = 0;

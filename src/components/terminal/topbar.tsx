@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Waves, Activity, CircleDot, Layers, LineChart, Sparkles } from 'lucide-react';
+import { Waves, Activity, CircleDot, Layers, LineChart, Sparkles, FlaskConical } from 'lucide-react';
 import type { UnderlyingId } from '@/lib/types';
 import { ASSET_META } from '@/lib/types';
 import { useMarket } from '@/hooks/use-market';
@@ -12,7 +12,7 @@ import { useStrategy } from '@/stores/strategy-store';
 import { useCopilot } from '@/stores/copilot-store';
 import { fmtNum, fmtPctSigned } from '@/lib/format';
 
-export type ViewId = 'builder' | 'wizard' | 'chain' | 'library' | 'trade';
+export type ViewId = 'builder' | 'wizard' | 'chain' | 'library' | 'trade' | 'paper';
 
 const NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
   { id: 'builder', label: 'Strategy Builder', icon: <Waves className="h-3.5 w-3.5" /> },
@@ -20,6 +20,7 @@ const NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
   { id: 'chain', label: 'Option Chain', icon: <CircleDot className="h-3.5 w-3.5" /> },
   { id: 'library', label: 'Strategy Library', icon: <Layers className="h-3.5 w-3.5" /> },
   { id: 'trade', label: 'Trading', icon: <LineChart className="h-3.5 w-3.5" /> },
+  { id: 'paper', label: 'Paper Desk', icon: <FlaskConical className="h-3.5 w-3.5" /> },
 ];
 
 interface TopBarProps {

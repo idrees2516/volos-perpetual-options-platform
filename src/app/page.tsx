@@ -12,6 +12,7 @@ import { WizardView } from '@/components/terminal/wizard-view';
 import { ChainView } from '@/components/terminal/chain-view';
 import { StrategyLibraryView } from '@/components/terminal/strategy-library-view';
 import { TradeView } from '@/components/terminal/trade-view';
+import { PaperView } from '@/components/terminal/paper-view';
 import { CopilotPanel, MarketSpotBridge } from '@/components/terminal/copilot/copilot-panel';
 import { useCopilot } from '@/stores/copilot-store';
 
@@ -35,6 +36,7 @@ function Terminal() {
             <StrategyLibraryView onOpenBuilder={() => setView('builder')} onOpenTrade={() => setView('trade')} />
           )}
           {view === 'trade' && <TradeView onOpenBuilder={() => setView('builder')} />}
+          {view === 'paper' && <PaperView />}
         </main>
         <CopilotPanel view={view} onView={setView} />
       </div>

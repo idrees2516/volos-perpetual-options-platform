@@ -39,6 +39,15 @@ import {
   type VenueId,
 } from './exchange-feeds';
 import { runBacktest, legsToSpecs, type BacktestLegSpec } from './backtest';
+import {
+  getPaperAccount,
+  placePaperOrder,
+  closePaperPosition,
+  deployPaperStrategy,
+  resolveOptionQuote,
+  type PaperKind,
+  type PaperSide,
+} from './paper';
 import { scan0dte, planMultihop, proposeMultileg } from './tactics';
 
 const TIMEFRAMES: Timeframe[] = ['15m', '1h', '4h', '1d'];
@@ -783,7 +792,7 @@ export const marketTools = {
           bestAskVenue: q.bestAskVenue,
         })),
         routingNote:
-          'sells should hit the best bid venue, buys the best ask venue; Paradex quotes are derived from the live cross-venue IV surface (its quote API needs auth)',
+          'sells should hit the best bid venue, buys the best ask venue; all six venues serve native live quotes (Paradex via its SBE stream, Derive v3 via its JSON-RPC tickers)',
       };
     },
   }),
@@ -1015,6 +1024,248 @@ export const marketTools = {
             legs: c.legs,
           })),
           note: 'strikeMult values are fractions of live spot (e.g. 0.95 = 5% OTM put). Analyze with analyze_strategy or load via load_strategy.',
+        };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+
+  // ------------------------------------------------------------------
+  // PAPER TRADING DESK — execute on the virtual account at REAL quotes
+  // ------------------------------------------------------------------
+
+  paper_account: tool({
+    description:
+      'Show the paper trading account: equity, cash, buying power, margin, unrealized/realized P&L, win rate, every open position (venue, entry, live mark, P&L), resting limit orders and recent fills. All positions are marked to live venue mid prices. Use whenever the user asks about their paper portfolio, positions or P&L.',
+    parameters: jsonSchema<Record<string, never>>({ type: 'object', properties: {} }),
+    execute: async () => {
+      const acct = await getPaperAccount();
+      return {
+        equity: acct.equity,
+        startingCash: acct.startingCash,
+        cash: acct.cash,
+        buyingPower: acct.buyingPower,
+        marginHeld: acct.marginHeld,
+        unrealizedPnl: acct.unrealized,
+        realizedPnl: acct.realizedTotal,
+        feesTotal: acct.feesTotal,
+        winRate: `${acct.winRate}% (${acct.wins}W/${acct.losses}L)`,
+        positions: acct.positions.map((p) => ({
+          id: p.id,
+          venue: p.venue,
+          instrument: `${p.asset} ${p.expiry} ${p.strike} ${p.kind.toUpperCase()}`,
+          side: p.side,
+          qty: p.qty,
+          entry: +p.entryPrice.toFixed(2),
+          mark: +p.markPrice.toFixed(2),
+          unrealized: p.unrealized,
+          pnlPct: p.pnlPct,
+          strategy: p.strategyTag,
+        })),
+        restingOrders: acct.openOrders.map((o) => ({
+          id: o.id,
+          order: `${o.side} ${o.qty} ${o.asset} ${o.expiry} ${o.strike} ${o.kind} @ ${o.limitPrice}`,
+        })),
+        recentFills: acct.fills.slice(0, 12).map((f) => ({
+          ts: new Date(f.ts).toISOString().slice(5, 16).replace('T', ' '),
+          fill: `${f.side} ${f.qty} ${f.asset} ${f.expiry} ${f.strike} ${f.kind} @ ${+f.price.toFixed(2)}`,
+          venue: f.venue,
+          fee: +f.fee.toFixed(2),
+          strategy: f.strategyTag,
+        })),
+        note: 'paper account — every fill executes at the real venue best-bid/offer with taker fees',
+      };
+    },
+  }),
+
+  paper_order: tool({
+    description:
+      'Place a paper order on the virtual account — fills IMMEDIATELY at the REAL best-bid/ask across Deribit/Bybit/OKX/Aevo/Paradex/Derive v3 (venue auto-routes to the best executable price). Market orders fill now; limit orders rest until the market crosses. Charges realistic taker fees. Use whenever the user wants to buy/sell an option in the paper account.',
+    parameters: jsonSchema<{
+      asset?: string;
+      strike: number;
+      kind: string;
+      side: string;
+      qty?: number;
+      venue?: string;
+      expiry?: string;
+      type?: string;
+      limitPrice?: number;
+    }>({
+      type: 'object',
+      required: ['strike', 'kind', 'side'],
+      properties: {
+        asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'], description: 'Default BTC' },
+        strike: { type: 'number', description: 'Strike price (pick a listed strike from the chain)' },
+        kind: { type: 'string', enum: ['call', 'put'] },
+        side: { type: 'string', enum: ['buy', 'sell'] },
+        qty: { type: 'number', description: 'Quantity in underlying units, e.g. 0.1 BTC (default 0.1)' },
+        venue: {
+          type: 'string',
+          enum: ['auto', 'deribit', 'bybit', 'okx', 'aevo', 'paradex', 'derive'],
+          description: 'auto = route to the venue with the best executable price (default)',
+        },
+        expiry: { type: 'string', description: 'Expiry label like 25OCT26 (default: nearest >1.5d)' },
+        type: { type: 'string', enum: ['market', 'limit'], description: 'Default market' },
+        limitPrice: { type: 'number', description: 'Required for limit orders' },
+      },
+    }),
+    execute: async ({ asset, strike, kind, side, qty, venue, expiry, type, limitPrice }) => {
+      try {
+        const a = asAsset(asset, 'BTC') as FeedAsset;
+        const k: PaperKind = kind === 'put' ? 'put' : 'call';
+        const s: PaperSide = side === 'sell' ? 'sell' : 'buy';
+        // preview first so the reply includes the cross-venue choice
+        const { quote, alternatives } = await resolveOptionQuote(
+          (venue as never) ?? 'auto',
+          a,
+          expiry,
+          strike,
+          k,
+          s,
+        );
+        const res = await placePaperOrder({
+          venue: (venue as never) ?? 'auto',
+          asset: a,
+          expiry,
+          strike,
+          kind: k,
+          side: s,
+          qty: qty && qty > 0 ? qty : 0.1,
+          type: type === 'limit' ? 'limit' : 'market',
+          limitPrice,
+        });
+        if (!res.ok) return { error: res.error };
+        return {
+          filled: res.fill
+            ? {
+                order: `${res.fill.side} ${res.fill.qty} ${res.fill.asset} ${res.fill.expiry} ${res.fill.strike} ${res.fill.kind.toUpperCase()}`,
+                price: +res.fill.price.toFixed(2),
+                fee: +res.fill.fee.toFixed(2),
+                venue: res.fill.venue,
+                spotAtFill: +res.fill.spotAtFill.toFixed(2),
+              }
+            : null,
+          restedLimitOrder: res.rested
+            ? { order: `${res.rested.side} ${res.rested.qty} @ ${res.rested.limitPrice}`, venue: res.rested.venue }
+            : null,
+          route: quote
+            ? {
+                chosen: quote.venue,
+                bid: quote.bid != null ? +quote.bid.toFixed(2) : null,
+                ask: quote.ask != null ? +quote.ask.toFixed(2) : null,
+                iv: +quote.iv.toFixed(1),
+                daysOut: +quote.daysOut.toFixed(1),
+                alternatives: alternatives.slice(0, 6).map((x) => ({ venue: x.venue, bid: x.bid, ask: x.ask })),
+              }
+            : null,
+        };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+
+  paper_close: tool({
+    description:
+      'Close a paper position (fully or partially) at the real opposite best-bid/offer. Pass the position id from paper_account. Use when the user wants to take profit / cut a loss on a paper position.',
+    parameters: jsonSchema<{ positionId: string; qty?: number }>({
+      type: 'object',
+      required: ['positionId'],
+      properties: {
+        positionId: { type: 'string', description: 'Position id from paper_account' },
+        qty: { type: 'number', description: 'Optional partial close quantity (default: close all)' },
+      },
+    }),
+    execute: async ({ positionId, qty }) => {
+      const res = await closePaperPosition(positionId, qty);
+      if (!res.ok || !res.fill) return { error: res.error ?? 'close failed' };
+      return {
+        closed: {
+          order: `${res.fill.side} ${res.fill.qty} ${res.fill.asset} ${res.fill.expiry} ${res.fill.strike} ${res.fill.kind.toUpperCase()}`,
+          price: +res.fill.price.toFixed(2),
+          fee: +res.fill.fee.toFixed(2),
+          venue: res.fill.venue,
+        },
+        note: 'realized P&L has been booked to the account',
+      };
+    },
+  }),
+
+  paper_deploy_strategy: tool({
+    description:
+      'Deploy a complete multi-leg options strategy to the paper account as ONE package: every leg is priced at real quotes (auto-routed per leg to the venue with the best price), strikes snap to nearest listed, margin is checked in aggregate, and legs fill atomically with a strategy tag. Use whenever the user wants to paper-trade an iron condor, spread, straddle, or any structure they designed.',
+    parameters: jsonSchema<{
+      name?: string;
+      asset?: string;
+      venue?: string;
+      sizeMultiplier?: number;
+      legs: Array<{ kind: string; side: string; qty: number; strike?: number; strikeMult?: number; expiryDays?: number }>;
+    }>({
+      type: 'object',
+      required: ['legs'],
+      properties: {
+        name: { type: 'string', description: 'Strategy label, e.g. "Iron Condor 25OCT26"' },
+        asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'] },
+        venue: { type: 'string', enum: ['auto', 'deribit', 'bybit', 'okx', 'aevo', 'paradex', 'derive'] },
+        sizeMultiplier: { type: 'number', description: 'Multiplies every leg qty (default 1)' },
+        legs: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 25,
+          description: 'Option legs; give absolute strike or strikeMult (fraction of spot, e.g. 0.95)',
+          items: {
+            type: 'object',
+            required: ['kind', 'side', 'qty'],
+            properties: {
+              kind: { type: 'string', enum: ['call', 'put'] },
+              side: { type: 'string', enum: ['buy', 'sell'] },
+              qty: { type: 'number', description: 'Units of underlying, e.g. 0.1' },
+              strike: { type: 'number', description: 'Absolute strike (preferred)' },
+              strikeMult: { type: 'number', description: 'Fraction of spot when strike unknown (0.95 = 5% OTM put)' },
+              expiryDays: { type: 'number', description: 'Days to expiry — snapped to the nearest listed (default 7)' },
+            },
+          },
+        },
+      },
+    }),
+    execute: async ({ name, asset, venue, sizeMultiplier, legs }) => {
+      try {
+        const a = asAsset(asset, 'BTC') as FeedAsset;
+        // resolve strikeMult → absolute strikes using live spot
+        const { chain } = await getVenueChain('deribit', a);
+        const spot = chain?.spot ?? 0;
+        const resolved = [] as Array<{ kind: 'call' | 'put'; side: 'buy' | 'sell'; qty: number; strike: number; expiryDays: number }>;
+        for (const l of legs) {
+          let strike = Number(l.strike ?? 0);
+          if (!(strike > 0) && l.strikeMult && spot > 0) {
+            const step = spot >= 50000 ? 500 : spot >= 4000 ? 50 : 5;
+            strike = Math.round((spot * l.strikeMult) / step) * step;
+          }
+          if (!(strike > 0)) return { error: 'each leg needs strike or strikeMult' };
+          resolved.push({
+            kind: l.kind === 'put' ? 'put' : 'call',
+            side: l.side === 'sell' ? 'sell' : 'buy',
+            qty: l.qty,
+            strike,
+            expiryDays: l.expiryDays ?? 7,
+          });
+        }
+        const res = await deployPaperStrategy({
+          name: name ?? 'Copilot Strategy',
+          asset: a,
+          venue: (venue as never) ?? 'auto',
+          sizeMultiplier,
+          legs: resolved,
+        });
+        if (!res.ok) return { error: res.error, partialLegs: res.legs };
+        return {
+          deployed: res.name,
+          legsFilled: res.legs.map((l) => ({ leg: l.leg, venue: l.venue, price: +l.price.toFixed(2), fee: +l.fee.toFixed(2), iv: +l.iv.toFixed(1) })),
+          netPremium: res.netPremium != null ? +res.netPremium.toFixed(2) : undefined,
+          cashAfter: res.cashAfter != null ? +res.cashAfter.toFixed(2) : undefined,
+          note: 'all legs filled at real venue quotes; view positions with paper_account',
         };
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) };

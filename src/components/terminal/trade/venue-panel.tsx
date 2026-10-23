@@ -134,8 +134,7 @@ export function VenuePanel({ instrument, asset }: { instrument: string; asset?: 
       {liveVenues.length > 0 && (
         <p className="mt-1.5 flex items-start gap-1 text-[8.5px] leading-snug text-zinc-600">
           <Radio className="mt-0.5 h-2.5 w-2.5 shrink-0 text-teal-500/60" />
-          Real public market data: Deribit · Bybit · OKX · Aevo · Paradex (tradeparadigm) · Derive v3. Paradex
-          quotes derive from the live cross-venue IV surface (its quote API needs auth).
+          Real public market data: Deribit · Bybit · OKX · Aevo · Paradex (tradeparadigm, live SBE stream) · Derive v3 (live JSON-RPC tickers) — every venue serves native bid/ask, IV, greeks and OI.
         </p>
       )}
 

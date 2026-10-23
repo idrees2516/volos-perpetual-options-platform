@@ -52,7 +52,7 @@ stage-skip-on-failure — it never hangs.
 Two endpoints power it:
 
 - `POST /api/ai/copilot` — interactive Research Director chat
-  (`streamText` + 17 tools + 9-agent dispatch, AI SDK data stream → `useChat`)
+  (`streamText` + 21 tools + 9-agent dispatch incl. paper-trading, AI SDK data stream → `useChat`)
 - `POST /api/ai/research` — the deep-research pipeline (NDJSON event stream:
   heartbeats, stage progress, agent reports, strategy payloads, streaming dossier)
 
@@ -66,12 +66,52 @@ shape (real strikes, IVs, greeks, OI, bid/asks):
 | **Bybit** | USDT option tickers with IV + greeks, perp funding/OI, spot klines (15m–1d) | klines power the backtest engine |
 | **OKX** | both option families (USD_UM linear + inverse), IV implied from quoted mids | 1400+ BTC instruments |
 | **Aevo** | USDC options incl. same-day 0DTE expiries with greeks | |
-| **Paradex (tradeparadigm)** | 9,000+ listed option markets (real strikes/expiries) | quotes derived from the live cross-venue IV surface (its quote API needs auth) |
-| **Derive v3 (ex-Lyra)** | JSON-RPC adapter | reports 'down' gracefully when the host is unreachable |
+| **Paradex (tradeparadigm)** | **REAL quotes** — bid/ask, mark IV, bid/ask IV, full greeks, OI, index, 24h volume, 1 frame/sec per market | served through a local SBE bridge (`mini-services/paradex-sbe-bridge.mjs`) that decodes Paradex's public binary WebSocket feed (schema 1:2); falls back to the IV-surface model if the bridge is down |
+| **Derive v3 (ex-Lyra)** | **REAL quotes** — full `api.derive.xyz/v3` JSON-RPC tickers: best bid/ask (price+size), IV, greeks, OI, volume, mark & index per expiry | 600+ live BTC instruments incl. same-day 0DTE; BTC/ETH/SOL |
 
 Also exposed as HTTP APIs: `GET /api/chain?asset=BTC&venue=deribit` (live
 chain + expiry calendar + automatic venue fallback) and `GET /api/venues`
 (health, latency, instruments, spot, ATM IV per venue).
+
+## The Paper Trading Desk (real prices, virtual money)
+
+A virtual **$100,000 USDC account** that executes against the **real
+best-bid/offer of all six connected exchanges** — every fill is a live venue
+price, not a simulation:
+
+- **Smart routing** — `venue=auto` buys at the lowest live ask and sells at
+  the highest live bid across Deribit · Bybit · OKX · Aevo · Paradex · Derive
+- **Realistic frictions** — per-venue taker fees (2–3 bps of notional),
+  short-option margin (15% of strike notional), buying-power checks
+- **Market + limit orders** — market orders fill instantly at the venue BBO;
+  limit orders rest and re-check against live quotes on every refresh
+- **Live marks & P&L** — positions re-mark to venue mid prices, unrealized /
+  realized P&L, win rate, fees, equity curve
+- **Expiry settlement** — expired positions settle at intrinsic vs spot
+- **Strategy paper-testing** — deploy the whole builder strategy (or any
+  multi-leg package) as one atomic trade: strikes snap to the nearest listed,
+  margin is checked in aggregate, every leg auto-routes to its best venue,
+  and the package is tagged for tracking
+- **AI-executable** — the copilot ships `paper_account`, `paper_order`,
+  `paper_close` and `paper_deploy_strategy` tools, so the Research Director
+  can paper-trade its own recommendations on request ("paper-deploy an iron
+  condor", "buy 0.1 BTC 84k call", "close my short put")
+
+UI: **Paper Desk** tab — account bar with equity curve, order ticket with a
+live cross-venue quote preview, positions with live marks and one-click
+close, resting orders, fill history and a "Paper-deploy <builder strategy>"
+button. API: `GET /api/paper`, `POST /api/paper` (`order` · `close` ·
+`cancel` · `strategy` · `preview` · `reset`). State persists to
+`data/paper-account.json`.
+
+**Paradex SBE bridge** (`mini-services/paradex-sbe-bridge.mjs`). Paradex's
+public REST market data requires JWT auth and its public WebSocket requires
+Simple Binary Encoding since 2026-09-21, so a tiny standalone Node service
+maintains one SBE WebSocket (`wss://ws.api.prod.paradex.trade/v1`), decodes
+the binary `MarketSummaryEvent` frames (real bid/ask, IVs, greeks, OI) and
+serves lease-based per-market snapshots on `127.0.0.1:3100`. Start it next
+to the frontend: `node mini-services/paradex-sbe-bridge.mjs` (needs the
+`ws` package).
 
 **Provider bridge.** The agents run on a custom `LanguageModelV1` provider
 (`src/lib/ai/zai-provider.ts`) that adapts the z-ai-web-dev-sdk backend
@@ -211,10 +251,18 @@ GET  /api/v1/fees                              fee schedule + equilibrium notes
 ```
 POST /api/ai/copilot                           Research Director chat — multi-step
                                                agentic loop, agent dispatch, strategy
-                                               loading; AI SDK data stream
+                                               loading, paper trading; AI SDK data stream
 POST /api/ai/research                          Deep Research pipeline — NDJSON events:
                                                stages, agent reports, strategy
                                                payloads, streaming dossier
+GET  /api/paper                                Paper account: equity, positions with
+                                               live marks, P&L, resting orders, fills
+POST /api/paper                                Paper actions: order | close | cancel |
+                                               strategy | preview | reset
+GET  /api/chain?asset=BTC&venue=paradex        Live options chain per venue (auto
+                                               fallback) + expiry calendar
+GET  /api/venues?asset=BTC                     Venue health, latency, instruments,
+                                               spot, ATM IV
 ```
 
 ## Project structure
@@ -245,6 +293,7 @@ POST /api/ai/research                          Deep Research pipeline — NDJSON
 │   └── gen_strategies.py      # catalog generator + validator (≥100, ≤25 legs)
 ├── src/                       # Next.js terminal (see src/components/terminal/)
 │   ├── app/api/ai/            # agentic endpoints: /copilot (chat) · /research (pipeline)
+│   ├── components/terminal/paper-view.tsx  # Paper Trading Desk UI
 │   ├── components/terminal/copilot/  # Agentic Research Desk UI
 │   ├── lib/ai/                # zai-provider · market-intel · agent-tools · agents
 │   ├── stores/copilot-store.ts        # copilot panel + deep-research state
