@@ -2,7 +2,7 @@
  "version": 2,
  "generatedAt": "2026-09-24T06:57:43+00:00",
  "maxLegs": 25,
- "strategyCount": 118,
+ "strategyCount": 131,
  "strategies": [
   {
    "id": "long-call",
@@ -5038,6 +5038,597 @@
      "kind": "perp",
      "side": "sell",
      "qty": 1
+    }
+   ]
+  },
+  {
+   "id": "0dte-iron-condor",
+   "name": "0DTE Iron Condor",
+   "category": "0dte",
+   "view": "low-vol",
+   "complexity": 3,
+   "description": "Same-day iron condor: sell the \u00b12% wings, buy protection one step further. Pure theta harvest on the final day of decay with explosive gamma risk \u2014 the highest-octane income structure in the catalog.",
+   "tags": [
+    "0dte",
+    "credit",
+    "defined-risk",
+    "income",
+    "same-day"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.98,
+     "expiryDays": 1
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.96,
+     "expiryDays": 1
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.02,
+     "expiryDays": 1
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.04,
+     "expiryDays": 1
+    }
+   ]
+  },
+  {
+   "id": "0dte-iron-fly",
+   "name": "0DTE Iron Fly",
+   "category": "0dte",
+   "view": "low-vol",
+   "complexity": 3,
+   "description": "Same-day iron fly: sell the ATM straddle, buy the \u00b13% wings. Maximum credit at maximum pin risk \u2014 for desks expecting the spot to magnetize to the strike into the expiry print.",
+   "tags": [
+    "0dte",
+    "credit",
+    "pin-risk",
+    "atm",
+    "same-day"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 1
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 1
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.97,
+     "expiryDays": 1
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.03,
+     "expiryDays": 1
+    }
+   ]
+  },
+  {
+   "id": "0dte-put-credit-spread",
+   "name": "0DTE Put Credit Spread",
+   "category": "0dte",
+   "view": "bullish",
+   "complexity": 2,
+   "description": "Same-day bull put spread: sell the ~1.5% OTM put, buy the next strike down. Collects the full day of decay when spot holds above the short strike.",
+   "tags": [
+    "0dte",
+    "credit",
+    "bullish",
+    "defined-risk",
+    "same-day"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.985,
+     "expiryDays": 1
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.965,
+     "expiryDays": 1
+    }
+   ]
+  },
+  {
+   "id": "0dte-call-credit-spread",
+   "name": "0DTE Call Credit Spread",
+   "category": "0dte",
+   "view": "bearish",
+   "complexity": 2,
+   "description": "Same-day bear call spread: sell the ~1.5% OTM call, buy the next strike up. The mirror image credit play for fades and rejection days.",
+   "tags": [
+    "0dte",
+    "credit",
+    "bearish",
+    "defined-risk",
+    "same-day"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.015,
+     "expiryDays": 1
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.035,
+     "expiryDays": 1
+    }
+   ]
+  },
+  {
+   "id": "0dte-straddle",
+   "name": "0DTE Long Straddle",
+   "category": "0dte",
+   "view": "volatile",
+   "complexity": 2,
+   "description": "Buy the same-day ATM straddle: unlimited gamma into the last hours of the cycle. The purest expression of 'today moves more than the market priced'.",
+   "tags": [
+    "0dte",
+    "debit",
+    "gamma",
+    "long-vol",
+    "same-day"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 1
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 1
+    }
+   ]
+  },
+  {
+   "id": "0dte-strangle",
+   "name": "0DTE Long Strangle",
+   "category": "0dte",
+   "view": "volatile",
+   "complexity": 2,
+   "description": "Buy the same-day \u00b13% strangle: cheaper gamma than the straddle with a wider breakeven. For tail days \u2014 CPI, FOMC, liquidation cascades.",
+   "tags": [
+    "0dte",
+    "debit",
+    "gamma",
+    "tail",
+    "same-day"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.03,
+     "expiryDays": 1
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.97,
+     "expiryDays": 1
+    }
+   ]
+  },
+  {
+   "id": "0dte-broken-wing-fly",
+   "name": "0DTE Broken Wing Butterfly",
+   "category": "0dte",
+   "view": "low-vol",
+   "complexity": 4,
+   "description": "Same-day unbalanced fly: skip-strike wings so the structure costs near zero and pins a directional bias. The 0DTE scalper's precision instrument.",
+   "tags": [
+    "0dte",
+    "cheap-debit",
+    "pin",
+    "skewed",
+    "same-day"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.99,
+     "expiryDays": 1
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 1
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.03,
+     "expiryDays": 1
+    }
+   ]
+  },
+  {
+   "id": "condor-roll-ladder",
+   "name": "Condor Roll Ladder",
+   "category": "multileg",
+   "view": "low-vol",
+   "complexity": 4,
+   "description": "Multihop income book: three iron condors laddered across 30/60/90-day expiries. As each cycle expires it rolls to the back \u2014 a perpetual premium harvest machine with staggered gamma risk.",
+   "tags": [
+    "multihop",
+    "roll",
+    "ladder",
+    "income",
+    "time-diversified"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.96,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.93,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.04,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.07,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.94,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.06,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.1,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 90
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.87,
+     "expiryDays": 90
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.08,
+     "expiryDays": 90
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.13,
+     "expiryDays": 90
+    }
+   ]
+  },
+  {
+   "id": "credit-spread-roll-ladder",
+   "name": "Credit Spread Roll Ladder",
+   "category": "multileg",
+   "view": "bullish",
+   "complexity": 3,
+   "description": "Multihop bullish income: put credit spreads stacked at 14/30/60-day cycles. Each cycle rolls up and out as it profits \u2014 compounding small credits into a serious carry stream.",
+   "tags": [
+    "multihop",
+    "roll",
+    "credit",
+    "ladder",
+    "bullish"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.98,
+     "expiryDays": 14
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.96,
+     "expiryDays": 14
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.96,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.93,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.94,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.9,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "calendar-roll-ladder",
+   "name": "Calendar Roll Ladder",
+   "category": "multileg",
+   "view": "low-vol",
+   "complexity": 4,
+   "description": "Multihop term-structure book: calendars at staggered 30/60/90-day fronts. The short fronts decay and roll while the long backs hold vega \u2014 a rolling carry machine that stays long the term structure.",
+   "tags": [
+    "multihop",
+    "roll",
+    "calendar",
+    "term-structure",
+    "vega"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.97,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.97,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.95,
+     "expiryDays": 90
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.03,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.03,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "double-diagonal-roll",
+   "name": "Double Diagonal Roll",
+   "category": "multileg",
+   "view": "low-vol",
+   "complexity": 4,
+   "description": "The professional's rolling income core: short 30d strangle wings against long 60d protection. Adjusts by rolling the shorts when tested \u2014 the canonical multihop management structure.",
+   "tags": [
+    "multihop",
+    "roll",
+    "diagonal",
+    "income",
+    "managed"
+   ],
+   "legs": [
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 0.96,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 1,
+     "strike": 0.92,
+     "expiryDays": 60
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.04,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 1,
+     "strike": 1.08,
+     "expiryDays": 60
+    }
+   ]
+  },
+  {
+   "id": "zebra-dated",
+   "name": "ZEBRA 45d",
+   "category": "multileg",
+   "view": "bullish",
+   "complexity": 3,
+   "description": "Zero-Extrinsic Back Ratio on dated options: two ~70-delta calls financed by one ATM short. Synthetic-stock payoff with no extrinsic bleed \u2014 the leverage-efficient directional multileg.",
+   "tags": [
+    "multileg",
+    "directional",
+    "defined-risk",
+    "synthetic-stock"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 2,
+     "strike": 0.92,
+     "expiryDays": 45
+    },
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 45
+    }
+   ]
+  },
+  {
+   "id": "straddle-back-ratio-roll",
+   "name": "Straddle Back-Ratio Roll",
+   "category": "multileg",
+   "view": "volatile",
+   "complexity": 5,
+   "description": "Multihop long-gamma core: short 30d ATM straddle against two 60d straddles. Profits from the roll-down of the term structure while keeping the long-dated gamma \u2014 the vol-desk's classic carry-gamma hybrid.",
+   "tags": [
+    "multihop",
+    "roll",
+    "long-vol",
+    "term-structure",
+    "advanced"
+   ],
+   "legs": [
+    {
+     "kind": "call",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "put",
+     "side": "sell",
+     "qty": 1,
+     "strike": 1.0,
+     "expiryDays": 30
+    },
+    {
+     "kind": "call",
+     "side": "buy",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 60
+    },
+    {
+     "kind": "put",
+     "side": "buy",
+     "qty": 2,
+     "strike": 1.0,
+     "expiryDays": 60
     }
    ]
   }

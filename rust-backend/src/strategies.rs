@@ -1,4 +1,4 @@
-//! Strategy catalog: 118 pre-built strategies (1..=25 legs) shared with the
+//! Strategy catalog: 131 pre-built strategies (1..=25 legs) shared with the
 //! frontend through a single JSON source of truth (`strategies.json`).
 //!
 //! Each entry is defined *parametrically*: strikes are multipliers of live

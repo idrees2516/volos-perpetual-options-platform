@@ -35,6 +35,9 @@ const AGENT_META: Record<string, { name: string; title: string; emoji: string; c
   volatility: { name: 'Vol Oracle', title: 'Volatility Analyst', emoji: '🌊', color: 'text-violet-300' },
   profitability: { name: 'Risk Quant', title: 'Profitability & Likelihood', emoji: '🎯', color: 'text-rose-300' },
   architect: { name: 'Strategy Smith', title: 'Strategy Architect', emoji: '⚒️', color: 'text-emerald-300' },
+  backtest: { name: 'Ledger Hound', title: 'Backtest Analyst', emoji: '📜', color: 'text-orange-300' },
+  zerodte: { name: 'Gamma Ray', title: '0DTE Specialist', emoji: '⚡', color: 'text-yellow-300' },
+  tactician: { name: 'Legs Weaver', title: 'Multileg & Multihop', emoji: '🧩', color: 'text-fuchsia-300' },
 };
 
 const TOOL_META: Record<string, { label: string; icon: React.ReactNode }> = {

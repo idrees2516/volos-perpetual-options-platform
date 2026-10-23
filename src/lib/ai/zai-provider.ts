@@ -28,20 +28,46 @@ async function getZai() {
   return zaiPromise;
 }
 
-/** Call chat completions with 429-aware retry + patient exponential backoff. */
-async function createWithRetry(body: Record<string, unknown>, maxAttempts = 5): Promise<unknown> {
+/** Per-call hard timeout so a hung request can never stall an agent pipeline. */
+const CALL_TIMEOUT_MS = 75_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => {
+      reject(new Error(`zai request timeout (${label}) after ${Math.round(ms / 1000)}s`));
+    }, ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
+/** Call chat completions with 429-aware retry + capped exponential backoff. */
+async function createWithRetry(body: Record<string, unknown>, maxAttempts = 4): Promise<unknown> {
   const zai = await getZai();
   let lastErr: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return (await zai.chat.completions.create(body as never)) as unknown;
+      return (await withTimeout(
+        zai.chat.completions.create(body as never) as Promise<unknown>,
+        CALL_TIMEOUT_MS,
+        body.stream ? 'stream' : 'generate',
+      )) as unknown;
     } catch (err) {
       lastErr = err;
       const msg = err instanceof Error ? err.message : String(err);
       const rateLimited = msg.includes('429') || /too many requests/i.test(msg);
       if (!rateLimited || attempt === maxAttempts) throw err;
-      // patient backoff: 3s, 9s, 20s, 45s (+ jitter)
-      const waitMs = Math.round(3000 * Math.pow(2.4, attempt - 1)) + Math.random() * 1500;
+      // capped, snappy backoff: 1.5s, 4s, 9s (+ small jitter) — never patient
+      // enough to freeze the research pipeline for minutes.
+      const waitMs = Math.min(Math.round(1500 * Math.pow(2.7, attempt - 1)) + Math.random() * 800, 10_000);
       console.warn(`[zai-provider] 429 rate limited — retrying in ${waitMs}ms (attempt ${attempt}/${maxAttempts})`);
       await new Promise((r) => setTimeout(r, waitMs));
     }

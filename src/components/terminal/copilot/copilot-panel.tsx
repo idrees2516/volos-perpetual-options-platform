@@ -238,7 +238,7 @@ function ChatTab({ onLoadStrategy }: { onLoadStrategy: (id: string, u: string, s
         </div>
         <div className="mt-1.5 flex items-center justify-between">
           <span className="text-[9px] text-zinc-600">
-            agents: Trend Scout · Pattern Hawk · Macro Owl · Vol Oracle · Risk Quant · Strategy Smith
+            9 agents: Trend Scout · Pattern Hawk · Macro Owl · Vol Oracle · Risk Quant · Ledger Hound · Gamma Ray · Legs Weaver · Strategy Smith
           </span>
           {messages.length > 0 && !isLoading && (
             <button type="button" onClick={() => reload()} className="text-[9px] text-zinc-500 underline hover:text-zinc-300">
@@ -265,18 +265,22 @@ function EmptyState() {
       </div>
       <div>
         <p className="text-[13px] font-semibold text-zinc-200">VolOS Agentic Research Desk</p>
-        <p className="mx-auto mt-1 max-w-[320px] text-[10.5px] leading-relaxed text-zinc-500">
-          Six specialist agents — technical, chart, macro, volatility, profitability and strategy design —
-          research live markets, stress-test likelihoods and build options strategies with you.
+        <p className="mx-auto mt-1 max-w-[340px] text-[10.5px] leading-relaxed text-zinc-500">
+          Nine specialist agents — technical, chart, macro, volatility, profitability, backtest, 0DTE, multileg/multihop
+          and strategy design — research live exchange data (Deribit · Bybit · OKX · Aevo · Paradex), stress-test
+          likelihoods and build options strategies with you.
         </p>
       </div>
-      <div className="mx-auto grid max-w-[320px] grid-cols-3 gap-1.5 text-[9.5px] text-zinc-500">
+      <div className="mx-auto grid max-w-[340px] grid-cols-3 gap-1.5 text-[9.5px] text-zinc-500">
         {[
           ['📈', 'Trend Scout'],
           ['🕯️', 'Pattern Hawk'],
           ['🦉', 'Macro Owl'],
           ['🌊', 'Vol Oracle'],
           ['🎯', 'Risk Quant'],
+          ['📜', 'Ledger Hound'],
+          ['⚡', 'Gamma Ray'],
+          ['🧩', 'Legs Weaver'],
           ['⚒️', 'Strategy Smith'],
         ].map(([e, n]) => (
           <div key={n} className="rounded-md border border-zinc-800/60 bg-zinc-900/30 px-1.5 py-1.5">

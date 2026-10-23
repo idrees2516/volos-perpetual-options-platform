@@ -14,6 +14,9 @@ import {
   type AssetId,
   type Timeframe,
   liveMarketState,
+  marketDataSource,
+  primeLiveMarket,
+  primeLiveCandles,
   getCandles,
   computeTechnicalSnapshot,
   detectCandlestickPatterns,
@@ -25,8 +28,27 @@ import {
   analyzeMarketEnvironment,
   monteCarlo,
 } from './market-intel';
+import {
+  VENUE_IDS,
+  VENUE_META,
+  getVenueChain,
+  getVenueExpiries,
+  getVenueStatuses,
+  getCrossVenueQuotes,
+  type FeedAsset,
+  type VenueId,
+} from './exchange-feeds';
+import { runBacktest, legsToSpecs, type BacktestLegSpec } from './backtest';
+import { scan0dte, planMultihop, proposeMultileg } from './tactics';
 
 const TIMEFRAMES: Timeframe[] = ['15m', '1h', '4h', '1d'];
+
+/** Anchor every tool run to REAL exchange data (no-op when already fresh). */
+async function ensureLive(asset?: string): Promise<'live' | 'simulated'> {
+  await primeLiveMarket();
+  if (asset) await primeLiveCandles(asAsset(asset));
+  return marketDataSource();
+}
 
 function asAsset(v: unknown, fallback: AssetId = 'BTC'): AssetId {
   const s = String(v ?? '').toUpperCase();
@@ -235,6 +257,7 @@ export const marketTools = {
       },
     }),
     execute: async ({ asset }) => {
+      const source = await ensureLive(asset);
       const s = liveMarketState();
       const pick = asset ? [asAsset(asset)] : (ASSET_IDS as AssetId[]);
       const assets = Object.fromEntries(
@@ -251,7 +274,7 @@ export const marketTools = {
           },
         ]),
       );
-      return { tsMs: s.tsMs, assets };
+      return { source, tsMs: s.tsMs, assets };
     },
   }),
 
@@ -268,6 +291,7 @@ export const marketTools = {
       required: ['asset'],
     }),
     execute: async ({ asset, timeframe, limit }) => {
+      const source = await ensureLive(asset);
       const a = asAsset(asset);
       const tf = asTimeframe(timeframe);
       const n = Math.round(clampNum(limit, 30, 400, 120));
@@ -275,6 +299,7 @@ export const marketTools = {
       const last = candles[candles.length - 1];
       const first = candles[0];
       return {
+        source,
         asset: a,
         timeframe: tf,
         bars: candles.length,
@@ -309,8 +334,10 @@ export const marketTools = {
       required: ['asset'],
     }),
     execute: async ({ asset, timeframe }) => {
+      const source = await ensureLive(asset);
       const snap = computeTechnicalSnapshot(asAsset(asset), asTimeframe(timeframe));
       return {
+        source,
         ...snap,
         trend: { ...snap.trend, ema20: +snap.trend.ema20.toFixed(2), ema50: +snap.trend.ema50.toFixed(2), ema200: +snap.trend.ema200.toFixed(2), sma20: +snap.trend.sma20.toFixed(2), ema50SlopePct: +snap.trend.ema50SlopePct.toFixed(3), priceVsEma200Pct: +snap.trend.priceVsEma200Pct.toFixed(2) },
         momentum: { ...snap.momentum, rsi14: +snap.momentum.rsi14.toFixed(1), rsiPrev: +snap.momentum.rsiPrev.toFixed(1), macd: +snap.momentum.macd.toFixed(2), macdSignal: +snap.momentum.macdSignal.toFixed(2), macdHist: +snap.momentum.macdHist.toFixed(2), stochK: +snap.momentum.stochK.toFixed(1), stochD: +snap.momentum.stochD.toFixed(1), roc10: +snap.momentum.roc10.toFixed(2) },
@@ -334,10 +361,12 @@ export const marketTools = {
       required: ['asset'],
     }),
     execute: async ({ asset, timeframe }) => {
+      const source = await ensureLive(asset);
       const a = asAsset(asset);
       const tf = asTimeframe(timeframe);
       const live = liveMarketState()[a];
       return {
+        source,
         asset: a,
         timeframe: tf,
         spot: live.spot,
@@ -364,8 +393,10 @@ export const marketTools = {
       required: ['asset'],
     }),
     execute: async ({ asset }) => {
+      const source = await ensureLive(asset);
       const v = analyzeVolRegime(asAsset(asset));
       return {
+        source,
         ...v,
         atmIv7: +v.atmIv7.toFixed(4),
         atmIv30: +v.atmIv30.toFixed(4),
@@ -388,8 +419,10 @@ export const marketTools = {
       required: ['asset'],
     }),
     execute: async ({ asset }) => {
+      const source = await ensureLive(asset);
       const env = analyzeMarketEnvironment(asAsset(asset));
       return {
+        source,
         ...env,
         spot: +env.spot.toFixed(2),
         scenarios: env.scenarios.map((s) => ({ ...s, probability: +s.probability.toFixed(2), spotMovePct: +s.spotMovePct.toFixed(1), ivResponsePct: s.ivResponsePct })),
@@ -418,6 +451,7 @@ export const marketTools = {
       required: ['asset'],
     }),
     execute: async ({ asset, days, paths, driftBpsPerDay, levels }) => {
+      const source = await ensureLive(asset);
       const mc = monteCarlo({
         asset: asAsset(asset),
         days: Math.round(clampNum(days, 1, 180, 30)),
@@ -427,6 +461,7 @@ export const marketTools = {
       });
       const p = (x: number) => +x.toFixed(2);
       return {
+        source,
         ...mc,
         percentiles: {
           p5: p(mc.percentiles.p5),
@@ -574,10 +609,12 @@ export const marketTools = {
       },
     }),
     execute: async (args) => {
+      const source = await ensureLive(args.underlying);
       const underlying = asAsset(args.underlying, 'BTC');
       const r = analyzeStrategyPayload({ ...args, underlying });
       if ('error' in r) return r;
       return {
+        source,
         ...r,
         legs: r.legs.map((l) => ({ ...l, price: +l.price.toFixed(4), delta: +l.delta.toFixed(3), vega: +l.vega.toFixed(2), theta: +l.theta.toFixed(3), cost: +l.cost.toFixed(2), iv: l.iv != null ? +l.iv.toFixed(3) : undefined })),
         netPremium: +r.netPremium.toFixed(2),
@@ -646,6 +683,342 @@ export const marketTools = {
           liquidity: +r.liquidity.toFixed(0),
         })),
       };
+    },
+  }),
+
+  // ------------------------------------------------------------------
+  // LIVE EXCHANGE CONNECTIVITY — Deribit, Bybit, OKX, Aevo, Paradex, Derive
+  // ------------------------------------------------------------------
+
+  get_live_options_chain: tool({
+    description:
+      'REAL live options chain from the connected exchanges (Deribit, Bybit, OKX, Aevo, Paradex, Derive v3): strikes with live IV, prices, greeks, OI, volume, bid/ask. Also returns the expiry calendar and which venues are live. Use for anything that needs real market quotes.',
+    parameters: jsonSchema<{ asset?: string; venue?: string; expiry?: string }>({
+      type: 'object',
+      properties: {
+        asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'] },
+        venue: {
+          type: 'string',
+          enum: ['deribit', 'bybit', 'okx', 'aevo', 'paradex', 'derive', 'auto'],
+          description: 'Which venue to pull; auto picks the best available (default)',
+        },
+        expiry: { type: 'string', description: 'Optional venue-native expiry label like 27NOV26 (from the expiry calendar)' },
+      },
+    }),
+    execute: async ({ asset, venue, expiry }) => {
+      const a = asAsset(asset, 'BTC');
+      await ensureLive(a);
+      const v: VenueId = venue && venue !== 'auto' && (VENUE_IDS as string[]).includes(venue) ? (venue as VenueId) : 'deribit';
+      const { chain, error } = await getVenueChain(v, a as FeedAsset, expiry);
+      if (!chain) {
+        // fall back through the other venues
+        for (const alt of VENUE_IDS.filter((x) => x !== v)) {
+          const fb = await getVenueChain(alt, a as FeedAsset, expiry);
+          if (fb.chain) {
+            return {
+              asset: a,
+              requestedVenue: v,
+              usedVenue: alt,
+              note: `${VENUE_META[v].name} unavailable (${error}) — served from ${VENUE_META[alt].name}`,
+              ...fb.chain,
+            };
+          }
+        }
+        return { error: `no live venue reachable: ${error}` };
+      }
+      const { expiries } = await getVenueExpiries(chain.venue, a as FeedAsset);
+      return {
+        asset: a,
+        usedVenue: chain.venue,
+        venueName: VENUE_META[chain.venue].name,
+        quoteSource: chain.quoteSource,
+        expiry: chain.expiry,
+        daysOut: +chain.daysOut.toFixed(1),
+        spot: +chain.spot.toFixed(2),
+        forward: +chain.forward.toFixed(2),
+        atmIvPct: +chain.atmIv.toFixed(1),
+        expiryCalendar: expiries.slice(0, 10).map((e) => ({ label: e.label, daysOut: +e.daysOut.toFixed(1), instruments: e.instruments })),
+        rows: chain.rows.slice(0, 40).map((r) => ({
+          strike: r.strike,
+          callIv: +r.callIv.toFixed(1), callPrice: +r.callPrice.toFixed(1), callDelta: +r.callDelta.toFixed(3),
+          callOi: Math.round(r.callOi), callBid: r.callBid ? +r.callBid.toFixed(1) : undefined, callAsk: r.callAsk ? +r.callAsk.toFixed(1) : undefined,
+          putIv: +r.putIv.toFixed(1), putPrice: +r.putPrice.toFixed(1), putDelta: +r.putDelta.toFixed(3),
+          putOi: Math.round(r.putOi), putBid: r.putBid ? +r.putBid.toFixed(1) : undefined, putAsk: r.putAsk ? +r.putAsk.toFixed(1) : undefined,
+          isAtm: r.isAtm,
+        })),
+      };
+    },
+  }),
+
+  compare_venues: tool({
+    description:
+      'Compare ALL connected options exchanges (Deribit, Bybit, OKX, Aevo, Paradex/tradeparadigm, Derive v3) for an asset: live status, latency, instrument count, spot, ATM IV, and the cross-venue best bid/ask on near-ATM options for smart routing. Use before routing any multi-leg order.',
+    parameters: jsonSchema<{ asset?: string }>({
+      type: 'object',
+      properties: { asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'] } },
+    }),
+    execute: async ({ asset }) => {
+      const a = asAsset(asset, 'BTC');
+      await ensureLive(a);
+      const [statuses, xq] = await Promise.all([getVenueStatuses(a as FeedAsset), getCrossVenueQuotes(a as FeedAsset)]);
+      const near = xq.quotes.filter((q) => Math.abs(q.strike - xq.spot) / xq.spot < 0.03);
+      return {
+        asset: a,
+        spot: +xq.spot.toFixed(2),
+        venues: statuses.map((s) => ({
+          venue: s.id,
+          name: s.name,
+          status: s.status,
+          latencyMs: s.latencyMs,
+          instruments: s.instruments,
+          spot: s.spot ? +s.spot.toFixed(2) : null,
+          atmIvPct: s.atmIv ? +s.atmIv.toFixed(1) : null,
+          note: s.note,
+        })),
+        bestExecution: near.slice(0, 8).map((q) => ({
+          option: `${q.kind} ${q.strike}`,
+          bestBid: +q.bestBid.toFixed(1),
+          bestBidVenue: q.bestBidVenue,
+          bestAsk: +q.bestAsk.toFixed(1),
+          bestAskVenue: q.bestAskVenue,
+        })),
+        routingNote:
+          'sells should hit the best bid venue, buys the best ask venue; Paradex quotes are derived from the live cross-venue IV surface (its quote API needs auth)',
+      };
+    },
+  }),
+
+  // ------------------------------------------------------------------
+  // 0DTE / MULTIHOP / MULTILEG DESKS
+  // ------------------------------------------------------------------
+
+  scan_0dte: tool({
+    description:
+      'Scan the same-day (0DTE) options expiry across ALL live venues: expected move from the live ATM straddle, gamma/OI profile with pin risk, and ranked 0DTE structures (iron fly, iron condor, credit spreads, straddle) with REAL quotes, POP and expected value. Use for same-day income and gamma plays.',
+    parameters: jsonSchema<{ asset?: string }>({
+      type: 'object',
+      properties: { asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'] } },
+    }),
+    execute: async ({ asset }) => {
+      const a = asAsset(asset, 'BTC');
+      await ensureLive(a);
+      try {
+        const scan = await scan0dte(a);
+        return {
+          asset: scan.asset,
+          venue: scan.venue,
+          expiry: scan.expiry,
+          hoursToExpiry: scan.hoursToExpiry,
+          spot: +scan.spot.toFixed(2),
+          atmIvPct: scan.atmIv,
+          atmStraddle: scan.atmStraddle,
+          expectedMove: scan.expectedMove,
+          expectedMovePct: scan.expectedMovePct,
+          impliedDailyVolPct: scan.impliedDailyVolPct,
+          netGammaUsd: scan.netGammaUsd,
+          pinRisk: scan.pinRisk,
+          gammaByStrike: scan.gammaProfile.slice(0, 14),
+          structures: scan.structures.map((s) => ({
+            name: s.name,
+            legs: s.legs,
+            netCredit: s.netCredit,
+            maxProfit: s.maxProfit,
+            maxLoss: s.maxLoss,
+            breakevens: s.breakevens.map((b) => +b.toFixed(1)),
+            popPct: s.pop,
+            expectedValue: s.expectedValue,
+            rationale: s.rationale,
+          })),
+          timingPlan: scan.timingPlan,
+          warnings: scan.warnings,
+          quoteSource: scan.quoteSource,
+        };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+
+  backtest_strategy: tool({
+    description:
+      'Backtest a strategy on REAL exchange history (Bybit spot klines with Deribit live-IV calibration): win rate, profit factor, expectancy, Sharpe, max drawdown, equity curve and sample trades. Accepts a catalog strategy id OR custom legs. Use to validate any recommendation with data before proposing it.',
+    parameters: jsonSchema<{
+      strategyId?: string;
+      asset?: string;
+      windowDays?: number;
+      legs?: { kind: string; side: string; qty: number; strikeMult: number; expiryDays: number }[];
+    }>({
+      type: 'object',
+      properties: {
+        strategyId: { type: 'string', description: 'Catalog strategy id (e.g. iron-condor, 0dte-iron-fly)' },
+        asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'] },
+        windowDays: { type: 'number', description: 'Backtest window: 90–730 days (default 365)' },
+        legs: {
+          type: 'array',
+          description: 'Custom legs (strike as multiplier of entry spot). Only when strategyId is omitted.',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: ['call', 'put'] },
+              side: { type: 'string', enum: ['buy', 'sell'] },
+              qty: { type: 'number' },
+              strikeMult: { type: 'number' },
+              expiryDays: { type: 'number' },
+            },
+            required: ['kind', 'side', 'qty', 'strikeMult', 'expiryDays'],
+          },
+        },
+      },
+    }),
+    execute: async ({ strategyId, asset, windowDays, legs }) => {
+      const a = asAsset(asset, 'BTC');
+      await ensureLive(a);
+      try {
+        let specs: BacktestLegSpec[] = [];
+        let name = 'custom structure';
+        if (strategyId) {
+          const spec = STRATEGIES.find((s) => s.id === strategyId);
+          if (!spec) return { error: `unknown strategy id: ${strategyId}` };
+          const spot = liveMarketState()[a].spot;
+          const resolved = resolveStrategyLegs(spec, spot);
+          specs = legsToSpecs(resolved, spot);
+          name = spec.name;
+        } else if (legs && legs.length > 0) {
+          specs = legs.map((l) => ({
+            kind: l.kind === 'put' ? 'put' : 'call',
+            side: l.side === 'sell' ? 'sell' : 'buy',
+            qty: Math.min(Math.max(l.qty, 0.1), 50),
+            strike: Math.min(Math.max(l.strikeMult, 0.5), 2),
+            expiryDays: Math.min(Math.max(l.expiryDays, 1), 365),
+          }));
+        } else {
+          return { error: 'provide strategyId or legs' };
+        }
+        const result = await runBacktest({
+          asset: a,
+          legs: specs,
+          strategyName: name,
+          windowDays: windowDays && Number.isFinite(windowDays) ? windowDays : 365,
+        });
+        return {
+          asset: result.asset,
+          strategy: result.strategyName,
+          windowDays: result.windowDays,
+          dataSource: result.dataSource,
+          stats: result.stats,
+          volModel: result.volModel,
+          assumptions: result.assumptions,
+          equityCurve: result.equityCurve,
+          sampleTrades: result.sampleTrades,
+          legs: result.legs,
+        };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+
+  plan_multihop: tool({
+    description:
+      'Plan a MULTIHOP roll-chain for a strategy: the sequence of entry → roll-out/roll-up hops across expiries with per-hop greeks, expected carry, adjustment triggers and CROSS-VENUE best routing for each leg (which exchange to trade each leg on). Accepts a catalog strategy id or custom legs.',
+    parameters: jsonSchema<{
+      strategyId?: string;
+      asset?: string;
+      hops?: number;
+      legs?: { kind: string; side: string; qty: number; strikeMult: number; expiryDays: number }[];
+    }>({
+      type: 'object',
+      properties: {
+        strategyId: { type: 'string' },
+        asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'] },
+        hops: { type: 'number', description: 'Number of hops in the roll chain (2–5, default 3)' },
+        legs: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: ['call', 'put'] },
+              side: { type: 'string', enum: ['buy', 'sell'] },
+              qty: { type: 'number' },
+              strikeMult: { type: 'number' },
+              expiryDays: { type: 'number' },
+            },
+            required: ['kind', 'side', 'qty', 'strikeMult', 'expiryDays'],
+          },
+        },
+      },
+    }),
+    execute: async ({ strategyId, asset, hops, legs }) => {
+      const a = asAsset(asset, 'BTC');
+      await ensureLive(a);
+      try {
+        let planLegs: { kind: 'call' | 'put'; side: 'buy' | 'sell'; qty: number; strikeMult: number; expiryDays: number }[] = [];
+        if (strategyId) {
+          const spec = STRATEGIES.find((s) => s.id === strategyId);
+          if (!spec) return { error: `unknown strategy id: ${strategyId}` };
+          const spot = liveMarketState()[a].spot;
+          const resolved = resolveStrategyLegs(spec, spot);
+          planLegs = resolved
+            .filter((l) => l.kind === 'call' || l.kind === 'put')
+            .map((l) => ({
+              kind: l.kind as 'call' | 'put',
+              side: l.side as 'buy' | 'sell',
+              qty: l.qty,
+              strikeMult: l.strike != null ? +(l.strike / spot).toFixed(4) : 1,
+              expiryDays: l.expiryDays ?? 30,
+            }));
+        } else if (legs && legs.length > 0) {
+          planLegs = legs.map((l) => ({
+            kind: l.kind === 'put' ? 'put' : 'call',
+            side: l.side === 'sell' ? 'sell' : 'buy',
+            qty: l.qty,
+            strikeMult: Math.min(Math.max(l.strikeMult, 0.5), 2),
+            expiryDays: Math.min(Math.max(l.expiryDays, 1), 365),
+          }));
+        } else {
+          return { error: 'provide strategyId or legs' };
+        }
+        const plan = await planMultihop(a, planLegs, Math.min(Math.max(hops ?? 3, 2), 5));
+        return plan;
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+
+  build_multileg: tool({
+    description:
+      'Construct MULTILEG structures for a market view from the live options surface: iron condors, calendars, diagonals, ratio spreads, ZEBRAs, jade lizards, broken wing butterflies, backspreads and more — each priced off the real Deribit chain. Returns leg-by-leg specs (as spot multipliers + expiry days) ready for analysis or the builder.',
+    parameters: jsonSchema<{ asset?: string; view?: string }>({
+      type: 'object',
+      properties: {
+        asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'] },
+        view: { type: 'string', enum: ['bullish', 'bearish', 'neutral', 'volatile', 'low-vol'], description: 'Market view the structure should express' },
+      },
+    }),
+    execute: async ({ asset, view }) => {
+      const a = asAsset(asset, 'BTC');
+      await ensureLive(a);
+      try {
+        const v = (['bullish', 'bearish', 'neutral', 'volatile', 'low-vol'] as const).includes(view as never)
+          ? (view as 'bullish' | 'bearish' | 'neutral' | 'volatile' | 'low-vol')
+          : 'neutral';
+        const candidates = await proposeMultileg(a, v);
+        return {
+          asset: a,
+          view: v,
+          candidates: candidates.map((c) => ({
+            name: c.name,
+            description: c.description,
+            fit: c.fit,
+            netEstimate: c.netEstimate,
+            legs: c.legs,
+          })),
+          note: 'strikeMult values are fractions of live spot (e.g. 0.95 = 5% OTM put). Analyze with analyze_strategy or load via load_strategy.',
+        };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
     },
   }),
 };

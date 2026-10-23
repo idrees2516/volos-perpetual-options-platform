@@ -1,22 +1,63 @@
 'use client';
 
-// Multi-venue panel — Derive / Paradex / Paradigm + Volos CLOB connectivity,
+// Multi-venue panel — REAL connected options exchanges (Deribit, Bybit, OKX,
+// Aevo, Paradex/tradeparadigm, Derive v3) + the engine's CLOB connectivity,
 // composite liquidity and the best-execution route planner.
 
 import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { engine, type RoutePlan, type VenueQuote, type VenueStatus } from '@/lib/api';
 import { fmtNum } from '@/lib/format';
-import { Globe2, Route, Loader2 } from 'lucide-react';
+import { Globe2, Route, Loader2, Radio } from 'lucide-react';
 
-export function VenuePanel({ instrument }: { instrument: string }) {
+interface LiveVenue {
+  id: string;
+  name: string;
+  site: string;
+  settlement: string;
+  status: 'live' | 'degraded' | 'unreachable';
+  latencyMs: number;
+  instruments: number;
+  spot: number | null;
+  atmIv: number | null;
+  note: string;
+}
+
+export function VenuePanel({ instrument, asset }: { instrument: string; asset?: string }) {
   const [statuses, setStatuses] = useState<VenueStatus[]>([]);
   const [quotes, setQuotes] = useState<VenueQuote[]>([]);
   const [plan, setPlan] = useState<RoutePlan | null>(null);
   const [routeSide, setRouteSide] = useState<'buy' | 'sell'>('buy');
   const [routeQty, setRouteQty] = useState('1');
   const [planning, setPlanning] = useState(false);
+  const [liveVenues, setLiveVenues] = useState<LiveVenue[]>([]);
+  const [liveCount, setLiveCount] = useState(0);
 
+  const feedAsset = (asset ?? instrument.split('-')[0] ?? 'BTC').toUpperCase();
+
+  // REAL exchange connectivity (public market data)
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      fetch(`/api/venues?asset=${encodeURIComponent(feedAsset)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (alive && j) {
+            setLiveVenues(j.venues ?? []);
+            setLiveCount(j.liveCount ?? 0);
+          }
+        })
+        .catch(() => {});
+    };
+    load();
+    const iv = setInterval(load, 30000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, [feedAsset]);
+
+  // engine CLOB venues (graceful when the Rust engine is offline)
   useEffect(() => {
     let alive = true;
     const load = () => {
@@ -45,31 +86,87 @@ export function VenuePanel({ instrument }: { instrument: string }) {
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
       <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-        <Globe2 className="h-3.5 w-3.5 text-sky-400" /> Venues & Router
+        <Globe2 className="h-3.5 w-3.5 text-sky-400" /> Connected Exchanges
+        <span className="ml-auto rounded bg-teal-950/50 px-1.5 py-0.5 font-mono text-[8.5px] text-teal-300">
+          {liveCount} live
+        </span>
       </p>
 
-      {/* Statuses */}
+      {/* REAL venues */}
       <div className="space-y-1">
-        {statuses.map((v) => (
-          <div key={v.venue} className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950/50 px-2 py-1.5">
+        {liveVenues.map((v) => (
+          <div
+            key={v.id}
+            title={`${v.name} · ${v.site} · ${v.settlement}${v.note ? ` — ${v.note}` : ''}`}
+            className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950/50 px-2 py-1.5"
+          >
             <span
               className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                v.status === 'live' ? 'bg-teal-400' : v.status === 'simulated' ? 'bg-amber-400' : 'bg-zinc-600'
+                v.status === 'live' ? 'bg-teal-400' : v.status === 'degraded' ? 'bg-amber-400' : 'bg-zinc-600'
               }`}
             />
-            <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-zinc-200">{v.venue}</span>
+            <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-zinc-200">{v.name}</span>
+            {v.atmIv != null && (
+              <span className="font-mono text-[8.5px] text-violet-300/80" title="ATM IV">
+                {v.atmIv.toFixed(1)}%
+              </span>
+            )}
+            <span className="font-mono text-[8.5px] text-zinc-600" title="listed instruments">
+              {v.instruments > 0 ? `${fmtNum(v.instruments, 0)}` : ''}
+            </span>
             <span className="font-mono text-[9px] text-zinc-500">{v.latencyMs.toFixed(0)}ms</span>
             <span
               className={`rounded px-1 py-0.5 text-[8px] font-semibold uppercase ${
-                v.status === 'live' ? 'bg-teal-950/50 text-teal-300' : 'bg-amber-950/40 text-amber-300'
+                v.status === 'live'
+                  ? 'bg-teal-950/50 text-teal-300'
+                  : v.status === 'degraded'
+                    ? 'bg-amber-950/40 text-amber-300'
+                    : 'bg-zinc-800/60 text-zinc-500'
               }`}
             >
-              {v.status === 'live' ? 'live' : v.mode === 'live_anchor' ? 'anchored' : v.status}
+              {v.status === 'live' ? 'native' : v.status === 'degraded' ? 'derived' : 'down'}
             </span>
           </div>
         ))}
-        {statuses.length === 0 && <p className="text-[10px] text-zinc-600">Loading venue status…</p>}
+        {liveVenues.length === 0 && <p className="text-[10px] text-zinc-600">Probing exchanges…</p>}
       </div>
+
+      {liveVenues.length > 0 && (
+        <p className="mt-1.5 flex items-start gap-1 text-[8.5px] leading-snug text-zinc-600">
+          <Radio className="mt-0.5 h-2.5 w-2.5 shrink-0 text-teal-500/60" />
+          Real public market data: Deribit · Bybit · OKX · Aevo · Paradex (tradeparadigm) · Derive v3. Paradex
+          quotes derive from the live cross-venue IV surface (its quote API needs auth).
+        </p>
+      )}
+
+      {/* Engine CLOB venues */}
+      {statuses.length > 0 && (
+        <>
+          <p className="mb-1 mt-3 text-[9px] font-semibold uppercase tracking-wider text-zinc-500">
+            Engine CLOB venues
+          </p>
+          <div className="space-y-1">
+            {statuses.map((v) => (
+              <div key={v.venue} className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950/50 px-2 py-1.5">
+                <span
+                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                    v.status === 'live' ? 'bg-teal-400' : v.status === 'simulated' ? 'bg-amber-400' : 'bg-zinc-600'
+                  }`}
+                />
+                <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-zinc-200">{v.venue}</span>
+                <span className="font-mono text-[9px] text-zinc-500">{v.latencyMs.toFixed(0)}ms</span>
+                <span
+                  className={`rounded px-1 py-0.5 text-[8px] font-semibold uppercase ${
+                    v.status === 'live' ? 'bg-teal-950/50 text-teal-300' : 'bg-amber-950/40 text-amber-300'
+                  }`}
+                >
+                  {v.status === 'live' ? 'live' : v.mode === 'live_anchor' ? 'anchored' : v.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Composite quotes for selected instrument */}
       {quotes.length > 0 && (

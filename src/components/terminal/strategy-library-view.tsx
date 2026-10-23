@@ -25,7 +25,7 @@ import { useStrategy } from '@/stores/strategy-store';
 import { fmtNum } from '@/lib/format';
 import {
   Search, Layers, TrendingUp, TrendingDown, ArrowLeftRight, Shield,
-  Banknote, Infinity as InfinityIcon, Network, Zap, Send, Split, Star,
+  Banknote, Infinity as InfinityIcon, Network, Zap, Send, Split, Star, Timer,
 } from 'lucide-react';
 
 const CATEGORY_ICONS: Record<StrategyCategory, React.ReactNode> = {
@@ -36,6 +36,7 @@ const CATEGORY_ICONS: Record<StrategyCategory, React.ReactNode> = {
   spread: <Split className="h-3.5 w-3.5" />,
   perpetual: <InfinityIcon className="h-3.5 w-3.5" />,
   multileg: <Network className="h-3.5 w-3.5" />,
+  '0dte': <Timer className="h-3.5 w-3.5" />,
 };
 
 const KIND_CHIP: Record<LegKind, string> = {

@@ -71,14 +71,170 @@ const BASE_SPOT: Record<string, number> = { BTC: 97450, ETH: 2462, SOL: 138.4 };
 export const ASSET_IDS = ['BTC', 'ETH', 'SOL'] as const;
 export type AssetId = (typeof ASSET_IDS)[number];
 
-/** Live market state with slow intraday drift (stable per 30s bucket). */
+// --- live exchange anchoring ---------------------------------------------------
+//
+// `primeLiveMarket()` / `primeLiveCandles()` pull REAL data from the connected
+// venues (Deribit index + ATM IV, Bybit perp funding/OI/volume, Bybit spot
+// klines) into module-level overrides. When the overrides are fresh, the
+// classic synchronous accessors (liveMarketState / getCandles) serve real
+// exchange data; otherwise they fall back to the seeded simulation. This means
+// every downstream consumer — indicators, patterns, S/R, vol regime, Monte
+// Carlo — automatically runs on live market data with zero refactor.
+
+interface LivePrime {
+  tsMs: number;
+  source: string;
+  assets: Record<AssetId, Omit<LiveAssetState, 'volShift'>>;
+}
+
+let livePrime: LivePrime | null = null;
+
+interface BybitLinearTicker {
+  lastPrice?: string;
+  fundingRate?: string;
+  openInterest?: string;
+  turnover24h?: string;
+  price24hPcnt?: string;
+}
+
+async function primeFetchJson<T>(url: string, timeoutMs = 6000): Promise<T> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as T;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** Real ATM IV (~30d) computed straight from the live Deribit chain summary. */
+async function deribitAtmIv30d(asset: AssetId): Promise<number | null> {
+  try {
+    const { deribitSummary, deribitSpot } = await import('./exchange-feeds');
+    const [summary, spot] = await Promise.all([deribitSummary(asset), deribitSpot(asset)]);
+    const now = Date.now();
+    // group mark IVs by expiry, find the expiry closest to 30 days out
+    const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const byExpiry = new Map<number, { strike: number; iv: number }[]>();
+    for (const s of summary) {
+      const m = /^([A-Z]+)-(\d{1,2})([A-Z]{3})(\d{2})-(\d+)-([CP])/.exec(s.instrument_name ?? '');
+      if (!m || m[1] !== asset || !s.mark_iv) continue;
+      const ms = Date.UTC(2000 + Number(m[4]), MONTHS.indexOf(m[3]), Number(m[2]), 8);
+      const arr = byExpiry.get(ms) ?? [];
+      arr.push({ strike: Number(m[5]), iv: s.mark_iv });
+      byExpiry.set(ms, arr);
+    }
+    let bestMs = 0;
+    let bestDist = Infinity;
+    for (const ms of byExpiry.keys()) {
+      const d = Math.abs(ms - now - 30 * 86_400_000);
+      if (ms > now && d < bestDist) {
+        bestDist = d;
+        bestMs = ms;
+      }
+    }
+    if (!bestMs) return null;
+    const rows = byExpiry.get(bestMs)!;
+    let atm = rows[0];
+    let best = Infinity;
+    for (const r of rows) {
+      const d = Math.abs(r.strike - spot);
+      if (d < best) {
+        best = d;
+        atm = r;
+      }
+    }
+    return atm.iv / 100;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Prime the live-market overrides from the connected venues (best-effort —
+ * falls back to simulation when every venue is unreachable). Returns true when
+ * at least spot was anchored to live data.
+ */
+export async function primeLiveMarket(): Promise<boolean> {
+  if (livePrime && Date.now() - livePrime.tsMs < 30_000) {
+    return livePrime.source !== 'simulated';
+  }
+  try {
+    const { getLiveSpots } = await import('./exchange-feeds');
+    const spots = await getLiveSpots();
+    if (!spots.BTC) throw new Error('no live spots');
+    const assets = {} as LivePrime['assets'];
+    let source = `live · ${spots.source}`;
+    await Promise.all(
+      (ASSET_IDS as readonly AssetId[]).map(async (a) => {
+        let fundingRate = ANCHORS[a].fundingRate;
+        let openInterest = ANCHORS[a].openInterest;
+        let volume24h = ANCHORS[a].volume24h;
+        let change24h = 0;
+        try {
+          const r = await primeFetchJson<{ result: { list: BybitLinearTicker[] } }>(
+            `https://api.bybit.com/v5/market/tickers?category=linear&symbol=${a}USDT`,
+          );
+          const tk = r.result?.list?.[0];
+          if (tk?.fundingRate != null) fundingRate = Number(tk.fundingRate) * 100 * 3; // 8h rate → daily % ≈ annualized/365 style anchor
+          if (tk?.openInterest != null) openInterest = Number(tk.openInterest) * spots[a];
+          if (tk?.turnover24h != null) volume24h = Number(tk.turnover24h);
+          if (tk?.price24hPcnt != null) change24h = Number(tk.price24hPcnt) * 100;
+        } catch {
+          /* keep anchors */
+        }
+        const atm = await deribitAtmIv30d(a);
+        assets[a] = {
+          spot: spots[a],
+          fundingRate,
+          change24h,
+          openInterest,
+          volume24h,
+          atmIv30d: atm ?? 0,
+        };
+      }),
+    );
+    livePrime = { tsMs: Date.now(), source, assets };
+    return true;
+  } catch {
+    livePrime = { tsMs: Date.now(), source: 'simulated', assets: null as never };
+    return false;
+  }
+}
+
+/** Whether the market state / candles are currently anchored to live venues. */
+export function marketDataSource(): 'live' | 'simulated' {
+  return livePrime && livePrime.source !== 'simulated' && Date.now() - livePrime.tsMs < 120_000 ? 'live' : 'simulated';
+}
+
+/** Live market state: REAL Deribit index spot, REAL Deribit ATM IV, REAL
+ *  Bybit funding/OI/flow when primed; seeded simulation otherwise. */
 export function liveMarketState(): Record<AssetId, LiveAssetState> & { tsMs: number } {
   const bucket = Math.floor(Date.now() / 30_000);
   const out = {} as Record<AssetId, LiveAssetState>;
+  const primed = livePrime && livePrime.source !== 'simulated' && Date.now() - livePrime.tsMs < 120_000;
   for (const a of ASSET_IDS) {
     const rnd = mulberry32(hashString(`${a}-live-${bucket}`));
     const anchor = ANCHORS[a];
     const base = VOL_CONFIG[a];
+    if (primed && livePrime!.assets[a]) {
+      const p = livePrime!.assets[a];
+      const atmIv = p.atmIv30d > 0 ? p.atmIv30d : atmVol(base, 30 / 365, anchor.volShift);
+      // volShift re-centres the whole synthetic surface on the REAL ATM level
+      const volShift = atmIv / base.atm30d - 1;
+      out[a] = {
+        spot: p.spot,
+        volShift,
+        fundingRate: p.fundingRate,
+        change24h: p.change24h,
+        openInterest: p.openInterest,
+        volume24h: p.volume24h,
+        atmIv30d: atmIv,
+      };
+      continue;
+    }
     const spot = BASE_SPOT[a] * (1 + (rnd() - 0.5) * 0.004);
     const change24h = (mulberry32(hashString(`${a}-chg-${bucket}`))() - 0.45) * 6;
     out[a] = {
@@ -94,9 +250,43 @@ export function liveMarketState(): Record<AssetId, LiveAssetState> & { tsMs: num
   return { ...out, tsMs: Date.now() };
 }
 
-// --- OHLCV history generation ---------------------------------------------------
+// --- OHLCV history --------------------------------------------------------------
+//
+// Real Bybit spot klines (primed by `primeLiveCandles`) take priority; the
+// seeded regime-switching GBM generator is the offline fallback.
 
-export type Timeframe = '15m' | '1h' | '4h' | '1d';
+const candlePrime = new Map<string, { tsMs: number; candles: Candle[] }>();
+
+/** Prime REAL spot OHLCV from Bybit for all four timeframes (best-effort). */
+export async function primeLiveCandles(asset: AssetId): Promise<boolean> {
+  const wanted: Timeframe[] = ['15m', '1h', '4h', '1d'];
+  const fresh =
+    candlePrime.size > 0 &&
+    wanted.every((tf) => {
+      const e = candlePrime.get(`${asset}:${tf}`);
+      return e && Date.now() - e.tsMs < 300_000;
+    });
+  if (fresh) return true;
+  try {
+    const { getHistory } = await import('./exchange-feeds');
+    await Promise.all(
+      wanted.map(async (tf) => {
+        try {
+          const bars = await getHistory(asset, tf, 400);
+          const candles: Candle[] = bars.map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+          candlePrime.set(`${asset}:${tf}`, { tsMs: Date.now(), candles });
+        } catch {
+          /* keep synthetic for this timeframe */
+        }
+      }),
+    );
+    return wanted.some((tf) => candlePrime.has(`${asset}:${tf}`));
+  } catch {
+    return false;
+  }
+}
+
+/** Historical OHLCV: REAL exchange klines when primed, else seeded GBM. */
 export interface Candle {
   t: number;
   o: number;
@@ -105,6 +295,8 @@ export interface Candle {
   c: number;
   v: number;
 }
+
+export type Timeframe = '15m' | '1h' | '4h' | '1d';
 
 const TF_MS: Record<Timeframe, number> = {
   '15m': 15 * 60_000,
@@ -125,9 +317,14 @@ const REGIMES: Record<string, Regime> = {
   squeeze: { drift: 0.0004, volMult: 0.55 },
 };
 
-/** Historical OHLCV anchored so the final close equals current live spot. */
+/** Historical OHLCV: REAL exchange klines when primed, else seeded GBM
+ *  (the generator below anchors its final close to the live spot). */
 export function getCandles(asset: AssetId, timeframe: Timeframe, count: number): Candle[] {
   const n = Math.min(Math.max(count, 30), 400);
+  const primed = candlePrime.get(`${asset}:${timeframe}`);
+  if (primed && Date.now() - primed.tsMs < 300_000 && primed.candles.length >= 30) {
+    return primed.candles.slice(-n);
+  }
   const dayBucket = Math.floor(Date.now() / 86_400_000);
   const rnd = mulberry32(hashString(`volos-hist-${asset}-${timeframe}-${dayBucket}`));
   const tfMs = TF_MS[timeframe];

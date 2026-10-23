@@ -23,7 +23,18 @@ import {
 } from 'lucide-react';
 import type { ViewId } from '@/components/terminal/topbar';
 
-const AGENT_ORDER = ['technical', 'chart', 'fundamental', 'volatility', 'profitability', 'architect', 'director'];
+const AGENT_ORDER = [
+  'technical',
+  'chart',
+  'fundamental',
+  'volatility',
+  'profitability',
+  'backtest',
+  'zerodte',
+  'tactician',
+  'architect',
+  'director',
+];
 
 export function ResearchView({ onView }: { onView: (v: ViewId) => void }) {
   const { runs, activeRunId, startRun, upsertStage, patchRun, appendDossier } = useCopilot();
@@ -32,7 +43,10 @@ export function ResearchView({ onView }: { onView: (v: ViewId) => void }) {
   const [focus, setFocus] = useState('');
   const [horizon, setHorizon] = useState(30);
   const [risk, setRisk] = useState<'conservative' | 'balanced' | 'aggressive'>('balanced');
+  const [desks, setDesks] = useState<'full' | 'core'>('full');
   const [running, setRunning] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [dataSource, setDataSource] = useState<'live' | 'simulated' | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const run = activeRunId ? runs[activeRunId] : null;
@@ -41,13 +55,14 @@ export function ResearchView({ onView }: { onView: (v: ViewId) => void }) {
     if (running) return;
     const runId = startRun({ asset: underlying, focus, horizonDays: horizon, riskAppetite: risk });
     setRunning(true);
+    setElapsed(0);
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
       const res = await fetch('/api/ai/research', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ asset: underlying, focus, horizonDays: horizon, riskAppetite: risk }),
+        body: JSON.stringify({ asset: underlying, focus, horizonDays: horizon, riskAppetite: risk, desks }),
         signal: ctrl.signal,
       });
       if (!res.ok || !res.body) throw new Error(`research pipeline failed (${res.status})`);
@@ -70,6 +85,8 @@ export function ResearchView({ onView }: { onView: (v: ViewId) => void }) {
             continue;
           }
           handleEvent(runId, evt, { upsertStage, patchRun, appendDossier });
+          if (evt.type === 'heartbeat' && typeof evt.elapsedS === 'number') setElapsed(evt.elapsedS);
+          if (evt.type === 'start') setDataSource((evt.dataSource as 'live' | 'simulated') ?? null);
         }
       }
     } catch (err) {
@@ -81,7 +98,7 @@ export function ResearchView({ onView }: { onView: (v: ViewId) => void }) {
       setRunning(false);
       abortRef.current = null;
     }
-  }, [running, underlying, focus, horizon, risk, startRun, upsertStage, patchRun, appendDossier, toast]);
+  }, [running, underlying, focus, horizon, risk, desks, startRun, upsertStage, patchRun, appendDossier, toast]);
 
   const stop = () => abortRef.current?.abort();
 
@@ -97,8 +114,20 @@ export function ResearchView({ onView }: { onView: (v: ViewId) => void }) {
             <Sparkles className="mr-1 h-3 w-3" /> Deep Research
           </Badge>
           <span className="font-mono text-[10px] text-zinc-500">
-            6 agents · research pipeline · full dossier
+            {desks === 'full' ? '9 agents · live exchanges · full dossier' : '6 agents · live exchanges · dossier'}
           </span>
+          {dataSource && (
+            <span
+              className={`rounded border px-1.5 py-0.5 font-mono text-[8.5px] uppercase ${
+                dataSource === 'live'
+                  ? 'border-teal-700/50 bg-teal-950/40 text-teal-300'
+                  : 'border-amber-700/50 bg-amber-950/30 text-amber-300'
+              }`}
+            >
+              {dataSource === 'live' ? 'live exchange data' : 'simulated data'}
+            </span>
+          )}
+          {running && <span className="font-mono text-[10px] text-teal-300">{elapsed}s</span>}
         </div>
         <Input
           value={focus}
@@ -131,6 +160,18 @@ export function ResearchView({ onView }: { onView: (v: ViewId) => void }) {
               <option value="aggressive">aggressive</option>
             </select>
           </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-zinc-500">Desk</span>
+            <select
+              value={desks}
+              onChange={(e) => setDesks(e.target.value as 'full' | 'core')}
+              className="h-7 rounded-md border border-zinc-800 bg-zinc-900/70 px-1.5 font-mono text-[10.5px] text-zinc-300"
+              title="Full adds Ledger Hound (backtests), Gamma Ray (0DTE) and Legs Weaver (multileg/multihop)"
+            >
+              <option value="full">full · +backtest/0DTE/multileg</option>
+              <option value="core">core · 6 agents</option>
+            </select>
+          </div>
           {running ? (
             <Button size="sm" variant="destructive" className="ml-auto h-7 px-2.5 text-[10.5px]" onClick={stop}>
               Stop
@@ -155,9 +196,10 @@ export function ResearchView({ onView }: { onView: (v: ViewId) => void }) {
               <Sparkles className="h-6 w-6 text-violet-300" />
             </div>
             <p className="text-[12px] font-medium text-zinc-300">Run the full agentic research desk</p>
-            <p className="mx-auto max-w-[300px] text-[10.5px] leading-relaxed text-zinc-500">
-              Trend Scout, Pattern Hawk, Macro Owl and Vol Oracle investigate {underlying} in parallel. Risk Quant
-              stress-tests likelihood. Strategy Smith designs the trade. The Research Director writes the dossier.
+            <p className="mx-auto max-w-[320px] text-[10.5px] leading-relaxed text-zinc-500">
+              Trend Scout, Pattern Hawk, Macro Owl and Vol Oracle read {underlying} off live exchange data. Risk Quant
+              stress-tests likelihood. Ledger Hound backtests on real history, Gamma Ray scans 0DTE, Legs Weaver builds
+              multihop/multileg. Strategy Smith designs the trade; the Director writes the dossier.
             </p>
           </div>
         )}

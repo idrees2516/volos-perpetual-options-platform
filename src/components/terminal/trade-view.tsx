@@ -196,7 +196,7 @@ export function TradeView({ onOpenBuilder }: TradeViewProps) {
         {/* Right: RFQ + venues */}
         <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
           <RfqPanel notify={notify} onExecuted={refreshState} onOpenBuilder={onOpenBuilder} />
-          <VenuePanel instrument={activeInstrument} />
+          <VenuePanel instrument={activeInstrument} asset={underlying} />
         </div>
       </div>
 

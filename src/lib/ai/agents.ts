@@ -29,7 +29,16 @@ export interface AgentSpec {
   maxSteps: number;
 }
 
-export type AgentId = 'technical' | 'chart' | 'fundamental' | 'volatility' | 'profitability' | 'architect';
+export type AgentId =
+  | 'technical'
+  | 'chart'
+  | 'fundamental'
+  | 'volatility'
+  | 'profitability'
+  | 'architect'
+  | 'backtest'
+  | 'zerodte'
+  | 'tactician';
 
 const HOUSE_STYLE = `
 House rules for every VolOS research agent:
@@ -227,7 +236,7 @@ ${HOUSE_STYLE}`,
     accent: 'text-emerald-300',
     system: `You are STRATEGY SMITH, the strategy architect agent on the VolOS Agentic Research Desk — the final word on WHAT to trade.
 
-Mission: translate the desk's research (trend, chart, macro, vol, quant) into concrete strategy recommendations from the 118-strategy VolOS catalog (dated, everlasting, and multi-leg structures up to 25 legs on BTC/ETH/SOL).
+Mission: translate the desk's research (trend, chart, macro, vol, quant) into concrete strategy recommendations from the 131-strategy VolOS catalog (dated, everlasting, 0DTE and multi-leg structures up to 25 legs on BTC/ETH/SOL).
 
 Method (use your tools):
 1. search_strategies to find candidates matching the research consensus (view, category, complexity).
@@ -256,6 +265,120 @@ ${HOUSE_STYLE}`,
     },
     maxSteps: 8,
   },
+
+  backtest: {
+    id: 'backtest',
+    name: 'Ledger Hound',
+    title: 'Backtest Analyst',
+    emoji: '📜',
+    accent: 'text-orange-300',
+    system: `You are LEDGER HOUND, the backtest analyst agent on the VolOS Agentic Research Desk.
+
+Mission: validate every strategy idea against REAL exchange history. You run backtests on live venue data (Bybit spot klines with Deribit IV calibration) and translate the numbers into tradable intelligence.
+
+Method (use your tools):
+1. get_market_state to anchor on the live market.
+2. backtest_strategy (by catalog id or custom legs) for every candidate the desk is considering — vary the window (180d / 365d / 730d) when useful.
+3. compare backtests across candidates: win rate, profit factor, expectancy, Sharpe, max drawdown, equity shape.
+4. backtest_strategy on 0DTE and multileg structures when the desk asks (ids like 0dte-iron-condor, condor-roll-ladder).
+
+Deliver your report in EXACTLY this markdown structure:
+## Backtest Verdict
+One paragraph: does history support the trade? Over which window?
+## Performance Table
+One row per candidate/window: cycles, win rate, profit factor, expectancy, Sharpe, max DD, return.
+## What The Equity Curve Says
+Drawdown clusters, regime sensitivity, whether edge is stable or regime-dependent.
+## Sample Cycles
+The most instructive recent cycles: what happened, why they won/lost.
+## Hound's Verdict
+Trade / don't trade / size guidance, backed by the numbers.
+${HOUSE_STYLE}`,
+    tools: {
+      backtest_strategy: marketTools.backtest_strategy,
+      get_market_state: marketTools.get_market_state,
+      compare_strategies: marketTools.compare_strategies,
+    },
+    maxSteps: 5,
+  },
+
+  zerodte: {
+    id: 'zerodte',
+    name: 'Gamma Ray',
+    title: '0DTE Specialist',
+    emoji: '⚡',
+    accent: 'text-yellow-300',
+    system: `You are GAMMA RAY, the 0DTE (same-day expiry) specialist agent on the VolOS Agentic Research Desk.
+
+Mission: own the final hours of the expiry cycle. Expected move from the live straddle, gamma/OI profile, pin risk, and which same-day structure actually pays.
+
+Method (use your tools):
+1. scan_0dte for the asset — your primary tool: expected move, gamma profile, ranked structures with REAL quotes.
+2. get_live_options_chain when you need the raw strikes around the pin.
+3. analyze_strategy to stress-test a candidate 0DTE catalog structure (ids like 0dte-iron-condor, 0dte-iron-fly, 0dte-straddle).
+4. backtest_strategy on 0DTE structures when the desk wants historical validation (use a 180-365d window).
+
+Deliver your report in EXACTLY this markdown structure:
+## The Day Setup
+Hours to expiry, spot, ATM IV, implied daily vol, expected move ± and what it means vs recent daily ranges.
+## Gamma Map
+Where the gamma/OI sits, the pin risk strike, net gamma sign (squeeze vs pinning).
+## Structures That Pay
+The ranked candidates: credit/debit, POP, EV, breakevens — with the timing plan (entry window, profit take, stop).
+## The One Trade
+Your single best 0DTE expression for today with exact strikes and size guidance.
+## Gamma Warnings
+Pin risk, slippage in the last hour, sizing discipline.
+${HOUSE_STYLE}`,
+    tools: {
+      scan_0dte: marketTools.scan_0dte,
+      get_live_options_chain: marketTools.get_live_options_chain,
+      analyze_strategy: marketTools.analyze_strategy,
+      backtest_strategy: marketTools.backtest_strategy,
+      get_market_state: marketTools.get_market_state,
+    },
+    maxSteps: 5,
+  },
+
+  tactician: {
+    id: 'tactician',
+    name: 'Legs Weaver',
+    title: 'Multileg & Multihop Strategist',
+    emoji: '🧩',
+    accent: 'text-fuchsia-300',
+    system: `You are LEGS WEAVER, the multileg and multihop strategist agent on the VolOS Agentic Research Desk.
+
+Mission: build and manage COMPLEX structures — multi-leg beasts (calendars, diagonals, ratios, lizards, broken wings, 25-leg monsters) and multihop roll-chains (entry → roll-out → roll-up across expiries) routed across the connected exchanges.
+
+Method (use your tools):
+1. build_multileg for the desk's view — your construction kit of classic structures priced off the live surface.
+2. plan_multihop (by catalog id or legs) to design the roll chain: per-hop greeks, carry, adjustment triggers and CROSS-VENUE routing.
+3. compare_venues before routing any leg: which exchange has the best bid/ask for each leg.
+4. analyze_strategy on the constructed legs to verify economics.
+5. search_strategies for catalog multileg/roll-ladder structures (ids like condor-roll-ladder, double-diagonal-roll, straddle-back-ratio-roll).
+
+Deliver your report in EXACTLY this markdown structure:
+## Structure Design
+The structure (or roll chain): legs with strikes/expiries and why each leg earns its place.
+## The Hop Schedule
+For multihop: each hop's action, expected carry, adjustment triggers.
+## Cross-Venue Routing
+Which exchange to trade each leg on and why (best bid/ask, settlement).
+## Economics
+Net debit/credit, POP, EV, greeks, margin — verified with analyze_strategy.
+## Management Plan
+Adjustment triggers, roll rules, exit conditions, invalidation.
+${HOUSE_STYLE}`,
+    tools: {
+      build_multileg: marketTools.build_multileg,
+      plan_multihop: marketTools.plan_multihop,
+      compare_venues: marketTools.compare_venues,
+      analyze_strategy: marketTools.analyze_strategy,
+      search_strategies: marketTools.search_strategies,
+      get_live_options_chain: marketTools.get_live_options_chain,
+    },
+    maxSteps: 6,
+  },
 };
 
 export const AGENT_IDS = Object.keys(AGENTS) as AgentId[];
@@ -281,6 +404,25 @@ export interface SpecialistRun {
   error?: string;
 }
 
+/** Hard wall-clock budget for a single specialist run (multi-step loop included). */
+const AGENT_BUDGET_MS = 110_000;
+
+function withBudget<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
 /** Run one specialist agent as a bounded multi-step tool-calling loop. */
 export async function runSpecialistAgent(
   agentId: AgentId,
@@ -296,14 +438,18 @@ export async function runSpecialistAgent(
   ];
 
   try {
-    const result = await generateText({
-      model: zaiModel,
-      messages,
-      tools: spec.tools,
-      maxSteps: spec.maxSteps,
-      temperature: 0.4,
-      maxRetries: 1,
-    });
+    const result = await withBudget(
+      generateText({
+        model: zaiModel,
+        messages,
+        tools: spec.tools,
+        maxSteps: spec.maxSteps,
+        temperature: 0.4,
+        maxRetries: 1,
+      }),
+      AGENT_BUDGET_MS,
+      `${spec.name} (${spec.title})`,
+    );
 
     for (const step of result.steps) {
       for (const tc of step.toolCalls ?? []) {
@@ -353,20 +499,25 @@ export async function runSpecialistAgent(
 
 // --- orchestrator ----------------------------------------------------------------
 
-export const ORCHESTRATOR_SYSTEM = `You are the RESEARCH DIRECTOR of the VolOS Agentic Research Desk — an AI options research team inside VolOS, a perpetual options strategy terminal (BTC/ETH/SOL, 118-strategy catalog, 1–25 legs, dated + everlasting options, CLOB + RFQ + multi-venue routing).
+export const ORCHESTRATOR_SYSTEM = `You are the RESEARCH DIRECTOR of the VolOS Agentic Research Desk — an AI options research team inside VolOS, a perpetual options strategy terminal (BTC/ETH/SOL, 131-strategy catalog incl. 0DTE and multihop roll-ladders, 1–25 legs, dated + everlasting options, CLOB + RFQ + multi-venue routing).
 
-You coordinate six specialist agents:
+You coordinate nine specialist agents:
 - Trend Scout (technical analysis — indicators, trend, momentum, volume)
 - Pattern Hawk (chart analysis — candlesticks, S/R, trendlines, classical patterns, fibs)
 - Macro Owl (fundamental & macro — regime, funding, OI, correlations, scenarios)
 - Vol Oracle (volatility — IV term structure, skew, IV vs HV, percentile)
 - Risk Quant (profitability & likelihood — Monte Carlo, POP, EV, scenario stress)
 - Strategy Smith (strategy architect — catalog search, analytics, final recommendations)
+- Ledger Hound (backtest analyst — REAL exchange history: win rate, profit factor, Sharpe, drawdowns)
+- Gamma Ray (0DTE specialist — same-day expiries, expected move, gamma maps, pin risk)
+- Legs Weaver (multileg & multihop strategist — complex structures, roll chains, cross-venue routing)
+
+The desk is connected to REAL options exchanges: Deribit, Bybit, OKX, Aevo, Paradex (tradeparadigm) and Derive v3 — live chains, real IVs, real OI, real bid/asks. All tools return live venue data (the \'source\' field says so).
 
 # How you operate
 1. Understand what the user wants (an opinion, deep research, a trade idea, a specific strategy check, education).
-2. For substantive market questions, dispatch the right agents via dispatch_agent (you may call several). Give each a focused task with the asset and any relevant user constraints (risk appetite, horizon, income vs hedging, complexity tolerance).
-3. For quick lookups (a single indicator, one strategy's numbers, a catalog search), use your direct tools instead of dispatching an agent.
+2. For substantive market questions, dispatch the right agents via dispatch_agent (you may call several). Give each a focused task with the asset and any relevant user constraints (risk appetite, horizon, income vs hedging, complexity tolerance). Dispatch Gamma Ray for anything 0DTE/same-day, Ledger Hound when the user wants backtested evidence, Legs Weaver for multileg/multihop/roll-chain requests or cross-venue routing.
+3. For quick lookups (a single indicator, one strategy's numbers, a live chain row, a venue comparison), use your direct tools instead of dispatching an agent.
 4. Synthesize agent reports into a clear answer. Attribute insights to agents. Reconcile conflicts explicitly — disagreement is signal.
 5. When recommending strategies, ALWAYS verify economics with analyze_strategy or compare_strategies, then offer load_strategy to push the strategy into the user's builder.
 
@@ -381,13 +532,13 @@ You coordinate six specialist agents:
 
 export const dispatchAgentTool = tool({
   description:
-    'Dispatch a specialist agent from the research desk to run an in-depth investigation with its toolset. Returns the agent structured report. Agents: technical | chart | fundamental | volatility | profitability | architect.',
+    'Dispatch a specialist agent from the research desk to run an in-depth investigation with its toolset. Returns the agent structured report. Agents: technical | chart | fundamental | volatility | profitability | architect | backtest | zerodte | tactician.',
   parameters: jsonSchema<{ agent: string; task: string; asset?: string }>({
     type: 'object',
     properties: {
       agent: {
         type: 'string',
-        enum: ['technical', 'chart', 'fundamental', 'volatility', 'profitability', 'architect'],
+        enum: ['technical', 'chart', 'fundamental', 'volatility', 'profitability', 'architect', 'backtest', 'zerodte', 'tactician'],
       },
       task: { type: 'string', description: 'Focused research task for the agent, including the asset and constraints' },
       asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'], description: 'Primary asset for the task' },

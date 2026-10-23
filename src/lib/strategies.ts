@@ -14,7 +14,8 @@ export type StrategyCategory =
   | 'protection'
   | 'spread'
   | 'perpetual'
-  | 'multileg';
+  | 'multileg'
+  | '0dte';
 
 export type StrategyView = 'bullish' | 'bearish' | 'neutral' | 'volatile' | 'low-vol';
 
@@ -59,6 +60,7 @@ export const CATEGORY_META: Record<StrategyCategory, { label: string; hint: stri
   spread: { label: 'Spreads', hint: 'Structural & parity trades' },
   perpetual: { label: 'Perpetual', hint: 'Everlasting-native structures' },
   multileg: { label: 'Multi-Leg', hint: '8–25 leg monsters' },
+  '0dte': { label: '0DTE', hint: 'Same-day expiry gamma plays' },
 };
 
 export const VIEW_META: Record<StrategyView, { label: string; color: string }> = {

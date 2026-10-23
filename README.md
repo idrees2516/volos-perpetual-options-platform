@@ -19,16 +19,20 @@ integrated agentic AI research desk** built on the **Vercel AI SDK**.
 An embedded **multi-agent options research team** running on the
 [Vercel AI SDK](https://sdk.vercel.ai) (`streamText` / `generateText`,
 multi-step tool-calling loops, `useChat` streaming), wired directly into the
-terminal's own analytics core:
+terminal's own analytics core — and grounded in **REAL live exchange data**
+(Deribit · Bybit · OKX · Aevo · Paradex/tradeparadigm · Derive v3):
 
 | Agent | Specialty | Toolset |
 |---|---|---|
-| 📈 **Trend Scout** — Technical Analyst | Trend structure, momentum, volume | market state · price history · indicator suite (EMA/RSI/MACD/Stoch/ADX/OBV/VWAP/ATR/Bollinger) |
+| 📈 **Trend Scout** — Technical Analyst | Trend structure, momentum, volume | market state · price history · indicator suite (EMA/RSI/MACD/Stoch/ADX/OBV/VWAP/ATR/Bollinger) — on real Bybit klines |
 | 🕯️ **Pattern Hawk** — Chart Analyst | Price action & chart patterns | candlestick patterns (12) · S/R levels · trendlines · double top/bottom · H&S · triangles · channels · flags · Fibonacci |
-| 🦉 **Macro Owl** — Fundamental & Macro | Regimes, positioning, scenarios | market environment · funding/OI · cross-asset correlations · probability-weighted scenario map |
-| 🌊 **Vol Oracle** — Volatility Analyst | IV regime & relative value | IV term structure (7/30/90d) · 25Δ skew · HV vs IV · IV percentile & regime |
+| 🦉 **Macro Owl** — Fundamental & Macro | Regimes, positioning, scenarios | market environment · real funding/OI/flow · cross-asset correlations · probability-weighted scenario map |
+| 🌊 **Vol Oracle** — Volatility Analyst | IV regime & relative value | IV term structure (7/30/90d) · 25Δ skew · HV vs real Deribit IV · IV percentile & regime |
 | 🎯 **Risk Quant** — Profitability & Likelihood | Probability & expected value | Monte Carlo (up to 20k fat-tail paths) · POP/EV/breakevens · scenario stress · strategy comparison |
-| ⚒️ **Strategy Smith** — Strategy Architect | Trade design | 118-strategy catalog search · live-spot leg resolution · full strategy analytics · final ranking |
+| 📜 **Ledger Hound** — Backtest Analyst | Validating ideas on real history | strategy backtests on Bybit spot klines with Deribit IV calibration: win rate, profit factor, expectancy, Sharpe, max drawdown, equity curve |
+| ⚡ **Gamma Ray** — 0DTE Specialist | Same-day expiry plays | 0DTE scanner across all venues: expected move from the live straddle, gamma/OI pin map, ranked structures with real quotes/POP/EV |
+| 🧩 **Legs Weaver** — Multileg & Multihop Strategist | Complex structures & roll chains | multileg constructor · multihop roll-chain planner (per-hop greeks/carry/triggers) · cross-venue best-execution routing |
+| ⚒️ **Strategy Smith** — Strategy Architect | Trade design | 131-strategy catalog search (incl. 0DTE + roll-ladders) · live-spot leg resolution · full strategy analytics · final ranking |
 
 A **Research Director** orchestrator (chat) understands intent, dispatches
 the right specialists, reconciles their findings, verifies economics and
@@ -36,29 +40,53 @@ offers **one-click "Load into Strategy Builder"** for any recommendation.
 
 **Deep Research pipeline** — run the entire desk over an asset: the four
 research agents investigate sequentially, Risk Quant stress-tests likelihood,
-Strategy Smith designs the trade, and the Director streams a full
+Ledger Hound backtests on real exchange history, Gamma Ray scans the 0DTE
+expiry, Legs Weaver designs multihop/multileg structures with cross-venue
+routing, Strategy Smith designs the trade, and the Director streams a full
 **research dossier** (executive summary → technical/chart → macro/vol →
-likelihood → recommendation → risk notes) with loadable strategy cards.
+likelihood → backtest evidence → 0DTE & structure desk → recommendation →
+risk notes) with loadable strategy cards. The pipeline is resilient by
+construction: heartbeats every 4s, per-stage wall-clock budgets, retries and
+stage-skip-on-failure — it never hangs.
 
 Two endpoints power it:
 
 - `POST /api/ai/copilot` — interactive Research Director chat
-  (`streamText` + tools + agent dispatch, AI SDK data stream → `useChat`)
+  (`streamText` + 17 tools + 9-agent dispatch, AI SDK data stream → `useChat`)
 - `POST /api/ai/research` — the deep-research pipeline (NDJSON event stream:
-  stage progress, agent reports, strategy payloads, streaming dossier)
+  heartbeats, stage progress, agent reports, strategy payloads, streaming dossier)
+
+**Live exchange connectivity** (`src/lib/ai/exchange-feeds.ts`). Every venue
+with public options market data is connected and normalized into one chain
+shape (real strikes, IVs, greeks, OI, bid/asks):
+
+| Venue | Data | Notes |
+|---|---|---|
+| **Deribit** | full chains, mark IVs, OI, volume, bid/ask, index spot, historical vol | the reference crypto options venue |
+| **Bybit** | USDT option tickers with IV + greeks, perp funding/OI, spot klines (15m–1d) | klines power the backtest engine |
+| **OKX** | both option families (USD_UM linear + inverse), IV implied from quoted mids | 1400+ BTC instruments |
+| **Aevo** | USDC options incl. same-day 0DTE expiries with greeks | |
+| **Paradex (tradeparadigm)** | 9,000+ listed option markets (real strikes/expiries) | quotes derived from the live cross-venue IV surface (its quote API needs auth) |
+| **Derive v3 (ex-Lyra)** | JSON-RPC adapter | reports 'down' gracefully when the host is unreachable |
+
+Also exposed as HTTP APIs: `GET /api/chain?asset=BTC&venue=deribit` (live
+chain + expiry calendar + automatic venue fallback) and `GET /api/venues`
+(health, latency, instruments, spot, ATM IV per venue).
 
 **Provider bridge.** The agents run on a custom `LanguageModelV1` provider
 (`src/lib/ai/zai-provider.ts`) that adapts the z-ai-web-dev-sdk backend
 (GLM, OpenAI-compatible tool calling + SSE streaming) to the Vercel AI SDK —
-so the entire standard AI SDK toolkit works unchanged, with 429-aware retry
-and backoff built in.
+so the entire standard AI SDK toolkit works unchanged, with per-call
+timeouts and capped 429-aware retry/backoff built in.
 
 **Market intelligence engine** (`src/lib/ai/market-intel.ts`). Agents reason
-over the same market the terminal renders: seeded regime-switching GBM
-history (15m/1h/4h/1d OHLCV anchored to live spot), the full indicator
-suite, candlestick & chart pattern detection, volatility regime analysis,
-cross-asset correlation, environment scenarios and Monte Carlo simulation —
-all server-side, all consistent with the pricing core in `src/lib/pricing.ts`.
+over the same market the terminal renders: real Bybit kline history
+(15m/1h/4h/1d OHLCV, cached) with a seeded regime-switching GBM fallback,
+real Deribit index spot and ~30d ATM IV, real funding/OI/flow, the full
+indicator suite, candlestick & chart pattern detection, volatility regime
+analysis, cross-asset correlation, environment scenarios and Monte Carlo
+simulation — all server-side, all consistent with the pricing core in
+`src/lib/pricing.ts`.
 
 ## What's inside
 
@@ -71,8 +99,8 @@ all server-side, all consistent with the pricing core in `src/lib/pricing.ts`.
 | **Risk engine** (`risk.rs`) | — | SPAN-like portfolio stress margin (spot × vol grid repricing), Greeks aggregation per underlying, pre-trade checks, position/accounting limits |
 | **Fees & equilibrium** (`fees.rs`) | — | Maker-taker schedule chosen so spread/2 − rebate ≥ adverse-selection + carry cost; inventory skew mean-reverts dealer inventory |
 | **Pricing core** (`pricing.rs`, `surface.rs`, `norm.rs`) | — | Black-Scholes-76 + Greeks, implied vol solver, Paradigm-paper-exact **everlasting options** (2⁻ⁿ weighted equivalent portfolio), SVI vol surface with term structure per asset (BTC/ETH/SOL) |
-| **Strategy catalog** (`strategies.rs` + shared `strategies.json`) | — | **118 strategies, 1–25 legs**, parametric strikes (multipliers of live spot), 7 families: direction / income / volatility / protection / spreads / perpetual-native / multi-leg monsters |
-| **Terminal** (`src/`) | Next.js 16, React 19, Tailwind, zustand, **Vercel AI SDK** | Strategy builder with interactive payoff canvas, intent wizard, option chain, **strategy library**, **trading view** (ticket + L2 book + tape + orders + positions + risk), RFQ desk, venue router panel — and the **Agentic Research Desk**: 6 AI agents (technical · chart · macro · vol · profitability · strategy) with deep-research pipeline and one-click strategy loading |
+| **Strategy catalog** (`strategies.rs` + shared `strategies.json`) | — | **131 strategies, 1–25 legs**, parametric strikes (multipliers of live spot), 8 families: direction / income / volatility / protection / spreads / perpetual-native / multi-leg monsters / **0DTE same-day** + multihop roll-ladders |
+| **Terminal** (`src/`) | Next.js 16, React 19, Tailwind, zustand, **Vercel AI SDK** | Strategy builder with interactive payoff canvas, intent wizard, **live option chain** (real venue quotes, separated BUY/SELL × CALLS/PUTS, real expiry calendar), **strategy library**, **trading view** (ticket + L2 book + tape + orders + positions + risk + connected-exchanges panel), RFQ desk, venue router panel — and the **Agentic Research Desk**: 9 AI agents (technical · chart · macro · vol · profitability · backtest · 0DTE · multileg/multihop · strategy) with live-exchange data, deep-research pipeline and one-click strategy loading |
 
 ## Quickstart
 
