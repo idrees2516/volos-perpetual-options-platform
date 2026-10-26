@@ -67,3 +67,6 @@ TODO
 
 # local preview runtime
 .local-logs/
+
+# paper-desk runtime account state
+/data/

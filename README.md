@@ -14,6 +14,30 @@ integrated agentic AI research desk** built on the **Vercel AI SDK**.
 
 ![VolOS walkthrough — every module + the agentic AI research desk](docs/assets/volos-agentic-ai-demo.gif)
 
+## 🎬 UI demo video — the terminal running live (`run-local.sh --full`)
+
+**[`docs/assets/volos-ui-demo.mp4`](docs/assets/volos-ui-demo.mp4)** — a 2½-minute
+screen recording of the real terminal, engine-backed (`--full`), captured end-to-end
+in the browser:
+
+| Time | Scene |
+|------|-------|
+| 0:00 | **Strategies workspace** — the one unified catalog (131 strategies), live BTC ticker, `RUST ENGINE · LIVE` badge |
+| 0:06 | **0DTE filter** → the 7-strategy 0DTE family with engine-priced credits/debits |
+| 0:12 | **0DTE Iron Condor · Intelligence** — what it is, when it's used, full mechanics, advantages & disadvantages |
+| 0:35 | **Live Data** — streaming spot, ATM IV, funding, OI, volume, expected move, IV term structure |
+| 0:50 | **Metrics** — volatility surface, 25Δ risk-reversal, butterfly, first- & second-order greeks |
+| 1:05 | **Platforms** — smart order routing: best route **CBOE (SPX · VIX · 0DTE)**, composite score, cheapest/fastest/most-passive/safest, ranked 13-venue routing matrix, recommended order-creation recipe (pre-trade → ticket → pricing → execution → post-trade) |
+| 1:30 | **Backtest** — run on real exchange history (Bybit klines + Deribit IV): +$94,251 over 364 cycles, 78.3% win rate, Sharpe 6.45, equity curve, recent cycles |
+| 1:55 | **Structure** — the 4 resolved legs on live spot |
+| 2:00 | **Dense table** — all 131 strategies in one glance |
+| 2:08 | **Option Chain** — live Deribit expiries with 0DTE badge, IV/bid/ask/delta/OI, BUY/SELL per strike |
+| 2:15 | **Trading** — engine CLOB, $1M demo equity, greeks panel |
+| 2:23 | **Paper Desk** — $100k paper account, order ticket, fills at real venue BBO |
+
+Still frames of every view are in [`docs/assets/ui-captures/`](docs/assets/ui-captures/).
+Reproduce it yourself: `bash run-local.sh --full` → http://localhost:3000.
+
 ## The Agentic Research Desk (AI Copilot)
 
 An embedded **multi-agent options research team** running on the
@@ -152,11 +176,15 @@ server ever crashes, `--full` also brings up the Rust engine:
 
 ```bash
 bash run-local.sh            # UI on :3000, auto-restart loop  (or: bun run local)
-bash run-local.sh --full     # + Rust engine (builds with cargo first)
+bash run-local.sh --full     # + Rust engine (prebuilt binary if present, else cargo)
 bash run-local.sh --stop     # stop everything the script started
 ```
 
-Logs land in `.local-logs/`; pick another port with `--port 3001`.
+Logs land in `.local-logs/`; pick another port with `--port 3001`. With `--full`
+the engine starts from the prebuilt binary at
+`rust-backend/target/release/volos-backend` when it exists (no Rust toolchain
+needed); otherwise it builds with cargo in the background while the UI is
+already up.
 
 ### 1. Rust engine (port 3031)
 

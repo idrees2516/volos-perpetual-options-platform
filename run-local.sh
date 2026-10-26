@@ -97,23 +97,28 @@ fi
 
 # ── optional Rust engine (background, non-blocking) ──────────────────────────
 start_engine_bg() {
-  if ! command -v cargo >/dev/null 2>&1; then
-    warn "--full requested but cargo is not installed; the UI runs on its identical client-side mirror."
-    warn "  for engine-backed numbers install Rust first:"
-    warn "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
+  # Prefer an existing prebuilt binary — works even without cargo installed.
+  if [[ -x rust-backend/target/release/volos-backend ]]; then
+    log "engine: starting prebuilt binary on :3031 in the background…"
+    (
+      ( cd rust-backend && exec ./target/release/volos-backend ) >>"$ENGINE_LOG" 2>&1
+    ) &
+    ENGINE_PID=$!
+    echo "$ENGINE_PID" > "$LOG_DIR/engine.pid"
+  elif command -v cargo >/dev/null 2>&1; then
+    log "engine: building + starting on :3031 in the background…"
+    log "engine: first build — release mode with LTO, a few minutes; the UI is already starting in parallel"
+    (
+      ( cd rust-backend && cargo build --release ) >>"$ENGINE_LOG" 2>&1 \
+        || { echo "CARGO_BUILD_FAILED" >>"$ENGINE_LOG"; exit 1; }
+      ( cd rust-backend && exec cargo run --release --bin volos-backend ) >>"$ENGINE_LOG" 2>&1
+    ) &
+    ENGINE_PID=$!
+    echo "$ENGINE_PID" > "$LOG_DIR/engine.pid"
+  else
+    warn "--full requested but neither a prebuilt engine nor cargo is available; the UI runs on its identical client-side mirror."
     return 1
   fi
-  log "engine: building + starting on :3031 in the background…"
-  if [[ ! -f rust-backend/target/release/volos-backend ]]; then
-    log "engine: first build — release mode with LTO, a few minutes; the UI is already starting in parallel"
-  fi
-  (
-    ( cd rust-backend && cargo build --release ) >>"$ENGINE_LOG" 2>&1 \
-      || { echo "CARGO_BUILD_FAILED" >>"$ENGINE_LOG"; exit 1; }
-    ( cd rust-backend && exec cargo run --release --bin volos-backend ) >>"$ENGINE_LOG" 2>&1
-  ) &
-  ENGINE_PID=$!
-  echo "$ENGINE_PID" > "$LOG_DIR/engine.pid"
   # announce readiness asynchronously — never blocks the UI
   (
     for _ in $(seq 1 3600); do
