@@ -60,7 +60,7 @@ export function RfqPanel({ notify, onExecuted, onOpenBuilder }: Props) {
 
   const create = () => {
     if (!legs.length) {
-      notify('err', 'Add legs in the builder first (or load a strategy from the library)');
+      notify('err', 'Add legs in the Strategies workspace first (or load a strategy from the catalog)');
       return;
     }
     setBusy(true);

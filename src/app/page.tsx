@@ -1,23 +1,22 @@
 'use client';
 
 // VolOS — perpetual options strategy terminal.
-// Single-page app: Builder / Intent Wizard / Option Chain / Strategy Library /
-// Trading + the Agentic Research Desk (AI Copilot) side panel.
+// Single-page app: the unified Strategies workspace (catalog + intent compiler
+// + strategy intelligence + live data + builder) / Option Chain / Trading /
+// Paper Desk, plus the Agentic Research Desk (AI Copilot) side panel.
 
 import React, { useState } from 'react';
 import { MarketProvider } from '@/hooks/use-market';
 import { TopBar, type ViewId } from '@/components/terminal/topbar';
-import { BuilderView } from '@/components/terminal/builder-view';
-import { WizardView } from '@/components/terminal/wizard-view';
+import { StrategiesView } from '@/components/terminal/strategies/strategies-view';
 import { ChainView } from '@/components/terminal/chain-view';
-import { StrategyLibraryView } from '@/components/terminal/strategy-library-view';
 import { TradeView } from '@/components/terminal/trade-view';
 import { PaperView } from '@/components/terminal/paper-view';
 import { CopilotPanel, MarketSpotBridge } from '@/components/terminal/copilot/copilot-panel';
 import { useCopilot } from '@/stores/copilot-store';
 
 function Terminal() {
-  const [view, setView] = useState<ViewId>('builder');
+  const [view, setView] = useState<ViewId>('strategies');
   const copilotOpen = useCopilot((s) => s.open);
 
   return (
@@ -29,13 +28,9 @@ function Terminal() {
             copilotOpen ? 'mx-auto w-full max-w-[1600px] px-4 py-3' : 'mx-auto w-full max-w-[1600px] px-4 py-3'
           }`}
         >
-          {view === 'builder' && <BuilderView />}
-          {view === 'wizard' && <WizardView onOpenBuilder={() => setView('builder')} />}
-          {view === 'chain' && <ChainView onOpenBuilder={() => setView('builder')} />}
-          {view === 'library' && (
-            <StrategyLibraryView onOpenBuilder={() => setView('builder')} onOpenTrade={() => setView('trade')} />
-          )}
-          {view === 'trade' && <TradeView onOpenBuilder={() => setView('builder')} />}
+          {view === 'strategies' && <StrategiesView onOpenTrade={() => setView('trade')} />}
+          {view === 'chain' && <ChainView onOpenBuilder={() => setView('strategies')} />}
+          {view === 'trade' && <TradeView onOpenBuilder={() => setView('strategies')} />}
           {view === 'paper' && <PaperView />}
         </main>
         <CopilotPanel view={view} onView={setView} />
@@ -46,7 +41,7 @@ function Terminal() {
             VolOS — perpetual options terminal. Simulated market data; research prototype, not investment advice.
           </p>
           <p className="font-mono">
-            rust engine: axum · clob · svi · everlasting · 118 strategies/25 legs &nbsp;|&nbsp; ai desk: vercel ai sdk
+            rust engine: axum · clob · svi · everlasting · 131 strategies/25 legs &nbsp;|&nbsp; ai desk: vercel ai sdk
             · 6 agents · glm &nbsp;|&nbsp; frontend: next.js 16.3.4
           </p>
         </div>

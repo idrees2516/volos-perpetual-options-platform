@@ -46,7 +46,7 @@ interface CopilotPanelProps {
   onView: (v: ViewId) => void;
 }
 
-export function CopilotPanel({ view, onView }: CopilotPanelProps) {
+export function CopilotPanel({ onView }: CopilotPanelProps) {
   const { open, tab, setTab, toggle } = useCopilot();
   const { underlying } = useStrategy();
   const { toast } = useToast();
@@ -62,8 +62,8 @@ export function CopilotPanel({ view, onView }: CopilotPanelProps) {
       const legs = resolveStrategyLegs(spec, spot);
       const n = useStrategy.getState().loadStrategy(spec.name, legs);
       if (size !== 1) useStrategy.getState().setSize(size);
-      toast({ title: `Loaded ${spec.name}`, description: `${n} legs on ${u} — builder updated.` });
-      onView('builder');
+      toast({ title: `Loaded ${spec.name}`, description: `${n} legs on ${u} — strategies workspace updated.` });
+      onView('strategies');
     },
     [onView, toast],
   );
@@ -115,7 +115,6 @@ export function CopilotPanel({ view, onView }: CopilotPanelProps) {
       <div className="min-h-0 flex-1">
         {tab === 'chat' ? <ChatTab onLoadStrategy={loadStrategyById} /> : <ResearchView onView={onView} />}
       </div>
-      {view === 'builder' ? null : null}
     </aside>
   );
 }

@@ -316,8 +316,8 @@ function StrategyPayloadCard({
         return leg;
       });
       const n = loadStrategy(strategy.name, legs);
-      toast({ title: `Loaded ${strategy.name}`, description: `${n} legs on ${underlying} — builder updated.` });
-      onView('builder');
+      toast({ title: `Loaded ${strategy.name}`, description: `${n} legs on ${underlying} — strategies workspace updated.` });
+      onView('strategies');
     } else {
       toast({ title: 'Strategy not found', description: strategy.strategyId, variant: 'destructive' });
     }

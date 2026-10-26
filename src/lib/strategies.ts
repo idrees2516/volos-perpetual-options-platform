@@ -38,6 +38,16 @@ export interface StrategySpec {
   description: string;
   tags: string[];
   legs: StrategyLegSpec[];
+  /** Educational layer — what the strategy IS (definition). */
+  whatIs: string;
+  /** Educational layer — when the strategy is used. */
+  whenToUse: string;
+  /** Educational layer — concrete advantages. */
+  advantages: string[];
+  /** Educational layer — concrete disadvantages / risks. */
+  disadvantages: string[];
+  /** Educational layer — the detailed explanation of how the strategy itself works. */
+  mechanics: string;
 }
 
 interface CatalogFile {
