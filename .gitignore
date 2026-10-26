@@ -64,3 +64,6 @@ rust-backend/target/
 /mini-services/
 worklog.md
 TODO
+
+# local preview runtime
+.local-logs/

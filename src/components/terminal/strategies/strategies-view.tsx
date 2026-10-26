@@ -4,12 +4,17 @@
 // UNIFIED STRATEGIES WORKSPACE — the ONE home for the strategies feature.
 //
 // Everything strategy-related lives here in a single interface:
-//   • Catalog      — browse / search / filter all 131 strategies
+//   • Catalog      — browse / search / filter ALL 131 strategies in one place
+//                    (card rail or dense table) incl. venue-era filtering
 //   • Intent       — "tell us the outcome, we construct it" compiler
 //   • Intelligence — what each strategy IS, when it's used, pros, cons,
 //                    and the detailed mechanics of the strategy itself
 //   • Live Data    — market + strategy analytics pulled on live spot,
 //                    per-leg quotes, authoritative Rust engine numbers
+//   • Metrics      — the deep layer: IV surface & 25Δ skew, second-order
+//                    greeks, VaR/CVaR, stress grid, execution economics
+//   • Platforms    — every modern + legacy venue this strategy runs on,
+//                    with verdicts, adaptation recipes and fee estimates
 //   • Structure    — legs resolved against live spot
 //   • Payoff       — interactive payoff & risk chart
 //   • Customize    — the full builder (legs editor, greeks, scenarios)
@@ -23,10 +28,10 @@ import {
   Search, Layers, TrendingUp, Shield, Banknote, Zap, Split,
   Infinity as InfinityIcon, Network, Timer, Send, Star, Compass, Coins, Waves,
   Loader2, Sparkles, ArrowLeft, BookOpen, BarChart3, ListTree, Gauge,
-  ChevronDown, ChevronRight, Pencil,
+  ChevronDown, ChevronRight, Pencil, Sigma, Globe2, Rows3, Table2, Cpu, Landmark,
 } from 'lucide-react';
 import {
-  CATEGORY_META, MAX_LEGS, STRATEGIES, VIEW_META, complexityStars,
+  CATEGORY_META, STRATEGIES, VIEW_META, complexityStars,
   histogramBuckets, resolveStrategyLegs, strategyById,
   type StrategyCategory, type StrategySpec, type StrategyView,
 } from '@/lib/strategies';
@@ -42,6 +47,10 @@ import { PayoffChart } from '@/components/terminal/payoff-chart';
 import { BuilderView } from '@/components/terminal/builder-view';
 import { StrategyIntelligence } from './strategy-intelligence';
 import { StrategyLiveData } from './strategy-live-data';
+import { StrategyMetrics } from './strategy-metrics';
+import { StrategyPlatforms } from './strategy-platforms';
+import { PLATFORMS, platformsForStrategy } from '@/lib/platforms';
+import { quickPremium } from '@/lib/metrics';
 
 const CATEGORY_ICONS: Record<StrategyCategory, React.ReactNode> = {
   direction: <TrendingUp className="h-3.5 w-3.5" />,
@@ -70,10 +79,12 @@ const LEG_BUCKETS = [
 
 const NO_OVERRIDE = { spotShiftPct: 0, ivShiftPct: 0, daysForward: 0 };
 
-type DetailTab = 'intelligence' | 'data' | 'structure' | 'payoff';
+type DetailTab = 'intelligence' | 'data' | 'metrics' | 'platforms' | 'structure' | 'payoff';
 type Mode = 'explore' | 'build';
 type Goal = 'direction' | 'protect' | 'income' | 'volatility';
 type Dir = 'bullish' | 'bearish' | 'neutral';
+type RailMode = 'cards' | 'table';
+type EraFilter = 'all' | 'modern' | 'legacy' | 'tradfi';
 
 const GOALS: { id: Goal; label: string; icon: React.ReactNode }[] = [
   { id: 'direction', label: 'Trade a view', icon: <Compass className="h-3.5 w-3.5" /> },
@@ -85,8 +96,17 @@ const GOALS: { id: Goal; label: string; icon: React.ReactNode }[] = [
 const DETAIL_TABS: { id: DetailTab; label: string; icon: React.ReactNode }[] = [
   { id: 'intelligence', label: 'Intelligence', icon: <BookOpen className="h-3.5 w-3.5" /> },
   { id: 'data', label: 'Live Data', icon: <BarChart3 className="h-3.5 w-3.5" /> },
+  { id: 'metrics', label: 'Metrics', icon: <Sigma className="h-3.5 w-3.5" /> },
+  { id: 'platforms', label: 'Platforms', icon: <Globe2 className="h-3.5 w-3.5" /> },
   { id: 'structure', label: 'Structure', icon: <ListTree className="h-3.5 w-3.5" /> },
   { id: 'payoff', label: 'Payoff', icon: <Gauge className="h-3.5 w-3.5" /> },
+];
+
+const ERA_CHIPS: { id: EraFilter; label: string; icon: React.ReactNode }[] = [
+  { id: 'all', label: 'All venues', icon: <Globe2 className="h-3 w-3" /> },
+  { id: 'modern', label: 'Modern', icon: <Cpu className="h-3 w-3" /> },
+  { id: 'legacy', label: 'Legacy', icon: <Landmark className="h-3 w-3" /> },
+  { id: 'tradfi', label: 'TradFi', icon: <Landmark className="h-3 w-3" /> },
 ];
 
 export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
@@ -107,6 +127,9 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
   const [viewFilter, setViewFilter] = useState<StrategyView | 'all'>('all');
   const [bucket, setBucket] = useState('all');
   const [detailTab, setDetailTab] = useState<DetailTab>('intelligence');
+  const [railMode, setRailMode] = useState<RailMode>('cards');
+  const [eraFilter, setEraFilter] = useState<EraFilter>('all');
+  const [platformId, setPlatformId] = useState<string>('all');
 
   // ── intent compiler state ─────────────────────────────────────────────────
   const [intentOpen, setIntentOpen] = useState(false);
@@ -125,11 +148,22 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const b = LEG_BUCKETS.find((x) => x.id === bucket) ?? LEG_BUCKETS[0];
+    const venueActive = eraFilter !== 'all' || platformId !== 'all';
     return STRATEGIES.filter((s) => {
       if (category !== 'all' && s.category !== category) return false;
       if (viewFilter !== 'all' && s.view !== viewFilter) return false;
       const n = s.legs.length;
       if (n < b.min || n > b.max) return false;
+      if (venueActive) {
+        const fits = platformsForStrategy(s, underlying, 0);
+        if (platformId !== 'all') {
+          const f = fits.find((x) => x.platform.id === platformId);
+          if (!f || (f.support !== 'native' && f.support !== 'synthetic')) return false;
+        }
+        if (eraFilter === 'modern' && !fits.some((f) => f.platform.era === 'modern' && f.support !== 'unavailable')) return false;
+        if (eraFilter === 'legacy' && !fits.some((f) => f.platform.era === 'legacy' && f.support !== 'unavailable')) return false;
+        if (eraFilter === 'tradfi' && !fits.some((f) => f.platform.tradfiUnderlyings !== undefined && f.support !== 'unavailable')) return false;
+      }
       if (!q) return true;
       return (
         s.name.toLowerCase().includes(q) ||
@@ -138,7 +172,30 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
         s.tags.some((t) => t.includes(q))
       );
     });
-  }, [query, category, viewFilter, bucket]);
+  }, [query, category, viewFilter, bucket, eraFilter, platformId, underlying]);
+
+  // Venue counts per strategy (pure spec logic — memoized per underlying).
+  const venueCounts = useMemo(() => {
+    const m = new Map<string, { native: number; ok: number }>();
+    for (const s of STRATEGIES) {
+      const fits = platformsForStrategy(s, underlying, 0);
+      m.set(s.id, {
+        native: fits.filter((f) => f.support === 'native').length,
+        ok: fits.filter((f) => f.support === 'native' || f.support === 'synthetic').length,
+      });
+    }
+    return m;
+  }, [underlying]);
+
+  // Cheap credit/debit sign per strategy — quantized spot so the 30fps stream
+  // doesn't re-price all 532 legs every frame.
+  const stepSize = spot >= 50000 ? 500 : spot >= 4000 ? 50 : 5;
+  const spotQuant = Math.round(spot / stepSize) * stepSize;
+  const premiumMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const s of STRATEGIES) m.set(s.id, quickPremium(s, underlying, spotQuant));
+    return m;
+  }, [underlying, spotQuant]);
 
   // Resolved legs + preview analysis for the selected strategy (client mirror).
   const previewLegs = useMemo(() => resolveStrategyLegs(selected, spot), [selected, spot]);
@@ -197,25 +254,43 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
   return (
     <div className="flex h-full min-h-0 gap-3">
       {/* ── Left rail: search · filters · intent compiler · catalog list ── */}
-      <aside className="flex w-[340px] shrink-0 flex-col gap-2 overflow-hidden">
+      <aside className="flex w-[400px] shrink-0 flex-col gap-2 overflow-hidden xl:w-[480px]">
         {/* header */}
         <div className="flex items-center gap-2">
-          <Layers className="h-4 w-4 text-teal-400" />
-          <div>
+          <Layers className="h-4 w-4 shrink-0 text-teal-400" />
+          <div className="min-w-0">
             <h2 className="text-sm font-bold tracking-tight text-zinc-100">Strategies</h2>
-            <p className="text-[9px] uppercase tracking-[0.16em] text-zinc-500">
-              {STRATEGIES.length} structures · up to {MAX_LEGS} legs · on {underlying} @ {fmtNum(spot, 0)}
+            <p className="truncate text-[9px] uppercase tracking-[0.16em] text-zinc-500">
+              {STRATEGIES.length} in ONE catalog · {PLATFORMS.length} venues · on {underlying} @ {fmtNum(spot, 0)}
             </p>
           </div>
-          <div className="ml-auto flex gap-1">
-            {histogramBuckets()
-              .slice(3)
-              .map((b) => (
-                <div key={b.label} className="rounded-md border border-zinc-800 bg-zinc-900/50 px-1.5 py-0.5 text-center">
-                  <p className="font-mono text-[10px] font-semibold text-teal-300">{b.count}</p>
-                  <p className="text-[7px] uppercase tracking-wide text-zinc-600">{b.label}L</p>
-                </div>
-              ))}
+          <div className="ml-auto flex flex-col items-end gap-1">
+            <div className="flex gap-0.5 rounded-md border border-zinc-800 bg-zinc-900/50 p-0.5">
+              <button
+                onClick={() => setRailMode('cards')}
+                title="Card rail"
+                className={`rounded p-1 transition ${railMode === 'cards' ? 'bg-teal-950/60 text-teal-300' : 'text-zinc-600 hover:text-zinc-300'}`}
+              >
+                <Rows3 className="h-3 w-3" />
+              </button>
+              <button
+                onClick={() => setRailMode('table')}
+                title="Dense table — all 131 at a glance"
+                className={`rounded p-1 transition ${railMode === 'table' ? 'bg-teal-950/60 text-teal-300' : 'text-zinc-600 hover:text-zinc-300'}`}
+              >
+                <Table2 className="h-3 w-3" />
+              </button>
+            </div>
+            <div className="flex gap-1">
+              {histogramBuckets()
+                .slice(3)
+                .map((b) => (
+                  <div key={b.label} className="rounded-md border border-zinc-800 bg-zinc-900/50 px-1.5 py-0.5 text-center">
+                    <p className="font-mono text-[10px] font-semibold text-teal-300">{b.count}</p>
+                    <p className="text-[7px] uppercase tracking-wide text-zinc-600">{b.label}L</p>
+                  </div>
+                ))}
+            </div>
           </div>
         </div>
 
@@ -444,54 +519,114 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
               ))}
             </select>
           </div>
+          <div className="flex flex-wrap items-center gap-1 border-t border-zinc-800/60 pt-1.5">
+            {ERA_CHIPS.map((e) => (
+              <button
+                key={e.id}
+                onClick={() => {
+                  setEraFilter(e.id);
+                  if (e.id !== 'all') setPlatformId('all');
+                }}
+                className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-medium transition ${
+                  eraFilter === e.id && platformId === 'all'
+                    ? 'bg-teal-950/60 text-teal-300 ring-1 ring-teal-500/30'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                {e.icon}
+                {e.label}
+              </button>
+            ))}
+            <select
+              value={platformId}
+              onChange={(e) => {
+                setPlatformId(e.target.value);
+                if (e.target.value !== 'all') setEraFilter('all');
+              }}
+              className="ml-auto h-6 cursor-pointer rounded-md border border-zinc-800 bg-zinc-950 px-1.5 text-[9px] text-zinc-400 [&>option]:bg-zinc-950"
+              title="Filter to strategies this platform can run"
+            >
+              <option value="all">any platform</option>
+              {PLATFORMS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.era === 'modern' ? '◆' : '◇'} {p.short}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        {/* catalog list */}
+        {/* catalog list — cards or dense table, all 131 in one place */}
         <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
-          {filtered.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setSelectedId(s.id)}
-              className={`w-full rounded-lg border p-2 text-left transition ${
-                selectedId === s.id
-                  ? 'border-teal-500/50 bg-teal-950/20'
-                  : 'border-zinc-800/70 bg-zinc-900/30 hover:border-zinc-700 hover:bg-zinc-900/60'
-              }`}
-            >
-              <div className="flex items-center gap-1.5">
-                <span className={selectedId === s.id ? 'text-teal-300' : 'text-zinc-500'}>
-                  {CATEGORY_ICONS[s.category]}
-                </span>
-                <p className={`truncate text-[11px] font-semibold ${selectedId === s.id ? 'text-teal-100' : 'text-zinc-200'}`}>
-                  {s.name}
-                </p>
-                <span
-                  className={`ml-auto shrink-0 rounded px-1 py-0.5 font-mono text-[8px] tabular-nums ${
-                    s.legs.length >= 20
-                      ? 'bg-fuchsia-950/50 text-fuchsia-300'
-                      : s.legs.length >= 8
-                        ? 'bg-sky-950/50 text-sky-300'
-                        : 'bg-zinc-800/80 text-zinc-400'
+          {railMode === 'table' ? (
+            <CatalogTable
+              rows={filtered}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              premiumMap={premiumMap}
+              venueCounts={venueCounts}
+            />
+          ) : (
+            filtered.map((s) => {
+              const p = premiumMap.get(s.id) ?? 0;
+              const vc = venueCounts.get(s.id);
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedId(s.id)}
+                  className={`w-full rounded-lg border p-2 text-left transition ${
+                    selectedId === s.id
+                      ? 'border-teal-500/50 bg-teal-950/20'
+                      : 'border-zinc-800/70 bg-zinc-900/30 hover:border-zinc-700 hover:bg-zinc-900/60'
                   }`}
                 >
-                  {s.legs.length}L
-                </span>
-              </div>
-              <div className="mt-0.5 flex items-center gap-1.5 text-[8px]">
-                <span className={VIEW_META[s.view].color}>{VIEW_META[s.view].label}</span>
-                <span className="text-zinc-700">·</span>
-                <span className="font-mono text-teal-400/60">{complexityStars(s.complexity)}</span>
-                <span className="text-zinc-700">·</span>
-                <span className="truncate text-zinc-600">{CATEGORY_META[s.category].label}</span>
-              </div>
-            </button>
-          ))}
+                  <div className="flex items-center gap-1.5">
+                    <span className={selectedId === s.id ? 'text-teal-300' : 'text-zinc-500'}>
+                      {CATEGORY_ICONS[s.category]}
+                    </span>
+                    <p className={`truncate text-[11px] font-semibold ${selectedId === s.id ? 'text-teal-100' : 'text-zinc-200'}`}>
+                      {s.name}
+                    </p>
+                    <span
+                      className={`ml-auto shrink-0 rounded px-1 py-0.5 font-mono text-[8px] tabular-nums ${
+                        s.legs.length >= 20
+                          ? 'bg-fuchsia-950/50 text-fuchsia-300'
+                          : s.legs.length >= 8
+                            ? 'bg-sky-950/50 text-sky-300'
+                            : 'bg-zinc-800/80 text-zinc-400'
+                      }`}
+                    >
+                      {s.legs.length}L
+                    </span>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1.5 text-[8px]">
+                    <span className={VIEW_META[s.view].color}>{VIEW_META[s.view].label}</span>
+                    <span className="text-zinc-700">·</span>
+                    <span className={`shrink-0 font-mono ${p < 0 ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>
+                      {p < 0 ? 'CR' : 'DR'} {fmtUsd(Math.abs(p), { compact: true })}
+                    </span>
+                    <span className="text-zinc-700">·</span>
+                    <span className="font-mono text-teal-400/60">{complexityStars(s.complexity)}</span>
+                    <span className="ml-auto flex shrink-0 items-center gap-1 text-zinc-500">
+                      <Globe2 className="h-2.5 w-2.5" />
+                      <span title="venues that can run this strategy (native + synthetic)">
+                        {vc?.ok ?? 0}v
+                      </span>
+                    </span>
+                  </div>
+                </button>
+              );
+            })
+          )}
           {filtered.length === 0 && (
             <div className="flex h-32 flex-col items-center justify-center gap-2 text-center">
               <Search className="h-5 w-5 text-zinc-700" />
               <p className="text-xs text-zinc-500">No strategies match those filters.</p>
             </div>
           )}
+          <p className="sticky bottom-0 z-10 bg-zinc-950/90 py-1 text-center text-[8px] uppercase tracking-[0.14em] text-zinc-600 backdrop-blur">
+            showing {filtered.length} of {STRATEGIES.length} · one catalog, every strategy in one place
+          </p>
         </div>
       </aside>
 
@@ -512,6 +647,10 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
               <span>·</span>
               <span className="font-mono">
                 {previewAnalysis.isCredit ? 'credit' : 'debit'} {fmtUsd(Math.abs(previewAnalysis.netPremium))}
+              </span>
+              <span>·</span>
+              <span className="text-sky-400/80" title="venues that can run this strategy">
+                {venueCounts.get(selected.id)?.ok ?? 0}/{PLATFORMS.length} venues
               </span>
             </p>
           </div>
@@ -565,6 +704,22 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
               underlying={underlying}
               market={asset}
               legCount={selected.legs.length}
+            />
+          )}
+          {detailTab === 'metrics' && (
+            <StrategyMetrics
+              analysis={previewAnalysis}
+              legs={previewLegs}
+              underlying={underlying}
+              market={asset}
+              specName={selected.name}
+            />
+          )}
+          {detailTab === 'platforms' && (
+            <StrategyPlatforms
+              spec={selected}
+              underlying={underlying}
+              premiumUsd={previewAnalysis.netPremium}
             />
           )}
           {detailTab === 'structure' && (
@@ -776,6 +931,72 @@ function StructureTab({
           <Star className="h-3 w-3" /> Load into Builder
         </Button>
       </div>
+    </div>
+  );
+}
+
+// ── Dense catalog table — ALL 131 strategies in one scroll ───────────────────
+function CatalogTable({
+  rows,
+  selectedId,
+  onSelect,
+  premiumMap,
+  venueCounts,
+}: {
+  rows: StrategySpec[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+  premiumMap: Map<string, number>;
+  venueCounts: Map<string, { native: number; ok: number }>;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left">
+        <thead className="sticky top-0 z-10 bg-zinc-950/95 backdrop-blur">
+          <tr className="border-b border-zinc-800 text-[8px] uppercase tracking-wider text-zinc-600">
+            <th className="py-1 pr-1 font-medium">#</th>
+            <th className="pr-1.5 font-medium">Strategy</th>
+            <th className="pr-1 font-medium">Category</th>
+            <th className="pr-1 font-medium">View</th>
+            <th className="pr-1 text-right font-medium">Legs</th>
+            <th className="pr-1 text-right font-medium">C/D</th>
+            <th className="pr-1 text-right font-medium">Prem</th>
+            <th className="pr-1 text-right font-medium">Venues</th>
+            <th className="text-right font-medium">Cpx</th>
+          </tr>
+        </thead>
+        <tbody className="font-mono text-[9px] tabular-nums">
+          {rows.map((s, i) => {
+            const p = premiumMap.get(s.id) ?? 0;
+            const vc = venueCounts.get(s.id);
+            const sel = selectedId === s.id;
+            return (
+              <tr
+                key={s.id}
+                onClick={() => onSelect(s.id)}
+                className={`cursor-pointer border-b border-zinc-800/40 transition ${
+                  sel ? 'bg-teal-950/25 text-teal-100' : 'text-zinc-300 hover:bg-zinc-900/60'
+                }`}
+              >
+                <td className="py-1 pr-1 text-zinc-600">{i + 1}</td>
+                <td className="max-w-[190px] truncate pr-1.5 font-sans font-semibold">{s.name}</td>
+                <td className="pr-1 text-zinc-500">{CATEGORY_META[s.category].label}</td>
+                <td className={`pr-1 ${VIEW_META[s.view].color}`}>{VIEW_META[s.view].label}</td>
+                <td className="pr-1 text-right">{s.legs.length}</td>
+                <td className={`pr-1 text-right ${p < 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {p < 0 ? 'CR' : 'DR'}
+                </td>
+                <td className="pr-1 text-right text-zinc-500">{fmtUsd(Math.abs(p), { compact: true })}</td>
+                <td className="pr-1 text-right text-zinc-400">
+                  {vc?.ok ?? 0}
+                  <span className="text-zinc-600">/{PLATFORMS.length}</span>
+                </td>
+                <td className="text-right text-teal-400/60">{complexityStars(s.complexity)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

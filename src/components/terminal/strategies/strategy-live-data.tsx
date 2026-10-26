@@ -8,10 +8,11 @@
 import React, { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Cpu, Loader2, Activity, Flame, Waves, Landmark, BarChart3 } from 'lucide-react';
+import { Cpu, Loader2, Activity, Flame, Waves, Landmark, BarChart3, Sigma } from 'lucide-react';
 import type { AssetMarket, Leg, LegAnalytics, StrategyAnalysis, UnderlyingId } from '@/lib/types';
 import { fmtUsd, fmtNum, fmtPctSigned } from '@/lib/format';
 import { atmVol, VOL_CONFIG } from '@/lib/pricing';
+import { expectedMove, skewMetrics } from '@/lib/metrics';
 import { engine, RustAnalysis } from '@/lib/api';
 import { kindLabel } from '@/lib/types';
 
@@ -52,6 +53,10 @@ function ExtremeText({ kind, value }: { kind: string; value?: number }): string 
 export function StrategyLiveData({ analysis, legs, underlying, market, legCount }: LiveDataProps) {
   const cfg = VOL_CONFIG[underlying] ?? VOL_CONFIG.BTC;
   const atmIv = atmVol(cfg, 30 / 365, market.volShift);
+  const atmIv7 = atmVol(cfg, 7 / 365, market.volShift);
+  const atmIv90 = atmVol(cfg, 90 / 365, market.volShift);
+  const skew = skewMetrics(underlying, market);
+  const em = expectedMove(underlying, market, analysis.horizonDays);
 
   const [engineState, setEngineState] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
   const [engineResult, setEngineResult] = useState<RustAnalysis | null>(null);
@@ -92,10 +97,42 @@ export function StrategyLiveData({ analysis, legs, underlying, market, legCount 
             tone={(market.change24h ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}
           />
           <Stat label="ATM IV 30d" value={fmtNum(atmIv * 100, 1) + '%'} sub={`vol shift ${fmtNum((market.volShift ?? 0) * 100, 1)}%`} />
-          <Stat label="Funding" value={fmtNum((market.fundingRate ?? 0) * 100, 3) + '%'} />
+          <Stat label="Funding" value={fmtNum((market.fundingRate ?? 0) * 100, 3) + '%'} sub={`APR ${fmtNum((market.fundingRate ?? 0) * 365 * 100, 0)}%`} />
           <Stat label="Open interest" value={fmtUsd(market.openInterest, { compact: true })} />
           <Stat label="24h volume" value={fmtUsd(market.volume24h, { compact: true })} />
         </div>
+        {/* second metric row — the wider surface every desk watches */}
+        <div className="mt-1.5 grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+          <Stat
+            label="Expected move"
+            value={`±${fmtNum(em.oneSigmaPct, 1)}%`}
+            tone="text-teal-300"
+            sub={`${analysis.horizonDays}d · ${fmtNum(em.lo1, 0)}–${fmtNum(em.hi1, 0)} (1σ)`}
+          />
+          <Stat label="IV 7d" value={fmtNum(atmIv7 * 100, 1) + '%'} sub={`vs 30d ${fmtNum((atmIv7 - atmIv) * 100, 1)} pts`} />
+          <Stat label="IV 90d" value={fmtNum(atmIv90 * 100, 1) + '%'} sub={`slope ${fmtNum((atmIv90 - atmIv) * 100, 1)} pts`} />
+          <Stat
+            label="RR 25Δ"
+            value={fmtPctSigned(skew.rr25, 1)}
+            tone={skew.rr25 < 0 ? 'text-rose-400' : 'text-emerald-400'}
+            sub={skew.rr25 < 0 ? 'put skew' : 'call skew'}
+          />
+          <Stat
+            label="IV premium"
+            value={fmtNum(em.ivPremium * 100, 1) + ' pts'}
+            tone={em.ivPremium > 0 ? 'text-amber-300' : 'text-emerald-300'}
+            sub="over 1d realized"
+          />
+          <Stat
+            label="Turnover"
+            value={fmtNum(market.volume24h / Math.max(market.openInterest, 1), 2) + '×'}
+            sub="24h vol / OI"
+          />
+        </div>
+        <p className="mt-1.5 flex items-center gap-1 text-[8px] leading-relaxed text-zinc-600">
+          <Sigma className="h-2.5 w-2.5 shrink-0" />
+          Deeper surface analytics — second-order greeks, VaR/CVaR, stress grid, execution economics — live on the Metrics tab.
+        </p>
       </section>
 
       {/* Strategy metrics — pulled from the pricing engine */}

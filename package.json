@@ -4,13 +4,17 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
+    "build": "next build && cp -r .next/static .next/standalone/volos-perpetual-options-platform/.next/ && cp -r public .next/standalone/volos-perpetual-options-platform/",
+    "start": "NODE_ENV=production node .next/standalone/volos-perpetual-options-platform/server.js",
     "lint": "eslint .",
     "db:push": "prisma db push --accept-data-loss",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "local": "bash run-local.sh",
+    "local:full": "bash run-local.sh --full",
+    "local:stop": "bash run-local.sh --stop",
+    "preview": "bash run-local.sh"
   },
   "dependencies": {
     "@ai-sdk/react": "^1.2.12",
