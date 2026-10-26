@@ -13,8 +13,13 @@
 //                    per-leg quotes, authoritative Rust engine numbers
 //   • Metrics      — the deep layer: IV surface & 25Δ skew, second-order
 //                    greeks, VaR/CVaR, stress grid, execution economics
-//   • Platforms    — every modern + legacy venue this strategy runs on,
-//                    with verdicts, adaptation recipes and fee estimates
+//   • Platforms    — smart order routing & creation (efficiency, performance,
+//                    price & profit, safety & security — ranked per venue
+//                    with the concrete order-creation recipe), then every
+//                    modern + legacy venue this strategy runs on, with
+//                    verdicts, adaptation recipes and fee estimates
+//   • Backtest     — how the strategy has actually performed on real
+//                    exchange history: equity curve, stats, sample cycles
 //   • Structure    — legs resolved against live spot
 //   • Payoff       — interactive payoff & risk chart
 //   • Customize    — the full builder (legs editor, greeks, scenarios)
@@ -28,7 +33,7 @@ import {
   Search, Layers, TrendingUp, Shield, Banknote, Zap, Split,
   Infinity as InfinityIcon, Network, Timer, Send, Star, Compass, Coins, Waves,
   Loader2, Sparkles, ArrowLeft, BookOpen, BarChart3, ListTree, Gauge,
-  ChevronDown, ChevronRight, Pencil, Sigma, Globe2, Rows3, Table2, Cpu, Landmark,
+  ChevronDown, ChevronRight, Pencil, Sigma, Globe2, Rows3, Table2, Cpu, Landmark, History,
 } from 'lucide-react';
 import {
   CATEGORY_META, STRATEGIES, VIEW_META, complexityStars,
@@ -49,6 +54,7 @@ import { StrategyIntelligence } from './strategy-intelligence';
 import { StrategyLiveData } from './strategy-live-data';
 import { StrategyMetrics } from './strategy-metrics';
 import { StrategyPlatforms } from './strategy-platforms';
+import { StrategyBacktest } from './strategy-backtest';
 import { PLATFORMS, platformsForStrategy } from '@/lib/platforms';
 import { quickPremium } from '@/lib/metrics';
 
@@ -79,7 +85,7 @@ const LEG_BUCKETS = [
 
 const NO_OVERRIDE = { spotShiftPct: 0, ivShiftPct: 0, daysForward: 0 };
 
-type DetailTab = 'intelligence' | 'data' | 'metrics' | 'platforms' | 'structure' | 'payoff';
+type DetailTab = 'intelligence' | 'data' | 'metrics' | 'platforms' | 'backtest' | 'structure' | 'payoff';
 type Mode = 'explore' | 'build';
 type Goal = 'direction' | 'protect' | 'income' | 'volatility';
 type Dir = 'bullish' | 'bearish' | 'neutral';
@@ -98,6 +104,7 @@ const DETAIL_TABS: { id: DetailTab; label: string; icon: React.ReactNode }[] = [
   { id: 'data', label: 'Live Data', icon: <BarChart3 className="h-3.5 w-3.5" /> },
   { id: 'metrics', label: 'Metrics', icon: <Sigma className="h-3.5 w-3.5" /> },
   { id: 'platforms', label: 'Platforms', icon: <Globe2 className="h-3.5 w-3.5" /> },
+  { id: 'backtest', label: 'Backtest', icon: <History className="h-3.5 w-3.5" /> },
   { id: 'structure', label: 'Structure', icon: <ListTree className="h-3.5 w-3.5" /> },
   { id: 'payoff', label: 'Payoff', icon: <Gauge className="h-3.5 w-3.5" /> },
 ];
@@ -720,6 +727,12 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
               spec={selected}
               underlying={underlying}
               premiumUsd={previewAnalysis.netPremium}
+            />
+          )}
+          {detailTab === 'backtest' && (
+            <StrategyBacktest
+              spec={selected}
+              underlying={underlying}
             />
           )}
           {detailTab === 'structure' && (

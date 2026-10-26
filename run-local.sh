@@ -4,16 +4,19 @@
 #
 # Keeps the Strategies terminal running locally, forever:
 #   • installs dependencies on first run (bun → npm → pnpm → yarn)
-#   • starts the Next.js dev server on http://localhost:3000
-#   • auto-restarts the server if it ever crashes
+#   • starts the Next.js dev server on http://localhost:3000 IMMEDIATELY
+#     (auto-restart loop — if it ever crashes it comes back in 2s)
 #   • --full   also builds & starts the Rust engine (:3031) for authoritative
-#              SVI analytics + real venue quotes
+#              SVI analytics + real venue quotes — the build runs in the
+#              background so the UI is up within seconds, and the engine
+#              joins as soon as it is healthy (Live Data tab flips from the
+#              client mirror to engine-backed numbers automatically)
 #   • --stop   kills everything this script started
 #
 # Usage:
 #   bash run-local.sh                 # UI preview on :3000 (auto-restart)
-#   bash run-local.sh --full          # UI + Rust engine
-#   bash run-local.sh --port 3001     # custom port
+#   bash run-local.sh --full          # UI immediately + Rust engine when ready
+#   bash run-local.sh --port 3001     # custom UI port
 #   bash run-local.sh --stop          # stop the preview
 #
 # package.json aliases:  bun run local | local:full | local:stop | preview
@@ -58,11 +61,13 @@ if [[ "$STOP" == "1" ]]; then
       rm -f "$pidfile"
     fi
   done
-  # Free the port of any orphaned next-server from previous runs.
-  if command -v lsof >/dev/null 2>&1; then
-    pids="$(lsof -ti tcp:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
-    [[ -n "$pids" ]] && { kill $pids 2>/dev/null; log "freed port $PORT (pids: $pids)"; }
-  fi
+  # Free the ports of any orphaned servers from previous runs.
+  for port in "$PORT" 3031; do
+    if command -v lsof >/dev/null 2>&1; then
+      pids="$(lsof -ti tcp:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+      [[ -n "$pids" ]] && { kill $pids 2>/dev/null; log "freed port $port (pids: $pids)"; }
+    fi
+  done
   log "preview stopped."
   exit 0
 fi
@@ -90,22 +95,44 @@ else
   log "dependencies present — skipping install (delete node_modules to force)"
 fi
 
-# ── optional Rust engine ─────────────────────────────────────────────────────
-start_engine() {
+# ── optional Rust engine (background, non-blocking) ──────────────────────────
+start_engine_bg() {
   if ! command -v cargo >/dev/null 2>&1; then
-    warn "--full requested but cargo is not installed; running UI-only (client mirror analytics)."
+    warn "--full requested but cargo is not installed; the UI runs on its identical client-side mirror."
+    warn "  for engine-backed numbers install Rust first:"
+    warn "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
     return 1
   fi
-  log "building + starting the Rust engine on :3031 (background)…"
-  ( cd rust-backend && cargo build --release >/dev/null 2>&1 ) || { warn "cargo build failed — engine skipped"; return 1; }
-  ( cd rust-backend && cargo run --release --bin volos-backend ) >"$ENGINE_LOG" 2>&1 &
+  log "engine: building + starting on :3031 in the background…"
+  if [[ ! -f rust-backend/target/release/volos-backend ]]; then
+    log "engine: first build — release mode with LTO, a few minutes; the UI is already starting in parallel"
+  fi
+  (
+    ( cd rust-backend && cargo build --release ) >>"$ENGINE_LOG" 2>&1 \
+      || { echo "CARGO_BUILD_FAILED" >>"$ENGINE_LOG"; exit 1; }
+    ( cd rust-backend && exec cargo run --release --bin volos-backend ) >>"$ENGINE_LOG" 2>&1
+  ) &
   ENGINE_PID=$!
   echo "$ENGINE_PID" > "$LOG_DIR/engine.pid"
-  log "engine pid $ENGINE_PID · log: $ENGINE_LOG"
+  # announce readiness asynchronously — never blocks the UI
+  (
+    for _ in $(seq 1 3600); do
+      if curl -sf -o /dev/null "http://localhost:3031/health"; then
+        log "engine: UP — authoritative numbers now served from :3031 (health: http://localhost:3031/health)"
+        exit 0
+      fi
+      if ! kill -0 "$ENGINE_PID" 2>/dev/null; then
+        warn "engine exited — the UI keeps running on the client mirror; see $ENGINE_LOG"
+        exit 1
+      fi
+      sleep 1
+    done
+  ) &
+  disown
   return 0
 }
 if [[ "$WITH_ENGINE" == "1" ]]; then
-  start_engine
+  start_engine_bg
 else
   log "engine not requested — the terminal runs on its identical client-side mirror."
 fi
@@ -116,6 +143,7 @@ banner() {
   log "╔══════════════════════════════════════════════════╗"
   log "║  VolOS is running in local preview               ║"
   log "║  Terminal →  http://localhost:%-4s             ║" "$PORT"
+  log "║  Engine   →  http://localhost:3031  $( [[ $WITH_ENGINE == 1 ]] && echo '(starting in background)' || echo '(not requested)')  ║"
   log "║  Auto-restart: ON   Logs: %s              ║" "$UI_LOG"
   log "║  Stop any time:   bash run-local.sh --stop       ║"
   log "╚══════════════════════════════════════════════════╝"

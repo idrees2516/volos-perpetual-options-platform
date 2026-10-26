@@ -210,7 +210,7 @@ loadable on BTC, ETH or SOL — into the **builder**, the **RFQ desk**, or the
 ### The unified Strategies workspace — one UI, not scattered parts
 
 Everything strategy-related lives in **one terminal view** (Strategies in the
-nav), organized as a catalog rail + a six-tab workspace:
+nav), organized as a catalog rail + a seven-tab workspace:
 
 - **Catalog rail** — all **131 strategies in one place** as cards *or* a dense
   table (name · view · legs · credit/debit · live premium · venue count ·
@@ -228,14 +228,34 @@ nav), organized as a catalog rail + a six-tab workspace:
   charm · vomma · speed) per leg and net, **VaR 95/99 · CVaR ·
   probability-of-touching**, the spot×IV stress grid, and execution economics
   (capital · ROC · theta yield · slippage · funding drag).
-- **Platforms** — every **modern** venue (Derive · Paradex · Aevo ·
-  Hyperliquid · Panoptic) and every **legacy** venue (Deribit · OKX · Bybit ·
-  Binance · CME crypto · CBOE SPX/0DTE · CME equity · Nasdaq/PHLX · MIAX ·
-  IBKR) with a per-strategy verdict — native / synthetic / partial / not
-  listed — the adaptation recipe (roll ladders, split tickets, futures
-  hedges), fee estimates on the live premium, margin model and ticket-width
-  limits. TradFi venues map the *archetype* onto their own underlyings, so the
-  0DTE book maps to CBOE SPX and the calendars to CME ES.
+- **Platforms** — **smart order routing & creation** first: every venue the
+  strategy can run on is scored on four dimensions — **efficiency** (all-in
+  cost: taker/maker fees, per-contract, settlement, multi-ticket overhead,
+  modeled slippage as % of premium), **performance** (order-ack latency, fill
+  probability for this exact ticket, expected time-to-fill), **price & profit
+  optimization** (maker-capture plan, fee savings vs crossing, price
+  improvement, % of theoretical edge retained) and **safety & security**
+  (custody tier, central clearing / insurance fund, pre-trade risk checks,
+  kill-switch, failover) — weighted into a composite that ranks the venues and
+  names the best route, and every venue expands into its **order-creation
+  recipe** (pre-trade risk budget → ticket structure → limit pricing vs theo →
+  execution model & TIF → post-trade guards). Below it, the full venue map:
+  every **modern** venue (Derive · Paradex · Aevo · Hyperliquid · Panoptic)
+  and every **legacy** venue (Deribit · OKX · Bybit · Binance · CME crypto ·
+  CBOE SPX/0DTE · CME equity · Nasdaq/PHLX · MIAX · IBKR) with a per-strategy
+  verdict — native / synthetic / partial / not listed — the adaptation recipe
+  (roll ladders, split tickets, futures hedges), fee estimates on the live
+  premium, margin model and ticket-width limits. TradFi venues map the
+  *archetype* onto their own underlyings, so the 0DTE book maps to CBOE SPX
+  and the calendars to CME ES.
+- **Backtest** — how the strategy has **actually performed in the past** on
+  real exchange history: Bybit spot klines + live Deribit IV calibration,
+  legs re-struck at every cycle's entry spot, Black-Scholes daily
+  mark-to-market, settlement at intrinsic, fees + slippage per leg. Returns
+  the equity curve, 90–730-day windows, win rate, profit factor, expectancy,
+  Sharpe/Sortino, max drawdown, R-multiples and the last cycles one by one
+  (everlasting legs are modeled as dated options rolled every funding period).
+  Exposed as `POST /api/strategies/backtest`.
 - **Structure** — legs resolved on live spot with moneyness and tenor.
 - **Payoff** — interactive payoff & risk chart (expiry/now/decay cones).
 - **Customize** — the full builder (legs editor, greeks, scenarios) embedded
@@ -251,6 +271,17 @@ Legs creation is a first-class capability across the whole terminal:
 - **Intent Wizard** — compiled candidates open fully-populated in the builder
 - **Analytics** — RFQ tab shows the package leg count
 - **Trading view** — the RFQ desk quotes the whole 25-leg package atomically
+
+## Next.js API (port 3000)
+
+```
+POST /api/strategies/backtest    strategy backtest on real exchange history
+                                 (Bybit klines + Deribit IV calibration):
+                                 body { asset, strategyName, windowDays, legs[] }
+                                 → stats + equity curve + sample cycles
+GET  /api/venues                 live health of every connected options exchange
+GET  /api/chain                  normalized live chains across venues
+```
 
 ## HTTP API (port 3031, all camelCase JSON)
 

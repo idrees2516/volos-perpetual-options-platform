@@ -7,11 +7,12 @@
 // an estimated round-trip taker fee.
 
 import React from 'react';
-import { Building2, Landmark, Globe2, Cpu, CheckCircle2, RefreshCw, AlertTriangle, XCircle, Coins } from 'lucide-react';
+import { Building2, Landmark, Globe2, Cpu, CheckCircle2, RefreshCw, AlertTriangle, XCircle, Coins, Route } from 'lucide-react';
 import type { StrategySpec } from '@/lib/strategies';
 import type { UnderlyingId } from '@/lib/types';
 import { fmtNum, fmtUsd } from '@/lib/format';
 import { ERA_META, PLATFORMS, SUPPORT_META, platformSummary, platformsForStrategy } from '@/lib/platforms';
+import { StrategyRouting } from './strategy-routing';
 
 interface PlatformsProps {
   spec: StrategySpec;
@@ -121,6 +122,9 @@ export function StrategyPlatforms({ spec, underlying, premiumUsd }: PlatformsPro
 
   return (
     <div className="space-y-3">
+      {/* smart order routing & creation */}
+      <StrategyRouting spec={spec} underlying={underlying} premiumUsd={premiumUsd} />
+
       {/* summary strip */}
       <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
