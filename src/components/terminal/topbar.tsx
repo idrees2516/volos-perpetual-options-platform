@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Waves, Layers, CircleDot, LineChart, Sparkles, FlaskConical } from 'lucide-react';
+import { Waves, Sparkles } from 'lucide-react';
 import type { UnderlyingId } from '@/lib/types';
 import { ASSET_META } from '@/lib/types';
 import { useMarket } from '@/hooks/use-market';
@@ -12,21 +12,17 @@ import { useStrategy } from '@/stores/strategy-store';
 import { useCopilot } from '@/stores/copilot-store';
 import { fmtNum, fmtPctSigned } from '@/lib/format';
 
-export type ViewId = 'strategies' | 'chain' | 'trade' | 'paper';
+export type ViewId = 'strategies' | 'gamma' | 'chain' | 'trade' | 'paper';
 
-const NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
-  { id: 'strategies', label: 'Strategies', icon: <Layers className="h-3.5 w-3.5" /> },
-  { id: 'chain', label: 'Option Chain', icon: <CircleDot className="h-3.5 w-3.5" /> },
-  { id: 'trade', label: 'Trading', icon: <LineChart className="h-3.5 w-3.5" /> },
-  { id: 'paper', label: 'Paper Desk', icon: <FlaskConical className="h-3.5 w-3.5" /> },
-];
+// Navigation now lives in the left SideNav rail; the top bar keeps the
+// ticker, asset selector, AI Copilot and engine status.
 
 interface TopBarProps {
   view: ViewId;
   onView: (v: ViewId) => void;
 }
 
-export function TopBar({ view, onView }: TopBarProps) {
+export function TopBar(_: TopBarProps) {
   const { market, smooth, connected, source, retry } = useMarket();
   const { underlying, setUnderlying } = useStrategy();
   const { open: copilotOpen, toggle: toggleCopilot } = useCopilot();
@@ -47,23 +43,7 @@ export function TopBar({ view, onView }: TopBarProps) {
           </div>
         </div>
 
-        {/* Nav */}
-        <nav className="order-3 flex w-full gap-1 overflow-x-auto md:order-none md:w-auto">
-          {NAV.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => onView(n.id)}
-              className={`flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition ${
-                view === n.id
-                  ? 'bg-teal-950/50 text-teal-300 ring-1 ring-teal-500/30'
-                  : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
-              }`}
-            >
-              {n.icon}
-              {n.label}
-            </button>
-          ))}
-        </nav>
+        {/* Nav lives in the left SideNav rail */}
 
         {/* Asset selector */}
         <div className="ml-auto flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900/50 p-0.5">

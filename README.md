@@ -38,6 +38,38 @@ in the browser:
 Still frames of every view are in [`docs/assets/ui-captures/`](docs/assets/ui-captures/).
 Reproduce it yourself: `bash run-local.sh --full` → http://localhost:3000.
 
+## 🎬 Gamma & Flow Lab demo (v1.9)
+
+**[`docs/assets/volos-gamma-flow-demo.mp4`](docs/assets/volos-gamma-flow-demo.mp4)** — a 3-minute
+walkthrough of the market-internals layer: payoff-upfront strategies, the collapsible
+catalog, left side-nav, then the full Gamma & Flow Lab across SPY / SPX / NVDA / BTC.
+
+## The Gamma & Flow Lab — market internals, natively
+
+OpenMarket-style **gamma exposure, dealer positioning and options flow — implemented
+natively in the terminal** (no external service): every chart, level and print is
+computed by the app's own Black-Scholes/vega engine over a deterministic OI surface.
+
+**Symbols**: SPX · SPY · QQQ · NVDA · TSLA · AAPL (US index / ETFs / stocks, ×100
+multiplier) + BTC · ETH · SOL on the live market feed.
+
+| Tab | What you get |
+|-----|--------------|
+| **Overview · GEX & Dealers** | Gamma exposure by strike (dealer-signed, $/1%), **call wall / put wall**, **gamma flip**, **max pain**, regime banner (long-γ pin & suppress vs short-γ trends amplify), estimated **dealer positioning** across a ±2% spot scan, hover readouts per strike |
+| **Heatmaps · Strike × Expiry** | Strike × expiry intensity grids for **GEX, VEX (vanna), IV, OI, volume** — net / call / put split, ATM marker, walls highlighted, per-row totals, top-strikes table |
+| **Options Flow · Live Tape** | Every print: time, option, Δ, expiry (0DTE badged), side @ ask/bid/mid, qty, price, premium, IV, exchange — **sweep** ⚡ and **block** ▦ flags; summary cards (total premium, call/put ratio, buy/sell pressure, sweeps, blocks, 0DTE share), **largest prints**, premium-flow buckets (calls bought/sold, puts bought/sold), live 0DTE activity monitor |
+| **Contracts · Skew & IV** | Per-contract price chart with IV and delta overlays (any strike / call / put / tenor), **volatility skew by delta** across 0DTE→90d, ATM **IV term structure** |
+
+### Terminal layout (v1.9)
+
+- **Left side-nav rail** with every major functionality — Strategies · Gamma & Flow ·
+  Option Chain · Trading · Paper Desk — collapsible to icon-only mode
+- **Strategies catalog is collapsible** — one click tucks the 131-strategy rail away
+  for a full-width strategy workspace
+- **Payoff chart up front** — the interactive payoff & risk profile is the FIRST thing
+  you see on any strategy (credit/debit + POP in the header), before the prose tabs
+  (Intelligence · Live Data · Metrics · Platforms · Backtest · Structure)
+
 ## The Agentic Research Desk (AI Copilot)
 
 An embedded **multi-agent options research team** running on the
