@@ -12,6 +12,57 @@ integrated agentic AI research desk** built on the **Vercel AI SDK**.
 
 ---
 
+## ⚡ v2.0 — Main tabs · fused 131 catalog · persistent selection · Binance/Hyperliquid/Lighter · REAL live prices
+
+**Navigation restructure** — the top bar now carries the four MAIN tabs
+(**Strategies · Gamma & Flow · Option Chain · Paper Desk**, plus a compact
+Trading desk tab), and the tab bar itself **collapses to an icon strip**.
+The left side-nav groups the same four under MAIN + Trading under DESKS and
+still collapses to icons; the active view persists across reloads.
+
+**One fused strategy catalog** — the legacy 26-template picker and the
+131-strategy catalog are now ONE: strategy creation (the builder's
+**Strategy Catalog** picker) shows **only the full 131**, searchable,
+grouped by category with collapsible sections and expand/collapse-all. The
+catalog rail's 131-strategy list is additionally **collapsible upward**
+(filters stay, the list tucks away).
+
+**Persistent strategy selection** — pick a strategy anywhere (catalog card,
+dense table, picker, intent compiler) and it *stays* picked: in the payoff,
+in the strategies workspace, in the custom-strategy builder — across view
+switches **and full page reloads** (zustand persist → localStorage:
+catalog id, custom strategy legs, name, size, underlying, workspace mode).
+
+**New platforms: Binance · Hyperliquid · Lighter** — the venue registry
+grows to 16 platforms. Lighter joins the modern era with **native
+perpetual options** (funding-paid premium, no expiry — the everlasting
+twin), dated legs map to perpetual twins. All three are also LIVE
+connected venues: the Trading & Paper desks' Connected Exchanges panel now
+shows **9 venues with real health** (Deribit · Bybit · OKX · Aevo ·
+Paradex · Derive · Binance · Hyperliquid · Lighter) — mark price, funding
+APR, OI, latency and status straight from each venue's public API.
+
+**Real live BTC/ETH/SOL prices everywhere** — `src/lib/live-prices.ts`
+polls public exchange APIs every 5s with automatic fallback
+(**Binance → Bybit → OKX → Deribit index**) and overlays the real spot,
+24h change and volume on every market frame: top ticker (with LIVE badge),
+payoff strikes, option chains, gamma lab (call/put walls resolve around
+the real price), trading, paper desk. Fallback chain means the ticker
+keeps ticking even when a venue is geo-blocked.
+
+Also fixed: the `Each child in a list should have a unique "key" prop`
+console warning in the legs panel (verified — the walkthrough now runs
+with **zero console warnings/errors**).
+
+Verified end-to-end with a browser walkthrough (20 still frames in
+[`docs/assets/ui-v2-captures/`](docs/assets/ui-v2-captures/)): tab
+collapsing, catalog search → select → customize → fused picker → ZEBRA
+loaded, persistence across tab switches and full reloads, gamma lab on
+real BTC spot, 9-venue connectivity, 16-platform routing matrix, and the
+three collapse states (list upward / tab bar / side-nav).
+
+---
+
 ![VolOS walkthrough — every module + the agentic AI research desk](docs/assets/volos-agentic-ai-demo.gif)
 
 ## 🎬 UI demo video — the terminal running live (`run-local.sh --full`)

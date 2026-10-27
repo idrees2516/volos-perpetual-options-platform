@@ -4,11 +4,14 @@
 // Virtual $100k USDC account; every order fills at the live best-bid/ask
 // across Deribit · Bybit · OKX · Aevo · Paradex · Derive v3 (auto-routed),
 // with per-venue taker fees, short margin, live marks, and P&L.
+// Live exchange connectivity for all 9 venues (incl. Binance · Hyperliquid ·
+// Lighter) is shown alongside the order ticket.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useStrategy } from '@/stores/strategy-store';
 import { fmtNum, fmtUsd } from '@/lib/format';
+import { LiveExchangeStatus } from './trade/venue-panel';
 import {
   Wallet, RefreshCw, Loader2, TrendingUp, TrendingDown, RotateCcw,
   FlaskConical, Zap, X, ArrowUpRight, ArrowDownRight, Radio,
@@ -383,7 +386,8 @@ export function PaperView() {
       )}
 
       <div className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-[380px_minmax(0,1fr)]">
-        {/* Order ticket */}
+        {/* Order ticket + live exchange connectivity */}
+        <div className="flex min-h-0 flex-col gap-3">
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
           <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
             <FlaskConical className="h-3.5 w-3.5 text-teal-400" /> Paper order ticket
@@ -589,6 +593,12 @@ export function PaperView() {
               Paper-deploy “{strategyName}”
             </Button>
           </div>
+        </div>
+
+        {/* Connected exchanges — all 9 venues incl. Binance · Hyperliquid · Lighter */}
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+          <LiveExchangeStatus asset={underlying} />
+        </div>
         </div>
 
         {/* Positions / orders / fills */}

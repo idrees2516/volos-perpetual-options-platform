@@ -34,7 +34,7 @@ import {
   Infinity as InfinityIcon, Network, Timer, Send, Star, Compass, Coins, Waves,
   Loader2, Sparkles, ArrowLeft, BookOpen, BarChart3, ListTree, Gauge,
   ChevronDown, ChevronRight, Pencil, Sigma, Globe2, Rows3, Table2, Cpu, Landmark, History,
-  PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen, ChevronsUp, ChevronsDown,
 } from 'lucide-react';
 import {
   CATEGORY_META, STRATEGIES, VIEW_META, complexityStars,
@@ -87,7 +87,6 @@ const LEG_BUCKETS = [
 const NO_OVERRIDE = { spotShiftPct: 0, ivShiftPct: 0, daysForward: 0 };
 
 type DetailTab = 'intelligence' | 'data' | 'metrics' | 'platforms' | 'backtest' | 'structure';
-type Mode = 'explore' | 'build';
 type Goal = 'direction' | 'protect' | 'income' | 'volatility';
 type Dir = 'bullish' | 'bearish' | 'neutral';
 type RailMode = 'cards' | 'table';
@@ -118,17 +117,22 @@ const ERA_CHIPS: { id: EraFilter; label: string; icon: React.ReactNode }[] = [
 
 export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
   const { market, smooth } = useMarket();
-  const { underlying, loadStrategy, strategyName } = useStrategy();
+  const {
+    underlying, loadStrategy, strategyName,
+    catalogId, setCatalogId,
+    mode, setMode,
+  } = useStrategy();
   const asset = smooth[underlying] ?? market.assets[underlying];
   const spot = asset.spot;
 
-  // One workspace, two modes: explore the catalog or customize in the builder.
-  const [mode, setMode] = useState<Mode>(() =>
-    useStrategy.getState().legs.length > 0 ? 'build' : 'explore',
-  );
+  // One workspace, two modes (PERSISTED in the store): explore the catalog
+  // or customize in the builder — the selection survives view switches and
+  // reloads, in the catalog, the payoff and the custom strategy alike.
 
   // ── catalog state ─────────────────────────────────────────────────────────
-  const [selectedId, setSelectedId] = useState<string>('long-call');
+  // selectedId lives in the persistent store — picking a strategy sticks.
+  const selectedId = catalogId;
+  const setSelectedId = setCatalogId;
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<StrategyCategory | 'all'>('all');
   const [viewFilter, setViewFilter] = useState<StrategyView | 'all'>('all');
@@ -138,6 +142,9 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
   const [railMode, setRailMode] = useState<RailMode>('cards');
   const [eraFilter, setEraFilter] = useState<EraFilter>('all');
   const [platformId, setPlatformId] = useState<string>('all');
+  // The 131-strategy list itself is collapsible upward — tuck the list away
+  // and keep search + filters visible for a lean rail.
+  const [listCollapsed, setListCollapsed] = useState(false);
 
   // ── intent compiler state ─────────────────────────────────────────────────
   const [intentOpen, setIntentOpen] = useState(false);
@@ -306,6 +313,17 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
                   <Table2 className="h-3 w-3" />
                 </button>
               </div>
+              <button
+                onClick={() => setListCollapsed((c) => !c)}
+                title={listCollapsed ? 'Expand the 131-strategy list' : 'Collapse the 131-strategy list upward'}
+                className={`rounded-md border p-1 transition ${
+                  listCollapsed
+                    ? 'border-teal-500/40 bg-teal-950/30 text-teal-300'
+                    : 'border-zinc-800 bg-zinc-900/50 text-zinc-500 hover:text-zinc-200'
+                }`}
+              >
+                {listCollapsed ? <ChevronsDown className="h-3 w-3" /> : <ChevronsUp className="h-3 w-3" />}
+              </button>
               <button
                 onClick={() => setRailCollapsed(true)}
                 title="Collapse the catalog — full width for the strategy workspace"
@@ -589,7 +607,20 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
           </div>
         </div>
 
-        {/* catalog list — cards or dense table, all 131 in one place */}
+        {/* catalog list — cards or dense table, all 131 in one place.
+            COLLAPSIBLE UPWARD: tuck the whole list away, keep search + filters. */}
+        {listCollapsed ? (
+          <button
+            onClick={() => setListCollapsed(false)}
+            className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-zinc-800 bg-zinc-900/30 text-zinc-500 transition hover:border-teal-500/40 hover:text-teal-300"
+          >
+            <ChevronsDown className="h-4 w-4" />
+            <span className="font-mono text-[9px] uppercase tracking-[0.18em]">
+              {STRATEGIES.length} strategies · list collapsed
+            </span>
+            <span className="text-[8px] text-zinc-600">click to expand</span>
+          </button>
+        ) : (
         <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
           {railMode === 'table' ? (
             <CatalogTable
@@ -661,6 +692,7 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
             showing {filtered.length} of {STRATEGIES.length} · one catalog, every strategy in one place
           </p>
         </div>
+        )}
       </aside>
       )}
 

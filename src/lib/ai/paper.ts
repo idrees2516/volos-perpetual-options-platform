@@ -157,6 +157,9 @@ export const TAKER_FEE_BPS: Record<VenueId, number> = {
   aevo: 3,
   paradex: 2,
   derive: 3,
+  binance: 4,
+  hyperliquid: 3,
+  lighter: 2,
 };
 
 const SHORT_MARGIN_PCT = 0.15; // reg-T-lite holdback for short options

@@ -1,13 +1,18 @@
 'use client';
 
 // Live market context: SSE stream from the Rust engine with a transparent
-// client-side simulation fallback. Exposes smooth interpolated spot for
-// buttery chart motion.
+// client-side simulation fallback — and REAL BTC/ETH/SOL spot prices from
+// public exchange APIs (Binance → Bybit → OKX → Deribit index) overlaid on
+// every frame, so every place the terminal shows a price is live.
+// Exposes smooth interpolated spot for buttery chart motion.
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { AssetMarket, MarketData } from '@/lib/types';
 import { openMarketStream } from '@/lib/api';
 import { MarketSim } from '@/lib/market-sim';
+import { subscribeLivePrices, type LivePriceSnapshot } from '@/lib/live-prices';
+
+const LIVE_ASSETS = ['BTC', 'ETH', 'SOL'] as const;
 
 const INITIAL: MarketData = {
   source: 'local',
@@ -26,6 +31,8 @@ interface MarketContextValue {
   smooth: Record<string, AssetMarket>;
   connected: boolean;
   source: 'rust' | 'local';
+  /** Real exchange prices (Binance/Bybit/OKX/Deribit) — null until first poll. */
+  live: LivePriceSnapshot | null;
   retry: () => void;
 }
 
@@ -34,11 +41,56 @@ const MarketContext = createContext<MarketContextValue | null>(null);
 export function MarketProvider({ children }: { children: React.ReactNode }) {
   const [market, setMarket] = useState<MarketData>(INITIAL);
   const [connected, setConnected] = useState(false);
+  const [live, setLive] = useState<LivePriceSnapshot | null>(null);
   const [nonce, setNonce] = useState(0);
   const simRef = useRef<MarketSim | null>(null);
   const latestRef = useRef<MarketData>(INITIAL);
+  const liveRef = useRef<LivePriceSnapshot | null>(null);
 
   const retry = useCallback(() => setNonce((n) => n + 1), []);
+
+  // ── REAL live prices: poll public exchange APIs every 10s ─────────────────
+  // Overlaid on whichever market frame is current (engine SSE or sim), so
+  // every displayed spot — ticker, payoff, chains, gamma lab, trading,
+  // paper desk — is the real traded price.
+  const push = (m: MarketData) => {
+    const m2 = applyLive(m);
+    latestRef.current = m2;
+    setMarket(m2);
+  };
+
+  useEffect(() => {
+    const unsubscribe = subscribeLivePrices((snap) => {
+      liveRef.current = snap;
+      setLive(snap);
+      // re-apply the fresh quotes on top of the latest frame
+      push(latestRef.current);
+    });
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const applyLive = (m: MarketData): MarketData => {
+    const snap = liveRef.current;
+    if (!snap?.ok) return m;
+    let touched = false;
+    const assets = { ...m.assets };
+    for (const a of LIVE_ASSETS) {
+      const q = snap.quotes[a];
+      const base = assets[a];
+      if (q && q.spot > 0 && base) {
+        touched = true;
+        assets[a] = {
+          ...base,
+          spot: q.spot,
+          // app convention: change24h is a fraction (0.064 = 6.4%)
+          change24h: q.change24hPct / 100,
+          volume24h: q.volumeUsd24h || base.volume24h,
+        };
+      }
+    }
+    return touched ? { ...m, assets } : m;
+  };
 
   useEffect(() => {
     let closed = false;
@@ -55,8 +107,7 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
       // Seed the simulator from the latest known state for continuity.
       sim.start((m) => {
         if (!closed) {
-          latestRef.current = m;
-          setMarket(m);
+          push(m);
         }
       });
     };
@@ -79,8 +130,7 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
           }
           stopFallback();
           setConnected(true);
-          latestRef.current = m;
-          setMarket(m);
+          push(m);
         },
         () => {
           if (!closed && !simStarted) startFallback();
@@ -96,6 +146,7 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
       closeStream?.();
       stopFallback();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nonce]);
 
   // Smooth interpolation at 30fps for chart motion.
@@ -129,7 +180,7 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <MarketContext.Provider
-      value={{ market, smooth, connected, source: market.source, retry }}
+      value={{ market, smooth, connected, source: market.source, live, retry }}
     >
       {children}
     </MarketContext.Provider>

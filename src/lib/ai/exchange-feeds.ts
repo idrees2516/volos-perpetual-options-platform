@@ -19,9 +19,34 @@
 
 import { bsGreeks, VOL_CONFIG, forwardPrice } from '@/lib/pricing';
 
-export type VenueId = 'deribit' | 'bybit' | 'okx' | 'aevo' | 'paradex' | 'derive';
+export type VenueId =
+  | 'deribit'
+  | 'bybit'
+  | 'okx'
+  | 'aevo'
+  | 'paradex'
+  | 'derive'
+  | 'binance'
+  | 'hyperliquid'
+  | 'lighter';
 
-export const VENUE_IDS: VenueId[] = ['deribit', 'bybit', 'okx', 'aevo', 'paradex', 'derive'];
+export const VENUE_IDS: VenueId[] = [
+  'deribit',
+  'bybit',
+  'okx',
+  'aevo',
+  'paradex',
+  'derive',
+  'binance',
+  'hyperliquid',
+  'lighter',
+];
+
+/** Venues with dated option chains (chain builders exist for these). */
+export const CHAIN_VENUES: VenueId[] = ['deribit', 'bybit', 'okx', 'aevo', 'paradex', 'derive'];
+
+/** Perp/spot-only live venues (no options book — status via their own APIs). */
+export const PERP_VENUES: VenueId[] = ['binance', 'hyperliquid', 'lighter'];
 
 export const VENUE_META: Record<
   VenueId,
@@ -33,6 +58,9 @@ export const VENUE_META: Record<
   aevo: { name: 'Aevo', label: 'Aevo', settlement: 'USDC', site: 'aevo.xyz', accent: 'text-violet-300' },
   paradex: { name: 'Paradex', label: 'Paradex · tradeparadigm', settlement: 'USDC', site: 'paradex.trade', accent: 'text-rose-300' },
   derive: { name: 'Derive', label: 'Derive v3 (ex-Lyra)', settlement: 'USD', site: 'derive.xyz', accent: 'text-emerald-300' },
+  binance: { name: 'Binance', label: 'Binance · spot + perps', settlement: 'USDT', site: 'binance.com', accent: 'text-yellow-300' },
+  hyperliquid: { name: 'Hyperliquid', label: 'Hyperliquid · perps L1', settlement: 'USDC', site: 'hyperliquid.xyz', accent: 'text-teal-200' },
+  lighter: { name: 'Lighter', label: 'Lighter · zk perps + perp options', settlement: 'USDC', site: 'lighter.xyz', accent: 'text-lime-300' },
 };
 
 export const ASSETS = ['BTC', 'ETH', 'SOL'] as const;
@@ -1321,7 +1349,7 @@ export async function deriveChain(asset: FeedAsset, expiryLabel?: string): Promi
 // Unified access
 // =============================================================================
 
-const CHAIN_BUILDERS: Record<VenueId, (asset: FeedAsset, expiry?: string) => Promise<VenueChain>> = {
+const CHAIN_BUILDERS: Partial<Record<VenueId, (asset: FeedAsset, expiry?: string) => Promise<VenueChain>>> = {
   deribit: deribitChain,
   bybit: bybitChain,
   okx: okxChain,
@@ -1336,9 +1364,11 @@ export async function getVenueChain(
   asset: FeedAsset,
   expiry?: string,
 ): Promise<{ chain: VenueChain | null; error?: string }> {
+  const builder = CHAIN_BUILDERS[venue];
+  if (!builder) return { chain: null, error: `${venue}: no options chain (perps/spot venue)` };
   try {
     const chain = await cached(`chain:${venue}:${asset}:${expiry ?? 'auto'}`, 8_000, () =>
-      CHAIN_BUILDERS[venue](asset, expiry),
+      builder(asset, expiry),
     );
     return { chain };
   } catch (err) {
@@ -1365,10 +1395,12 @@ export async function getBestChain(
   return { chain: null, tried };
 }
 
-/** All venue healths at once (cached 30s). */
+/** All venue healths at once (cached 30s) — chain venues via their chains,
+ *  perp/spot venues (Binance · Hyperliquid · Lighter) via their own APIs. */
 export async function getVenueStatuses(asset: FeedAsset = 'BTC'): Promise<VenueStatus[]> {
   return cached(`statuses:${asset}`, 30_000, async () => {
     const jobs = VENUE_IDS.map(async (v): Promise<VenueStatus> => {
+      if (PERP_VENUES.includes(v)) return perpVenueStatus(v, asset);
       const t0 = Date.now();
       const base: VenueStatus = {
         id: v,
@@ -1408,10 +1440,183 @@ export async function getVenueStatuses(asset: FeedAsset = 'BTC'): Promise<VenueS
   });
 }
 
-/** Real spot prices (Deribit index, Bybit fallback), cached 20s. */
+// ── perp / spot-only venues: Binance · Hyperliquid · Lighter ─────────────
+
+/** Binance spot tickers (BTC/ETH/SOL) — also the primary live-price source. */
+export async function binanceSpots(): Promise<
+  Record<FeedAsset, { spot: number; change24hPct: number; volumeUsd: number }>
+> {
+  return cached('binance:spots', 20_000, async () => {
+    const symbols: Record<FeedAsset, string> = { BTC: 'BTCUSDT', ETH: 'ETHUSDT', SOL: 'SOLUSDT' };
+    const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(
+      JSON.stringify(Object.values(symbols)),
+    )}`;
+    const rows = await fetchJson<
+      { symbol: string; lastPrice: string; priceChangePercent: string; quoteVolume: string }[]
+    >(url, 9000);
+    const out: Partial<Record<FeedAsset, { spot: number; change24hPct: number; volumeUsd: number }>> = {};
+    for (const r of rows) {
+      const asset = (Object.keys(symbols) as FeedAsset[]).find((a) => symbols[a] === r.symbol);
+      if (!asset) continue;
+      out[asset] = {
+        spot: Number(r.lastPrice),
+        change24hPct: Number(r.priceChangePercent),
+        volumeUsd: Number(r.quoteVolume),
+      };
+    }
+    if (!out.BTC?.spot) throw new Error('binance empty');
+    return out as Record<FeedAsset, { spot: number; change24hPct: number; volumeUsd: number }>;
+  });
+}
+
+/** Hyperliquid L1 perps (mark, funding, OI, 24h volume) for BTC/ETH/SOL. */
+export async function hyperliquidPerps(): Promise<
+  Record<FeedAsset, { mark: number; change24hPct: number; funding8h: number; openInterestUsd: number; dayVolumeUsd: number; maxLeverage: number }>
+> {
+  return cached('hl:perps', 20_000, async () => {
+    // Response shape: [ { universe: [...] }, assetCtxs[] ]
+    const raw = await fetchJson<[{ universe?: { name: string; maxLeverage: number }[] }, unknown]>(
+      'https://api.hyperliquid.xyz/info',
+      9000,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'metaAndAssetCtxs' }),
+      },
+    );
+    const universe = Array.isArray(raw?.[0]?.universe) ? raw[0].universe : [];
+    const ctxs = (Array.isArray(raw?.[1]) ? raw[1] : []) as {
+      markPx: string;
+      prevDayPx: string;
+      funding: string;
+      openInterest: string;
+      dayNtlVlm: string;
+    }[];
+    const out: Partial<
+      Record<FeedAsset, { mark: number; change24hPct: number; funding8h: number; openInterestUsd: number; dayVolumeUsd: number; maxLeverage: number }>
+    > = {};
+    universe.forEach((u, i) => {
+      if (u.name !== 'BTC' && u.name !== 'ETH' && u.name !== 'SOL') return;
+      const ctx = ctxs[i];
+      if (!ctx) return;
+      const mark = Number(ctx.markPx);
+      const prev = Number(ctx.prevDayPx);
+      out[u.name as FeedAsset] = {
+        mark,
+        change24hPct: prev > 0 ? ((mark - prev) / prev) * 100 : 0,
+        funding8h: Number(ctx.funding),
+        openInterestUsd: Number(ctx.openInterest) * mark,
+        dayVolumeUsd: Number(ctx.dayNtlVlm),
+        maxLeverage: u.maxLeverage,
+      };
+    });
+    if (!out.BTC?.mark) throw new Error('hyperliquid empty');
+    return out as Record<
+      FeedAsset,
+      { mark: number; change24hPct: number; funding8h: number; openInterestUsd: number; dayVolumeUsd: number; maxLeverage: number }
+    >;
+  });
+}
+
+/** Lighter zk-rollup perps tickers (public REST; graceful when unreachable). */
+export async function lighterPerps(): Promise<
+  Record<FeedAsset, { mark: number; change24hPct: number; volumeUsd: number }>
+> {
+  return cached('lighter:perps', 25_000, async () => {
+    const markets: Record<FeedAsset, string> = {
+      BTC: 'PERP_BTC_USDC',
+      ETH: 'PERP_ETH_USDC',
+      SOL: 'PERP_SOL_USDC',
+    };
+    const out: Partial<Record<FeedAsset, { mark: number; change24hPct: number; volumeUsd: number }>> = {};
+    await Promise.all(
+      (Object.keys(markets) as FeedAsset[]).map(async (asset) => {
+        const r = await fetchJson<
+          { last_price: string; price_change_percent_24h?: string; quote_volume?: string }
+        >(`https://mainnet.zklighter.cc/api/v1/ticker?market=${markets[asset]}`, 7000);
+        const mark = Number(r.last_price);
+        if (mark > 0) {
+          out[asset] = {
+            mark,
+            change24hPct: Number(r.price_change_percent_24h ?? '0'),
+            volumeUsd: Number(r.quote_volume ?? '0'),
+          };
+        }
+      }),
+    );
+    if (!out.BTC?.mark) throw new Error('lighter empty');
+    return out as Record<FeedAsset, { mark: number; change24hPct: number; volumeUsd: number }>;
+  });
+}
+
+async function perpVenueStatus(v: VenueId, asset: FeedAsset): Promise<VenueStatus> {
+  const t0 = Date.now();
+  const base: VenueStatus = {
+    id: v,
+    name: VENUE_META[v].name,
+    status: 'unreachable',
+    latencyMs: 0,
+    instruments: 0,
+    spot: null,
+    atmIv: null,
+    note: '',
+  };
+  try {
+    if (v === 'binance') {
+      const spots = await binanceSpots();
+      const s = spots[asset];
+      return {
+        ...base,
+        status: 'live',
+        latencyMs: Date.now() - t0,
+        instruments: 3,
+        spot: s.spot,
+        note: `spot + USDT perps · ${s.change24hPct.toFixed(2)}% 24h · no options book`,
+      };
+    }
+    if (v === 'hyperliquid') {
+      const perps = await hyperliquidPerps();
+      const p = perps[asset];
+      return {
+        ...base,
+        status: 'live',
+        latencyMs: Date.now() - t0,
+        instruments: 3,
+        spot: p.mark,
+        note: `L1 perps · ${p.maxLeverage}x max · funding ${(p.funding8h * 3 * 365 * 100).toFixed(1)}% APR · OI $${(p.openInterestUsd / 1e6).toFixed(0)}M`,
+      };
+    }
+    const lp = await lighterPerps();
+    const l = lp[asset];
+    return {
+      ...base,
+      status: 'live',
+      latencyMs: Date.now() - t0,
+      instruments: 3,
+      spot: l.mark,
+      note: 'zk-rollup perps + perpetual options · gas-free · maker rebates',
+    };
+  } catch (err) {
+    return {
+      ...base,
+      latencyMs: Date.now() - t0,
+      note: err instanceof Error ? `${err.message.slice(0, 60)} — venue API unreachable from this network` : 'unreachable',
+    };
+  }
+}
+
+/** Real spot prices — Binance first (all 3 in one call), then Deribit index,
+ *  Bybit fallback. Cached 20s. */
 export async function getLiveSpots(): Promise<LiveSpots> {
   return cached('spots:all', 20_000, async () => {
     const out = { BTC: 0, ETH: 0, SOL: 0 } as LiveSpots;
+    // Binance spot — one call covers BTC/ETH/SOL.
+    try {
+      const b = await binanceSpots();
+      return { BTC: b.BTC.spot, ETH: b.ETH.spot, SOL: b.SOL.spot, source: 'binance spot', tsMs: Date.now() };
+    } catch {
+      // fall through to per-asset sources
+    }
     let source = 'deribit index';
     await Promise.all(
       (['BTC', 'ETH', 'SOL'] as FeedAsset[]).map(async (a) => {

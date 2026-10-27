@@ -1,8 +1,9 @@
 'use client';
 
-// Multi-venue panel — REAL connected options exchanges (Deribit, Bybit, OKX,
-// Aevo, Paradex/tradeparadigm, Derive v3) + the engine's CLOB connectivity,
-// composite liquidity and the best-execution route planner.
+// Multi-venue panel — REAL connected exchanges (Deribit, Bybit, OKX, Aevo,
+// Paradex/tradeparadigm, Derive v3 + Binance, Hyperliquid, Lighter) plus
+// the engine's CLOB connectivity, composite liquidity and the best-execution
+// route planner. LiveExchangeStatus is exported for reuse (Paper Desk).
 
 import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -23,23 +24,17 @@ interface LiveVenue {
   note: string;
 }
 
-export function VenuePanel({ instrument, asset }: { instrument: string; asset?: string }) {
-  const [statuses, setStatuses] = useState<VenueStatus[]>([]);
-  const [quotes, setQuotes] = useState<VenueQuote[]>([]);
-  const [plan, setPlan] = useState<RoutePlan | null>(null);
-  const [routeSide, setRouteSide] = useState<'buy' | 'sell'>('buy');
-  const [routeQty, setRouteQty] = useState('1');
-  const [planning, setPlanning] = useState(false);
+/** Live exchange connectivity — all 9 venues (Deribit · Bybit · OKX · Aevo ·
+ *  Paradex · Derive + Binance · Hyperliquid · Lighter). Reused by the Paper
+ *  Desk so every desk shows the same real venue health. */
+export function LiveExchangeStatus({ asset }: { asset: string }) {
   const [liveVenues, setLiveVenues] = useState<LiveVenue[]>([]);
   const [liveCount, setLiveCount] = useState(0);
 
-  const feedAsset = (asset ?? instrument.split('-')[0] ?? 'BTC').toUpperCase();
-
-  // REAL exchange connectivity (public market data)
   useEffect(() => {
     let alive = true;
     const load = () => {
-      fetch(`/api/venues?asset=${encodeURIComponent(feedAsset)}`)
+      fetch(`/api/venues?asset=${encodeURIComponent(asset)}`)
         .then((r) => (r.ok ? r.json() : null))
         .then((j) => {
           if (alive && j) {
@@ -55,44 +50,16 @@ export function VenuePanel({ instrument, asset }: { instrument: string; asset?: 
       alive = false;
       clearInterval(iv);
     };
-  }, [feedAsset]);
-
-  // engine CLOB venues (graceful when the Rust engine is offline)
-  useEffect(() => {
-    let alive = true;
-    const load = () => {
-      engine.venues().then((s) => alive && setStatuses(s)).catch(() => {});
-      engine.venueQuotes(instrument).then((q) => alive && setQuotes(q)).catch(() => {});
-    };
-    load();
-    const iv = setInterval(load, 4000);
-    return () => {
-      alive = false;
-      clearInterval(iv);
-    };
-  }, [instrument]);
-
-  const planRoute = () => {
-    const q = parseFloat(routeQty);
-    if (!(q > 0)) return;
-    setPlanning(true);
-    engine
-      .routePlan({ instrument, side: routeSide, qty: q })
-      .then(setPlan)
-      .catch(() => setPlan(null))
-      .finally(() => setPlanning(false));
-  };
+  }, [asset]);
 
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+    <>
       <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
         <Globe2 className="h-3.5 w-3.5 text-sky-400" /> Connected Exchanges
         <span className="ml-auto rounded bg-teal-950/50 px-1.5 py-0.5 font-mono text-[8.5px] text-teal-300">
-          {liveCount} live
+          {liveCount}/{liveVenues.length || 9} live
         </span>
       </p>
-
-      {/* REAL venues */}
       <div className="space-y-1">
         {liveVenues.map((v) => (
           <div
@@ -130,13 +97,56 @@ export function VenuePanel({ instrument, asset }: { instrument: string; asset?: 
         ))}
         {liveVenues.length === 0 && <p className="text-[10px] text-zinc-600">Probing exchanges…</p>}
       </div>
-
       {liveVenues.length > 0 && (
         <p className="mt-1.5 flex items-start gap-1 text-[8.5px] leading-snug text-zinc-600">
           <Radio className="mt-0.5 h-2.5 w-2.5 shrink-0 text-teal-500/60" />
-          Real public market data: Deribit · Bybit · OKX · Aevo · Paradex (tradeparadigm, live SBE stream) · Derive v3 (live JSON-RPC tickers) — every venue serves native bid/ask, IV, greeks and OI.
+          Real public market data: Deribit · Bybit · OKX · Aevo · Paradex (tradeparadigm) · Derive v3 · Binance (spot+perps) · Hyperliquid (L1 perps) · Lighter (zk perps + perpetual options).
         </p>
       )}
+    </>
+  );
+}
+
+export function VenuePanel({ instrument, asset }: { instrument: string; asset?: string }) {
+  const [statuses, setStatuses] = useState<VenueStatus[]>([]);
+  const [quotes, setQuotes] = useState<VenueQuote[]>([]);
+  const [plan, setPlan] = useState<RoutePlan | null>(null);
+  const [routeSide, setRouteSide] = useState<'buy' | 'sell'>('buy');
+  const [routeQty, setRouteQty] = useState('1');
+  const [planning, setPlanning] = useState(false);
+
+  const feedAsset = (asset ?? instrument.split('-')[0] ?? 'BTC').toUpperCase();
+
+  // engine CLOB venues (graceful when the Rust engine is offline)
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      engine.venues().then((s) => alive && setStatuses(s)).catch(() => {});
+      engine.venueQuotes(instrument).then((q) => alive && setQuotes(q)).catch(() => {});
+    };
+    load();
+    const iv = setInterval(load, 4000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, [instrument]);
+
+  const planRoute = () => {
+    const q = parseFloat(routeQty);
+    if (!(q > 0)) return;
+    setPlanning(true);
+    engine
+      .routePlan({ instrument, side: routeSide, qty: q })
+      .then(setPlan)
+      .catch(() => setPlan(null))
+      .finally(() => setPlanning(false));
+  };
+
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+      {/* REAL venues — all 9 exchanges incl. Binance · Hyperliquid · Lighter */}
+      <LiveExchangeStatus asset={feedAsset} />
 
       {/* Engine CLOB venues */}
       {statuses.length > 0 && (

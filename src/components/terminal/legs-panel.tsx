@@ -1,39 +1,27 @@
 'use client';
 
-// Legs panel — add/remove/edit strategy legs of any kind, plus the
-// template library as editable starting points.
+// Legs panel — add/remove/edit strategy legs of any kind, plus the ONE
+// fused strategy catalog (all 131 strategies) as editable starting points.
+// The old 26-template list is gone: creation shows ONLY the unified
+// 131-strategy catalog, searchable and collapsible by category.
 
 import React, { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Plus, Trash2, Copy, LayoutTemplate, TrendingUp, TrendingDown,
-  Waves, Shield, Infinity as InfinityIcon, Sparkles, Coins,
+  Waves, Shield, Infinity as InfinityIcon, Sparkles, Coins, Search,
+  ChevronDown, ChevronRight, Layers, Zap, Split, Network, Timer, Banknote,
 } from 'lucide-react';
 import type { Leg, LegAnalytics, LegKind, StrategyAnalysis } from '@/lib/types';
 import { kindLabel } from '@/lib/types';
-import { TEMPLATES, templateCategories } from '@/lib/templates';
-import { MAX_LEGS } from '@/lib/strategies';
+import {
+  CATEGORY_META, MAX_LEGS, STRATEGIES, resolveStrategyLegs,
+  type StrategyCategory, type StrategySpec,
+} from '@/lib/strategies';
 import { useStrategy } from '@/stores/strategy-store';
-import { fmtNum } from '@/lib/format';
-
-import { fmtUsd } from '@/lib/format';
+import { fmtNum, fmtUsd } from '@/lib/format';
 
 const EXPIRIES = [1, 7, 14, 30, 60, 90, 180, 365];
 const FUNDING_PERIODS = [1, 3, 7, 14, 30];
@@ -46,6 +34,17 @@ const KIND_ICONS: Record<LegKind, React.ReactNode> = {
   spot: <Coins className="h-3.5 w-3.5" />,
 };
 
+const CATEGORY_ICONS: Record<StrategyCategory, React.ReactNode> = {
+  direction: <TrendingUp className="h-3 w-3" />,
+  income: <Banknote className="h-3 w-3" />,
+  volatility: <Zap className="h-3 w-3" />,
+  protection: <Shield className="h-3 w-3" />,
+  spread: <Split className="h-3 w-3" />,
+  perpetual: <InfinityIcon className="h-3 w-3" />,
+  multileg: <Network className="h-3 w-3" />,
+  '0dte': <Timer className="h-3 w-3" />,
+};
+
 interface LegsPanelProps {
   spot: number;
   analysis: StrategyAnalysis | null;
@@ -53,7 +52,8 @@ interface LegsPanelProps {
 
 export function LegsPanel({ spot, analysis }: LegsPanelProps) {
   const {
-    legs, size, addLeg, removeLeg, duplicateLeg, updateLeg, setSize, setLegs, setStrategyName,
+    legs, size, addLeg, removeLeg, duplicateLeg, updateLeg, setSize, setLegs,
+    setStrategyName, catalogId, loadCatalogStrategy,
   } = useStrategy();
 
   const legAnalyticsById = useMemo(() => {
@@ -62,11 +62,8 @@ export function LegsPanel({ spot, analysis }: LegsPanelProps) {
     return m;
   }, [analysis]);
 
-  const applyTemplate = (tplId: string) => {
-    const tpl = TEMPLATES.find((t) => t.id === tplId);
-    if (!tpl) return;
-    setLegs(tpl.build(spot, useStrategy.getState().underlying));
-    setStrategyName(tpl.name);
+  const applyStrategy = (spec: StrategySpec) => {
+    loadCatalogStrategy(spec.id, resolveStrategyLegs(spec, spot), spec.name);
   };
 
   const netPremium = analysis?.netPremium ?? 0;
@@ -74,53 +71,14 @@ export function LegsPanel({ spot, analysis }: LegsPanelProps) {
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-hidden">
-      {/* Header actions */}
-      <div className="flex items-center gap-2">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8 flex-1 justify-start gap-2 border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100">
-              <LayoutTemplate className="h-3.5 w-3.5 text-teal-400" />
-              Templates
-              <span className="ml-auto text-[10px] text-zinc-500">{TEMPLATES.length} presets</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="max-h-96 w-72 overflow-y-auto border-zinc-800 bg-zinc-950">
-            {templateCategories().map((cat) => {
-              const items = TEMPLATES.filter((t) => t.category === cat.id);
-              if (!items.length) return null;
-              return (
-                <div key={cat.id}>
-                  <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-zinc-500">{cat.label}</DropdownMenuLabel>
-                  {items.map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => applyTemplate(t.id)}
-                      className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-zinc-900"
-                    >
-                      <span className="text-xs font-medium text-zinc-200">{t.name}</span>
-                      <span className="line-clamp-2 text-[10px] leading-tight text-zinc-500">{t.description}</span>
-                    </button>
-                  ))}
-                  <DropdownMenuSeparator className="bg-zinc-800" />
-                </div>
-              );
-            })}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <div
-          title={`${legs.length} of ${MAX_LEGS} legs used`}
-          className={`flex h-8 shrink-0 items-center gap-1 rounded-md border px-2 font-mono text-[10px] tabular-nums ${
-            atCap
-              ? 'border-amber-500/50 bg-amber-950/30 text-amber-400'
-              : legs.length > 0
-                ? 'border-teal-500/30 bg-teal-950/20 text-teal-300'
-                : 'border-zinc-800 bg-zinc-900/60 text-zinc-500'
-          }`}
-        >
-          {legs.length}/{MAX_LEGS}
-          <span className="text-[8px] uppercase tracking-wide">legs</span>
-        </div>
-      </div>
+      {/* Header actions — the ONE fused catalog (131 strategies) */}
+      <StrategyCatalogPicker
+        spot={spot}
+        currentId={catalogId}
+        onPick={applyStrategy}
+        setLegs={setLegs}
+        setStrategyName={setStrategyName}
+      />
 
       {/* Add leg buttons */}
       <div className="grid grid-cols-5 gap-1">
@@ -147,9 +105,10 @@ export function LegsPanel({ spot, analysis }: LegsPanelProps) {
         {legs.length === 0 && (
           <div className="flex h-full min-h-40 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-800 p-4 text-center">
             <Sparkles className="h-5 w-5 text-zinc-600" />
-            <p className="text-xs text-zinc-500">Add legs or start from a template.</p>
+            <p className="text-xs text-zinc-500">Pick a strategy or add legs.</p>
             <p className="max-w-52 text-[10px] leading-tight text-zinc-600">
-              Mix dated options, everlasting options, perps and spot — any structure, up to {MAX_LEGS} legs.
+              Start from any of the {STRATEGIES.length} catalog strategies — or mix dated
+              options, everlasting options, perps and spot, up to {MAX_LEGS} legs.
             </p>
           </div>
         )}
@@ -192,6 +151,202 @@ export function LegsPanel({ spot, analysis }: LegsPanelProps) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ── The ONE catalog picker — all 131 strategies, collapsible categories ──────
+function StrategyCatalogPicker({
+  spot,
+  currentId,
+  onPick,
+  setLegs,
+  setStrategyName,
+}: {
+  spot: number;
+  currentId: string;
+  onPick: (spec: StrategySpec) => void;
+  setLegs: (legs: Leg[]) => void;
+  setStrategyName: (n: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const current = STRATEGIES.find((s) => s.id === currentId);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return STRATEGIES;
+    return STRATEGIES.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.id.includes(q) ||
+        s.description.toLowerCase().includes(q) ||
+        s.tags.some((t) => t.includes(q)),
+    );
+  }, [query]);
+
+  const byCategory = useMemo(() => {
+    const m = new Map<StrategyCategory, StrategySpec[]>();
+    for (const s of filtered) {
+      const arr = m.get(s.category) ?? [];
+      arr.push(s);
+      m.set(s.category, arr);
+    }
+    return m;
+  }, [filtered]);
+
+  const toggleCategory = (cat: string) =>
+    setCollapsed((c) => ({ ...c, [cat]: !c[cat] }));
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          title="Strategy Catalog — all 131 strategies, fused"
+          className="h-8 w-full justify-start gap-2 border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+        >
+          <LayoutTemplate className="h-3.5 w-3.5 shrink-0 text-teal-400" />
+          <span className="truncate">
+            {current ? current.name : 'Strategy Catalog'}
+          </span>
+          <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            <span className="rounded bg-teal-950/50 px-1 py-0.5 font-mono text-[9px] text-teal-300">
+              {STRATEGIES.length}
+            </span>
+            <ChevronDown className="h-3 w-3 text-zinc-500" />
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="flex h-[440px] w-[330px] flex-col gap-2 border-zinc-800 bg-zinc-950 p-2"
+      >
+        {/* header + search */}
+        <div className="shrink-0 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <Layers className="h-3.5 w-3.5 text-teal-400" />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
+              Strategy Catalog
+            </span>
+            <span className="ml-auto font-mono text-[9px] text-zinc-600">
+              {filtered.length}/{STRATEGIES.length}
+            </span>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+            <Input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search — iron condor, zebra, 0DTE…"
+              className="h-7 border-zinc-800 bg-zinc-900 pl-8 text-xs"
+            />
+          </div>
+          {/* expand / collapse all categories */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setCollapsed({})}
+              className="rounded px-1.5 py-0.5 text-[9px] font-medium text-zinc-500 transition hover:text-zinc-300"
+            >
+              expand all
+            </button>
+            <button
+              onClick={() => {
+                const all: Record<string, boolean> = {};
+                for (const cat of Object.keys(CATEGORY_META)) all[cat] = true;
+                setCollapsed(all);
+              }}
+              className="rounded px-1.5 py-0.5 text-[9px] font-medium text-zinc-500 transition hover:text-zinc-300"
+            >
+              collapse all
+            </button>
+            <span className="ml-auto text-[8px] uppercase tracking-wider text-zinc-600">
+              one catalog · fused
+            </span>
+          </div>
+        </div>
+
+        {/* the 131 — grouped, collapsible */}
+        <div className="-mr-1 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
+          {(Object.keys(CATEGORY_META) as StrategyCategory[]).map((cat) => {
+            const items = byCategory.get(cat);
+            if (!items?.length) return null;
+            const catCollapsed = collapsed[cat] === true;
+            return (
+              <div key={cat} className="rounded-md border border-zinc-800/70 bg-zinc-900/30">
+                <button
+                  onClick={() => toggleCategory(cat)}
+                  className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left"
+                >
+                  {catCollapsed ? (
+                    <ChevronRight className="h-3 w-3 text-teal-400" />
+                  ) : (
+                    <ChevronDown className="h-3 w-3 text-teal-400" />
+                  )}
+                  <span className="text-teal-300/80">{CATEGORY_ICONS[cat]}</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-300">
+                    {CATEGORY_META[cat].label}
+                  </span>
+                  <span className="ml-auto font-mono text-[9px] text-zinc-600">{items.length}</span>
+                </button>
+                {!catCollapsed && (
+                  <div className="space-y-0.5 border-t border-zinc-800/60 p-1">
+                    {items.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => {
+                          onPick(s);
+                          setOpen(false);
+                        }}
+                        title={s.description}
+                        className={`flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left transition ${
+                          currentId === s.id
+                            ? 'bg-teal-950/40 text-teal-200 ring-1 ring-teal-500/30'
+                            : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
+                        }`}
+                      >
+                        <span className="truncate text-[11px] font-medium">{s.name}</span>
+                        <span className="ml-auto shrink-0 rounded bg-zinc-800/80 px-1 font-mono text-[8px] tabular-nums text-zinc-400">
+                          {s.legs.length}L
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {filtered.length === 0 && (
+            <p className="py-6 text-center text-[10px] text-zinc-600">
+              No strategies match “{query}”.
+            </p>
+          )}
+        </div>
+
+        {/* footer — blank start */}
+        <div className="shrink-0 space-y-1.5 border-t border-zinc-800 pt-1.5">
+          <button
+            onClick={() => {
+              setLegs([]);
+              setStrategyName('Custom Strategy');
+              setOpen(false);
+            }}
+            className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-zinc-700 px-2 py-1.5 text-left text-[10px] text-zinc-400 transition hover:border-teal-500/50 hover:text-teal-300"
+          >
+            <Plus className="h-3 w-3" />
+            Start blank — build fully custom legs
+          </button>
+          <p className="text-[8px] leading-relaxed text-zinc-600">
+            The legacy 26-template list is fused into this ONE catalog — creation
+            shows only the {STRATEGIES.length} strategies, resolved on live spot (
+            {fmtNum(spot, spot >= 1000 ? 0 : 2)}).
+          </p>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

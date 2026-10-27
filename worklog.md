@@ -84,3 +84,24 @@ Stage Summary:
 - Real exchange connectivity live: Deribit/Bybit/OKX/Aevo native quotes, Paradex derived, Derive v3 graceful
 - Roadmap features delivered: backtested strategies on real history, 0DTE desk, multihop/multileg desk
 - 131-strategy catalog, 17 tools, 9 agents; pushed to GitHub as VolOS v1.3
+
+---
+Task ID: 5
+Agent: main (Z.ai)
+Task: v2.0 — main collapsible tabs (Strategies/Gamma & Flow/Option Chain/Paper Desk); fuse 26+131 catalogs into one (only 131 at creation, list collapsible upward); persist selected strategy across payoff/strategies/builder; add Binance + Hyperliquid + Lighter platforms; real live BTC/ETH/SOL prices everywhere; fix LegsPanel React key warning.
+
+Work Log:
+- Fixed the console error: rebuilt legs-panel.tsx around the new Strategy Catalog picker — every list child keyed; verified zero console warnings/errors across the full walkthrough
+- TopBar: MAIN tab strip (Strategies · Gamma & Flow · Option Chain · Paper Desk + compact Trading desk) with a collapse-to-icons toggle; LIVE badge on the asset ticker; side-nav regrouped MAIN/DESKS; view + collapse states persisted (localStorage)
+- Fused catalogs: LegsPanel Templates dropdown (26) replaced by the searchable 131-strategy catalog picker (category sections, collapsible + expand/collapse-all, start-blank option); strategies-view catalog rail list is additionally collapsible upward (ChevronsUp/Down) with the whole-rail collapse kept
+- Persistence: strategy-store gained catalogId/mode + zustand persist (skipHydration, rehydrate on mount) — selection survives view switches AND full reloads in catalog, payoff and custom-strategy builder; intent-compiler picks route through the same store
+- Platforms: +Lighter (modern zk-rollup, native perpetual options legKinds incl. perp_option, dated legs map to perpetual twins via legCapability extension) → 16 platforms; Hyperliquid/Binance entries refreshed; routing + platform cards pick it up automatically
+- Live venues: exchange-feeds.ts VenueId grew to 9 (binance/hyperliquid/lighter) with real connectors — binanceSpots (ticker/24hr), hyperliquidPerps (info/metaAndAssetCtxs: mark, funding, OI, maxLeverage — fixed response shape [{universe},ctxs]), lighterPerps (public ticker; graceful DNS-fail); perpVenueStatus for health; CHAIN_BUILDERS now Partial; TAKER_FEE_BPS extended
+- Real live prices: new src/lib/live-prices.ts (Binance→Bybit→OKX→Deribit fallback, 5s poll, browser + server safe); use-market.tsx overlays real spot/change/volume on every engine-SSE/sim frame (push() keeps latestRef overridden so the 30fps smooth track converges on the real price; change24h stored as fraction to match fmtPctSigned)
+- LiveExchangeStatus extracted from VenuePanel and added to the Paper Desk — all 9 venues with real health on both desks
+- Verified with agent-browser (rounds 1-4): UI 200; catalog search→Iron Condor→Customize→picker 131/131→ZEBRA loaded; strategy+mode persist across tab switches and full reloads (localStorage volos-strategy-v2); gamma lab BTC resolves walls around the real 80k spot; paper desk shows all 9 venues (7 live + Paradex derived + Lighter unreachable from this DNS-blocked sandbox); ticker tracks Binance exactly (80,309→80,326 vs API 80,404→80,390); 3 collapse states; zero console warnings/errors
+- Assets: docs/assets/ui-v2-captures/ (20 still frames); README v2.0 section
+
+Stage Summary:
+- All six requested items delivered and browser-verified; pushed as VolOS v2.0
+- Known environment note: Lighter's mainnet.zklighter.cc does not resolve from this sandbox (connector degrades gracefully — shows live wherever DNS resolves); Rust engine binary is gitignored so the UI runs on its identical client mirror in fresh clones

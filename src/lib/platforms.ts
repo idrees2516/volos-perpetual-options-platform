@@ -2,8 +2,8 @@
 //
 // Two eras of venues, one compatibility engine:
 //   • modern  — perpetual-native / on-chain venues (Derive, Paradex, Aevo,
-//               Hyperliquid, Panoptic) that list everlasting options and
-//               can assemble deep multileg baskets in a single RFQ ticket.
+//               Hyperliquid, Lighter, Panoptic) that list everlasting options
+//               and can assemble deep multileg baskets in a single RFQ ticket.
 //   • legacy  — dated-options venues: crypto CEXs (Deribit, OKX, Bybit,
 //               Binance, CME crypto) and the TradFi options exchanges
 //               (CBOE, CME equity, Nasdaq/PHLX, MIAX) + brokers (IBKR).
@@ -121,7 +121,7 @@ export const PLATFORMS: Platform[] = [
     short: 'Hyperliquid',
     era: 'modern',
     kind: 'perp-native DEX',
-    tagline: 'L1 perps order book — futures legs only',
+    tagline: 'L1 perps order book — deep books, maker rebates',
     assets: ['BTC', 'ETH', 'SOL'],
     legKinds: ['perp', 'spot'],
     dailyExpiries: false,
@@ -130,7 +130,24 @@ export const PLATFORMS: Platform[] = [
     margin: 'classic futures',
     latency: 'low',
     fee: { takerBpsPremium: 12, makerBpsPremium: 0 },
-    notes: 'No options listed yet — pure futures/spot engine. Options-heavy strategies land only their hedge legs here.',
+    notes: 'Futures/spot engine (HIP-3 builder-deployed books). Options-heavy strategies land only their hedge legs here.',
+  },
+  {
+    id: 'lighter',
+    name: 'Lighter',
+    short: 'Lighter',
+    era: 'modern',
+    kind: 'perp-native DEX',
+    tagline: 'zk-rollup with native perpetual options — gas-free, maker-first',
+    assets: ['BTC', 'ETH', 'SOL'],
+    legKinds: ['perp_option', 'perp', 'spot'],
+    dailyExpiries: false,
+    minTenorDays: 30,
+    maxLegsPerTicket: 4,
+    margin: 'cross-margin portfolio',
+    latency: 'low',
+    fee: { takerBpsPremium: 8, makerBpsPremium: 0 },
+    notes: 'Perpetual options are listed instruments (premium paid as funding, no expiry) — everlasting legs are NATIVE here; dated legs approximate as the perpetual twin.',
   },
   {
     id: 'panoptic',
@@ -208,7 +225,7 @@ export const PLATFORMS: Platform[] = [
     short: 'Binance',
     era: 'legacy',
     kind: 'crypto CEX',
-    tagline: 'Perps + spot only — no listed options book',
+    tagline: 'Deepest perps + spot book — no listed options',
     assets: ['BTC', 'ETH', 'SOL'],
     legKinds: ['perp', 'spot'],
     dailyExpiries: false,
@@ -217,7 +234,7 @@ export const PLATFORMS: Platform[] = [
     margin: 'classic futures',
     latency: 'low',
     fee: { takerBpsPremium: 10, makerBpsPremium: 2 },
-    notes: 'Futures and spot legs route here; any strategy whose core is option legs cannot be expressed.',
+    notes: 'Futures and spot legs route here at the best fees; any strategy whose core is option legs cannot be expressed.',
   },
   {
     id: 'cme-crypto',
@@ -412,6 +429,10 @@ function legCapability(platform: Platform, kind: LegKind): LegCapability {
       return 'none';
     case 'call':
     case 'put':
+      // A dated option can be carried as the venue's perpetual twin when
+      // perpetual options are listed (e.g. Lighter) — same payoff family,
+      // premium paid as funding instead of upfront.
+      if (platform.legKinds.includes('perp_option')) return 'roll';
       return 'none';
   }
 }
@@ -482,7 +503,11 @@ export function platformsForStrategy(
       if (cap === 'native') continue;
       if (cap === 'roll') {
         downgrade('synthetic');
-        reasons.push(`everlasting legs → dated roll ladder refreshed each funding period`);
+        reasons.push(
+          kind === 'perp_option'
+            ? 'everlasting legs → dated roll ladder refreshed each funding period'
+            : 'dated legs → perpetual twin (premium as funding, no roll needed)',
+        );
       } else if (cap === 'futures-hedge') {
         downgrade('synthetic');
         reasons.push('spot legs → micro-futures proxy');
