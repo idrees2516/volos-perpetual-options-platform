@@ -2,7 +2,9 @@
 
 // Agent activity visualization for the copilot chat stream: renders tool
 // invocations as live agent cards (dispatch_agent), actionable strategy
-// payloads (load_strategy) and compact smart chips for data tools.
+// payloads (load_strategy), optimizer variant cards with one-click loading
+// (optimize_strategy), alternative comparison cards (suggest_alternatives)
+// and compact smart chips for data tools.
 
 import { useState } from 'react';
 import type { ToolInvocation } from 'ai';
@@ -14,13 +16,16 @@ import {
   Database,
   Flame,
   Gauge,
+  GraduationCap,
   Layers,
   LineChart,
   Loader2,
   Search,
   Sparkles,
+  SlidersHorizontal,
   Target,
   TrendingUp,
+  Wand2,
   Waves,
 } from 'lucide-react';
 import { MarkdownLite } from './markdown-lite';
@@ -52,14 +57,33 @@ const TOOL_META: Record<string, { label: string; icon: React.ReactNode }> = {
   get_strategy_details: { label: 'Strategy details', icon: <Layers className="h-3 w-3" /> },
   analyze_strategy: { label: 'Strategy analytics', icon: <Target className="h-3 w-3" /> },
   compare_strategies: { label: 'Compare', icon: <ChevronDown className="h-3 w-3" /> },
+  optimize_strategy: { label: 'Strategy optimizer', icon: <SlidersHorizontal className="h-3 w-3" /> },
+  suggest_alternatives: { label: 'Alternatives', icon: <Wand2 className="h-3 w-3" /> },
+  explain_metrics: { label: 'Teaching pack', icon: <GraduationCap className="h-3 w-3" /> },
 };
+
+/** Leg spec shape shared by the optimizer/alternatives payloads. */
+interface LoadableLegSpec {
+  kind: string;
+  side: 'buy' | 'sell';
+  qty: number;
+  strike?: number;
+  expiryDays?: number;
+  fundingPeriodDays?: number;
+}
 
 interface ToolCardProps {
   invocation: ToolInvocation;
   onLoadStrategy?: (strategyId: string, underlying: string, size: number) => void;
+  onLoadLegs?: (
+    name: string,
+    legs: LoadableLegSpec[],
+    underlying: string,
+    size: number,
+  ) => void;
 }
 
-export function ToolCard({ invocation, onLoadStrategy }: ToolCardProps) {
+export function ToolCard({ invocation, onLoadStrategy, onLoadLegs }: ToolCardProps) {
   const [open, setOpen] = useState(false);
   const name = invocation.toolName;
   const state = invocation.state;
@@ -67,6 +91,28 @@ export function ToolCard({ invocation, onLoadStrategy }: ToolCardProps) {
   const result = ('result' in invocation ? invocation.result : undefined) as
     | Record<string, unknown>
     | undefined;
+
+  // --- optimize_strategy: variant cards with one-click loading -----------------
+  if (name === 'optimize_strategy' && result && 'variants' in result && Array.isArray(result.variants)) {
+    return (
+      <OptimizerCard
+        result={result}
+        running={state === 'call' || state === 'partial-call'}
+        onLoadLegs={onLoadLegs}
+      />
+    );
+  }
+
+  // --- suggest_alternatives: comparison card with loading ----------------------
+  if (name === 'suggest_alternatives' && result && 'alternatives' in result && Array.isArray(result.alternatives)) {
+    return (
+      <AlternativesCard
+        result={result}
+        running={state === 'call' || state === 'partial-call'}
+        onLoadStrategy={onLoadStrategy}
+      />
+    );
+  }
 
   // --- dispatch_agent: full agent card ----------------------------------------
   if (name === 'dispatch_agent') {
@@ -192,6 +238,218 @@ export function ToolCard({ invocation, onLoadStrategy }: ToolCardProps) {
   );
 }
 
+// --- optimizer / alternatives cards ----------------------------------------------
+
+function fmtUsd(v: unknown): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  const abs = Math.abs(n);
+  return `${n < 0 ? '−' : ''}$${abs >= 1000 ? abs.toLocaleString('en-US', { maximumFractionDigits: 0 }) : abs.toFixed(abs < 100 ? 1 : 0)}`;
+}
+
+function Delta({ v, suffix = '', invert = false }: { v: number | null | undefined; suffix?: string; invert?: boolean }) {
+  if (v === null || v === undefined || !Number.isFinite(v)) return <span className="text-zinc-600">—</span>;
+  const good = invert ? v < 0 : v > 0;
+  const bad = invert ? v > 0 : v < 0;
+  return (
+    <span className={good ? 'text-emerald-400' : bad ? 'text-rose-400' : 'text-zinc-400'}>
+      {v > 0 ? '+' : ''}
+      {Math.abs(v) >= 1000 ? v.toLocaleString('en-US', { maximumFractionDigits: 0 }) : Math.abs(v) < 10 ? v.toFixed(1) : v.toFixed(0)}
+      {suffix}
+    </span>
+  );
+}
+
+function extremeText(e: unknown): string {
+  const x = e as { kind?: string; value?: number } | undefined;
+  if (!x || x.kind !== 'value' || x.value === undefined) return 'undefined';
+  return fmtUsd(x.value);
+}
+
+function OptimizerCard({
+  result,
+  running,
+  onLoadLegs,
+}: {
+  result: Record<string, unknown>;
+  running: boolean;
+  onLoadLegs?: (name: string, legs: LoadableLegSpec[], underlying: string, size: number) => void;
+}) {
+  const goal = String(result.goal ?? 'balanced');
+  const underlying = String(result.underlying ?? 'BTC');
+  const size = Number(result.size ?? 1);
+  const baseline = (result.baseline ?? {}) as Record<string, unknown>;
+  const variants = (result.variants ?? []) as Array<Record<string, unknown>>;
+  const rec = (result.recommendation ?? {}) as Record<string, unknown>;
+  const [showAll, setShowAll] = useState(false);
+
+  if (running) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-zinc-800/60 bg-zinc-900/30 px-2.5 py-1.5 text-[10.5px] text-zinc-400">
+        <Loader2 className="h-3 w-3 animate-spin text-teal-400" /> pricing adjustment variants at live market…
+      </div>
+    );
+  }
+
+  const visible = showAll ? variants : variants.slice(0, 3);
+  return (
+    <div className="rounded-lg border border-violet-800/40 bg-violet-950/15 p-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <SlidersHorizontal className="h-3.5 w-3.5 text-violet-300" />
+        <span className="text-[12px] font-semibold text-violet-200">Strategy Optimizer</span>
+        <span className="rounded bg-violet-950/60 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-violet-300">
+          {goal.replace('_', ' ')}
+        </span>
+        <span className="font-mono text-[10px] text-zinc-500">
+          {String(baseline.name ?? 'current')} · {underlying}
+        </span>
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10.5px] text-zinc-400">
+        <span>baseline POP {Number(baseline.popPct ?? 0).toFixed(1)}%</span>
+        <span>max profit {extremeText(baseline.maxProfit)}</span>
+        <span>max loss {extremeText(baseline.maxLoss)}</span>
+      </div>
+
+      <div className="mt-2.5 space-y-2">
+        {visible.map((v, i) => {
+          const loadLegs = (v.loadLegs ?? []) as LoadableLegSpec[];
+          const isRec = rec.moveId !== '' && v.moveId === rec.moveId;
+          return (
+            <div
+              key={`${v.moveId}-${i}`}
+              className={`rounded-md border p-2.5 ${
+                isRec ? 'border-teal-700/50 bg-teal-950/20' : 'border-zinc-800/70 bg-zinc-900/40'
+              }`}
+            >
+              <div className="flex items-start gap-1.5">
+                {isRec && <span className="mt-0.5 rounded bg-teal-900/60 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wider text-teal-300">best</span>}
+                <span className="min-w-0 flex-1 text-[11px] font-medium leading-snug text-zinc-200">{String(v.label ?? v.moveId)}</span>
+              </div>
+              <div className="mt-1.5 grid grid-cols-4 gap-x-2 gap-y-1 font-mono text-[10px]">
+                <span className="text-zinc-500">
+                  POP <span className="text-zinc-200">{Number(v.popPct ?? 0).toFixed(1)}%</span> <Delta v={v.dPop as number} suffix="pp" />
+                </span>
+                <span className="text-zinc-500">
+                  max loss <span className="text-zinc-200">{extremeText(v.maxLoss)}</span> <Delta v={v.dMaxLoss as number} invert />
+                </span>
+                <span className="text-zinc-500">
+                  max prof <span className="text-zinc-200">{extremeText(v.maxProfit)}</span> <Delta v={v.dMaxProfit as number} />
+                </span>
+                <span className="text-zinc-500">
+                  EV <span className="text-zinc-200">{fmtUsd(v.expectedValue)}</span> <Delta v={v.dEv as number} />
+                </span>
+              </div>
+              <p className="mt-1.5 text-[9.5px] leading-relaxed text-zinc-500">{String(v.rationale ?? '')}</p>
+              {loadLegs.length > 0 && onLoadLegs && (
+                <Button
+                  size="sm"
+                  className="mt-2 h-6 w-full bg-violet-600/70 text-[10px] font-medium text-zinc-50 hover:bg-violet-500"
+                  onClick={() =>
+                    onLoadLegs(
+                      `${String(baseline.name ?? 'Strategy')} · ${String(v.label ?? 'variant')}`,
+                      loadLegs,
+                      underlying,
+                      size,
+                    )
+                  }
+                >
+                  Load this variant into the builder →
+                </Button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {variants.length > 3 && (
+        <button
+          onClick={() => setShowAll(!showAll)}
+          className="mt-2 flex items-center gap-1 text-[9.5px] font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+        >
+          <ChevronDown className={`h-3 w-3 transition-transform ${showAll ? 'rotate-180' : ''}`} />
+          {showAll ? 'collapse' : `all ${variants.length} variants`}
+        </button>
+      )}
+      {rec.why ? <p className="mt-2 border-t border-zinc-800/60 pt-2 text-[10px] leading-relaxed text-zinc-400">{String(rec.why)}</p> : null}
+    </div>
+  );
+}
+
+function AlternativesCard({
+  result,
+  running,
+  onLoadStrategy,
+}: {
+  result: Record<string, unknown>;
+  running: boolean;
+  onLoadStrategy?: (strategyId: string, underlying: string, size: number) => void;
+}) {
+  const current = (result.current ?? {}) as Record<string, unknown>;
+  const alts = (result.alternatives ?? []) as Array<Record<string, unknown>>;
+  const underlying = String(result.underlying ?? 'BTC');
+  const size = Number(result.size ?? 1);
+
+  if (running) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-zinc-800/60 bg-zinc-900/30 px-2.5 py-1.5 text-[10.5px] text-zinc-400">
+        <Loader2 className="h-3 w-3 animate-spin text-violet-400" /> finding + pricing catalog alternatives live…
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-zinc-800/80 bg-zinc-900/40 p-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <Wand2 className="h-3.5 w-3.5 text-teal-300" />
+        <span className="text-[12px] font-semibold text-teal-200">Alternative strategies</span>
+        <span className="font-mono text-[10px] text-zinc-500">
+          vs {String(current.name ?? 'current')} · {underlying} · POP {Number(current.popPct ?? 0).toFixed(1)}%
+        </span>
+      </div>
+      <div className="mt-2 space-y-2">
+        {alts.map((a, i) => (
+          <div key={String(a.strategyId ?? i)} className="rounded-md border border-zinc-800/70 bg-zinc-950/40 p-2.5">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="text-[11px] font-semibold text-zinc-100">{String(a.name ?? a.strategyId)}</span>
+              <span className="rounded bg-zinc-800/80 px-1.5 py-0.5 text-[8.5px] uppercase tracking-wider text-zinc-400">{String(a.category ?? '')}</span>
+              {a.isCredit ? (
+                <span className="rounded bg-emerald-950/60 px-1.5 py-0.5 text-[8.5px] text-emerald-300">credit</span>
+              ) : (
+                <span className="rounded bg-sky-950/60 px-1.5 py-0.5 text-[8.5px] text-sky-300">debit</span>
+              )}
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-zinc-400">
+              <span>
+                POP <span className="text-zinc-100">{Number(a.popPct ?? 0).toFixed(1)}%</span> <Delta v={a.dPop as number} suffix="pp" />
+              </span>
+              <span>
+                max prof <span className="text-zinc-100">{extremeText(a.maxProfit)}</span> <Delta v={a.dMaxProfit as number} />
+              </span>
+              <span>
+                max loss <span className="text-zinc-100">{extremeText(a.maxLoss)}</span> <Delta v={a.dMaxLoss as number} invert />
+              </span>
+              <span>
+                EV <span className="text-zinc-100">{fmtUsd(a.expectedValue)}</span> <Delta v={a.dEv as number} />
+              </span>
+            </div>
+            <p className="mt-1.5 text-[9.5px] leading-relaxed text-zinc-500">{String(a.why ?? '')}</p>
+            {onLoadStrategy && !!a.strategyId && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-2 h-6 w-full border-teal-800/60 text-[10px] font-medium text-teal-300 hover:bg-teal-950/40 hover:text-teal-200"
+                onClick={() => onLoadStrategy(String(a.strategyId), underlying, size)}
+              >
+                Load {String(a.name ?? a.strategyId)} →
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function summarizeToolResult(name: string, result: Record<string, unknown> | undefined): string {
   if (!result) return '';
   try {
@@ -218,6 +476,17 @@ function summarizeToolResult(name: string, result: Record<string, unknown> | und
       }
       case 'analyze_strategy':
         return `POP ${(Number(result.pop) * 100).toFixed(1)}% · EV ${Number(result.expectedValue).toFixed(1)} · ${Number(result.legCount)} legs`;
+      case 'optimize_strategy': {
+        const rec = (result.recommendation ?? {}) as Record<string, unknown>;
+        const vs = (result.variants ?? []) as Array<Record<string, unknown>>;
+        return `${vs.length} variants · best: ${String(rec.label ?? '—')}`;
+      }
+      case 'suggest_alternatives': {
+        const alts = (result.alternatives ?? []) as Array<{ name: string }>;
+        return alts.map((a) => a.name).join(' · ') || 'no alternatives';
+      }
+      case 'explain_metrics':
+        return `${Number(result.lessonCount ?? 0)} metrics explained · grounded in live numbers`;
       case 'search_strategies': {
         const matches = (result.matches ?? []) as unknown[];
         return `${Number(matches.length ?? 0)} matches from ${Number(result.totalCatalogSize ?? 118)} strategies`;
