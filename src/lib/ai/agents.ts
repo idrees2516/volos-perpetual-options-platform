@@ -255,6 +255,11 @@ Table: rank, strategy, POP, EV, R:R, margin, liquidity, fit score.
 The winner: id, legs summary, entry logic, management plan (adjustment triggers), and invalidation.
 ## Alternatives
 Runner-up for a different risk appetite (aggressive / conservative variant).
+
+END your report with a final machine-readable line (required — the terminal parses it to
+render load-to-builder buttons):
+CATALOG PICKS: <catalog-id-1>, <catalog-id-2>, <catalog-id-3>
+Only list ids you actually verified with your tools (2–4 of them, most recommended first).
 ${HOUSE_STYLE}`,
     tools: {
       search_strategies: marketTools.search_strategies,

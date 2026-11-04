@@ -64,7 +64,9 @@ export function ToolCard({ invocation, onLoadStrategy }: ToolCardProps) {
   const name = invocation.toolName;
   const state = invocation.state;
   const args = (invocation.args ?? {}) as Record<string, unknown>;
-  const result = invocation.result as Record<string, unknown> | undefined;
+  const result = ('result' in invocation ? invocation.result : undefined) as
+    | Record<string, unknown>
+    | undefined;
 
   // --- dispatch_agent: full agent card ----------------------------------------
   if (name === 'dispatch_agent') {
@@ -200,8 +202,11 @@ function summarizeToolResult(name: string, result: Record<string, unknown> | und
           .map(([k, v]) => `${k} ${fmt(v.spot)} · IV ${(v.atmIv30dPct ?? 0).toFixed(0)}%`)
           .join(' | ');
       }
-      case 'compute_technical_indicators':
-        return `${String(result.biasLabel ?? '')} · RSI ${(Number(result.momentum?.rsi14) || 0).toFixed(0)} · ADX ${(Number(result.strength?.adx14) || 0).toFixed(0)}`;
+      case 'compute_technical_indicators': {
+        const momentum = (result.momentum ?? {}) as Record<string, number>;
+        const strength = (result.strength ?? {}) as Record<string, number>;
+        return `${String(result.biasLabel ?? '')} · RSI ${(Number(momentum.rsi14) || 0).toFixed(0)} · ADX ${(Number(strength.adx14) || 0).toFixed(0)}`;
+      }
       case 'detect_chart_patterns': {
         const cp = (result.chartPatterns ?? []) as Array<{ name: string }>;
         const candle = (result.candlestickPatterns ?? []) as Array<{ name: string }>;
@@ -213,16 +218,20 @@ function summarizeToolResult(name: string, result: Record<string, unknown> | und
       }
       case 'analyze_strategy':
         return `POP ${(Number(result.pop) * 100).toFixed(1)}% · EV ${Number(result.expectedValue).toFixed(1)} · ${Number(result.legCount)} legs`;
-      case 'search_strategies':
-        return `${Number(result.matches?.length ?? 0)} matches from ${Number(result.totalCatalogSize ?? 118)} strategies`;
+      case 'search_strategies': {
+        const matches = (result.matches ?? []) as unknown[];
+        return `${Number(matches.length ?? 0)} matches from ${Number(result.totalCatalogSize ?? 118)} strategies`;
+      }
       case 'compare_strategies': {
         const ranking = (result.ranking ?? []) as Array<{ name: string }>;
         return ranking.map((r, i) => `${i + 1}. ${r.name}`).join(' · ');
       }
       case 'analyze_volatility_regime':
         return `regime ${String(result.regime ?? '')} · IV pct ${Number(result.ivPercentile).toFixed(0)}% · term ${String(result.termStructure ?? '')}`;
-      case 'analyze_market_environment':
-        return `${String(result.regime ?? '')} · funding ${(Number(result.funding?.rate) * 100).toFixed(2)}%/p`;
+      case 'analyze_market_environment': {
+        const funding = (result.funding ?? {}) as Record<string, number>;
+        return `${String(result.regime ?? '')} · funding ${(Number(funding.rate) * 100).toFixed(2)}%/p`;
+      }
       case 'get_strategy_details':
         return `${String(result.name ?? '')} · ${Number(result.legCount ?? 0)} legs resolved`;
       default:

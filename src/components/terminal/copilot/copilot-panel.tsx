@@ -25,12 +25,27 @@ import { Textarea } from '@/components/ui/textarea';
 import { Crosshair, MessageSquare, Send, Sparkles, Square, Telescope, User, X } from 'lucide-react';
 import type { ViewId } from '@/components/terminal/topbar';
 
-const QUICK_PROMPTS = [
-  'Analyse my current strategy against the live market metrics',
-  'Deep dive BTC: technicals, charts, macro and vol — then recommend a strategy',
-  'Best income strategy on ETH for the next 30 days?',
-  'Design a defined-risk hedge for a long BTC position',
-  'Compare iron condor vs butterfly on BTC right now',
+const QUICK_PROMPTS: Array<{ q: string; chip: string }> = [
+  {
+    q: 'Analyse my current strategy against the live market metrics',
+    chip: 'Analyse my strategy',
+  },
+  {
+    q: 'Deep dive BTC: technicals, charts, macro and vol — then recommend a strategy',
+    chip: 'Deep dive BTC',
+  },
+  {
+    q: 'Best income strategy on ETH for the next 30 days?',
+    chip: 'ETH income 30d',
+  },
+  {
+    q: 'Design a defined-risk hedge for a long BTC position',
+    chip: 'BTC defined-risk hedge',
+  },
+  {
+    q: 'Compare iron condor vs butterfly on BTC right now',
+    chip: 'Condor vs butterfly',
+  },
 ];
 
 // --- live spot bridge -------------------------------------------------------------
@@ -205,10 +220,8 @@ export function CopilotPanel({ onView }: CopilotPanelProps) {
 // --- chat tab --------------------------------------------------------------------
 
 function ChatTab({ onLoadStrategy }: { onLoadStrategy: (id: string, u: string, size: number) => void }) {
-  const { messages, input, handleInputChange, handleSubmit, isLoading, stop, reload } = useChat({
-    api: '/api/ai/copilot',
-    body: { context: copilotContextRef.current },
-  });
+  const { messages, input, setInput, handleInputChange, handleSubmit, isLoading, stop, reload, append, error, setMessages } =
+    useChat({ api: '/api/ai/copilot' });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -216,10 +229,21 @@ function ChatTab({ onLoadStrategy }: { onLoadStrategy: (id: string, u: string, s
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  // Every request ships the freshest live terminal context snapshot.
+  const ctxBody = () => ({ context: copilotContextRef.current });
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    // ship the freshest context snapshot with every request
-    handleSubmit(e, { body: { context: copilotContextRef.current } });
+    handleSubmit(e, { body: ctxBody() });
+  };
+
+  // Quick prompts / chips: append the question as a real user message and
+  // fire the request immediately (button clicked → question asked → tools
+  // pull live data → streamed answer).
+  const ask = (q: string) => {
+    if (isLoading) return;
+    setInput('');
+    append({ role: 'user', content: q }, { body: ctxBody() });
   };
 
   return (
@@ -265,31 +289,65 @@ function ChatTab({ onLoadStrategy }: { onLoadStrategy: (id: string, u: string, s
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-teal-400 [animation-delay:120ms]" />
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-teal-400 [animation-delay:240ms]" />
             </span>
-            research desk working…
+            research desk pulling live data…
+          </div>
+        )}
+        {error && (
+          <div className="rounded-md border border-rose-900/60 bg-rose-950/30 px-2.5 py-2 text-[10.5px] text-rose-300">
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1">
+                {(error as Error).message || 'Copilot request failed.'}
+              </span>
+              <button
+                type="button"
+                onClick={() => reload({ body: ctxBody() })}
+                className="shrink-0 rounded border border-rose-800/60 px-1.5 py-0.5 text-[9.5px] font-medium uppercase tracking-wider text-rose-200 hover:bg-rose-900/40"
+              >
+                retry
+              </button>
+              <button
+                type="button"
+                onClick={() => setMessages(messages.slice(0, -1))}
+                className="shrink-0 rounded px-1 py-0.5 text-[9.5px] text-rose-400 hover:text-rose-200"
+              >
+                dismiss
+              </button>
+            </div>
           </div>
         )}
       </div>
 
-      {/* quick prompts */}
-      {messages.length === 0 && (
-        <div className="space-y-1.5 border-t border-zinc-800/70 p-3">
-          {QUICK_PROMPTS.map((q) => (
-            <button
-              key={q}
-              onClick={() => {
-                const el = document.querySelector<HTMLTextAreaElement>('textarea[data-copilot-input]');
-                if (el) {
-                  el.value = q;
-                  el.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-              }}
-              className="w-full rounded-md border border-zinc-800/70 bg-zinc-900/40 px-2.5 py-1.5 text-left text-[10.5px] text-zinc-400 transition hover:border-teal-800/60 hover:text-teal-200"
-            >
-              {q}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* quick prompts — full cards when the thread is empty, compact chips after */}
+      <div className="border-t border-zinc-800/70 p-3">
+        {messages.length === 0 ? (
+          <div className="space-y-1.5">
+            {QUICK_PROMPTS.map(({ q }) => (
+              <button
+                key={q}
+                onClick={() => ask(q)}
+                disabled={isLoading}
+                className="w-full rounded-md border border-zinc-800/70 bg-zinc-900/40 px-2.5 py-1.5 text-left text-[10.5px] text-zinc-400 transition hover:border-teal-800/60 hover:text-teal-200 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+            {QUICK_PROMPTS.map(({ q, chip }) => (
+              <button
+                key={q}
+                onClick={() => ask(q)}
+                disabled={isLoading}
+                title={q}
+                className="shrink-0 rounded-full border border-zinc-800/70 bg-zinc-900/40 px-2.5 py-1 text-[9.5px] whitespace-nowrap text-zinc-400 transition hover:border-teal-800/60 hover:text-teal-200 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* input */}
       <form
@@ -312,11 +370,24 @@ function ChatTab({ onLoadStrategy }: { onLoadStrategy: (id: string, u: string, s
             }}
           />
           {isLoading ? (
-            <Button type="button" size="sm" variant="destructive" className="h-8 w-8 p-0" onClick={(e) => { e.preventDefault(); stop(); }}>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              className="h-8 w-8 p-0"
+              aria-label="Stop generating"
+              onClick={(e) => { e.preventDefault(); stop(); }}
+            >
               <Square className="h-3.5 w-3.5" />
             </Button>
           ) : (
-            <Button type="submit" size="sm" className="h-8 w-8 bg-teal-600/80 p-0 text-zinc-950 hover:bg-teal-500">
+            <Button
+              type="submit"
+              size="sm"
+              className="h-8 w-8 bg-teal-600/80 p-0 text-zinc-950 hover:bg-teal-500"
+              aria-label="Send message"
+              disabled={input.trim().length === 0}
+            >
               <Send className="h-3.5 w-3.5" />
             </Button>
           )}
@@ -325,11 +396,26 @@ function ChatTab({ onLoadStrategy }: { onLoadStrategy: (id: string, u: string, s
           <span className="text-[9px] text-zinc-600">
             9 agents: Trend Scout · Pattern Hawk · Macro Owl · Vol Oracle · Risk Quant · Ledger Hound · Gamma Ray · Legs Weaver · Strategy Smith
           </span>
-          {messages.length > 0 && !isLoading && (
-            <button type="button" onClick={() => reload()} className="text-[9px] text-zinc-500 underline hover:text-zinc-300">
-              regenerate
-            </button>
-          )}
+          <span className="flex items-center gap-2">
+            {messages.length > 0 && !isLoading && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => reload({ body: ctxBody() })}
+                  className="text-[9px] text-zinc-500 underline hover:text-zinc-300"
+                >
+                  regenerate
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMessages([])}
+                  className="text-[9px] text-zinc-500 underline hover:text-zinc-300"
+                >
+                  clear chat
+                </button>
+              </>
+            )}
+          </span>
         </div>
       </form>
     </div>
