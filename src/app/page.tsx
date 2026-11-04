@@ -1,58 +1,39 @@
 'use client';
 
 // VolOS — perpetual options strategy terminal.
-// Single-page app: MAIN tabs (Strategies · Gamma & Flow · Option Chain ·
-// Paper Desk, collapsible) plus the left SideNav rail with every
-// functionality (incl. Trading) and the Agentic Research Desk (AI Copilot).
 //
-// The active view, the nav/tab collapse state AND the selected strategy
-// (catalog choice + custom strategy legs) all persist across reloads.
+// TWO-SIDED COLLAPSIBLE WORKBENCH shell:
+//   • Left rail  — ANALYTICS     (Gamma & Flow · Option Chain · Trading)
+//   • Right rail — STRATEGY LAB  (Strategies · Paper Desk)
+//   • Center     — the active workspace under a breadcrumb header
+//
+// The former top MAIN tab strip is retired; each rail collapses to a slim
+// icon strip (keyboard `[` / `]`), and the active view, rail states and the
+// selected strategy all persist across reloads. The AI Copilot is grounded
+// in the live terminal context via CopilotContextBridge.
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MarketProvider } from '@/hooks/use-market';
 import { TopBar, type ViewId } from '@/components/terminal/topbar';
-import { SideNav } from '@/components/terminal/side-nav';
+import { Workbench, useRailHotkeys } from '@/components/terminal/workbench';
 import { StrategiesView } from '@/components/terminal/strategies/strategies-view';
 import { GammaLabView } from '@/components/terminal/gamma-lab/gamma-lab-view';
 import { ChainView } from '@/components/terminal/chain-view';
 import { TradeView } from '@/components/terminal/trade-view';
 import { PaperView } from '@/components/terminal/paper-view';
-import { CopilotPanel, MarketSpotBridge } from '@/components/terminal/copilot/copilot-panel';
+import { CopilotPanel, MarketSpotBridge, CopilotContextBridge } from '@/components/terminal/copilot/copilot-panel';
 import { useCopilot } from '@/stores/copilot-store';
 import { rehydrateStrategy } from '@/stores/strategy-store';
+import { usePersistedFlag } from '@/hooks/use-persisted-flag';
 
 const VALID_VIEWS: ViewId[] = ['strategies', 'gamma', 'chain', 'trade', 'paper'];
 
-/** localStorage-backed state — restored after mount to avoid SSR mismatch. */
-function usePersistedFlag(key: string, initial: boolean): [boolean, () => void] {
-  const [value, setValue] = useState(initial);
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(key);
-      if (saved !== null) setValue(saved === '1');
-    } catch {
-      /* private mode */
-    }
-  }, [key]);
-  const toggle = () => {
-    setValue((v) => {
-      const next = !v;
-      try {
-        localStorage.setItem(key, next ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  };
-  return [value, toggle];
-}
-
 function Terminal() {
   const [view, setView] = useState<ViewId>('strategies');
-  const [navCollapsed, toggleNavCollapsed] = usePersistedFlag('volos-nav-collapsed', false);
-  const [tabsCollapsed, toggleTabsCollapsed] = usePersistedFlag('volos-tabs-collapsed', false);
+  const [analyticsCollapsed, toggleAnalytics] = usePersistedFlag('volos-rail-analytics-collapsed', false);
+  const [labCollapsed, toggleLab] = usePersistedFlag('volos-rail-lab-collapsed', false);
   const copilotOpen = useCopilot((s) => s.open);
+  useRailHotkeys(toggleAnalytics, toggleLab);
 
   // Restore the persisted view + strategy selection after mount.
   useEffect(() => {
@@ -65,37 +46,33 @@ function Terminal() {
     }
   }, []);
 
-  // Persist the active main tab.
+  // Persist the active workspace.
   useEffect(() => {
     try {
       localStorage.setItem('volos-view', view);
     } catch {
-      /* ignore */
+      /* private mode */
     }
   }, [view]);
 
   return (
     <div className="flex min-h-screen flex-col bg-[#05070a] text-zinc-200">
-      <TopBar view={view} onView={setView} tabsCollapsed={tabsCollapsed} onToggleTabs={toggleTabsCollapsed} />
-      <div className="flex flex-1 overflow-hidden">
-        {/* left navigation rail — all major functionalities */}
-        <SideNav
+      <TopBar />
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <Workbench
           view={view}
           onView={setView}
-          collapsed={navCollapsed}
-          onToggleCollapsed={toggleNavCollapsed}
-        />
-        <main
-          className={`min-w-0 flex-1 transition-all ${
-            copilotOpen ? 'mx-auto w-full max-w-[1600px] px-4 py-3' : 'mx-auto w-full max-w-[1600px] px-4 py-3'
-          }`}
+          analyticsCollapsed={analyticsCollapsed}
+          onToggleAnalytics={toggleAnalytics}
+          labCollapsed={labCollapsed}
+          onToggleLab={toggleLab}
         >
           {view === 'strategies' && <StrategiesView onOpenTrade={() => setView('trade')} />}
           {view === 'gamma' && <GammaLabView />}
           {view === 'chain' && <ChainView onOpenBuilder={() => setView('strategies')} />}
           {view === 'trade' && <TradeView onOpenBuilder={() => setView('strategies')} />}
           {view === 'paper' && <PaperView />}
-        </main>
+        </Workbench>
         <CopilotPanel view={view} onView={setView} />
       </div>
       <footer className="border-t border-zinc-800/60 px-4 py-2.5">
@@ -112,6 +89,7 @@ function Terminal() {
         </div>
       </footer>
       <MarketSpotBridge />
+      <CopilotContextBridge view={view} />
     </div>
   );
 }

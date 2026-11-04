@@ -3,6 +3,11 @@
 // The AI Copilot panel — the VolOS Agentic Research Desk UI.
 // Chat tab: interactive Research Director with live agent activity cards.
 // Research tab: the deep-research multi-agent pipeline.
+//
+// The copilot is GROUNDED in the live terminal context: every request ships
+// a CopilotContextBridge snapshot (active view, selected strategy + legs,
+// live exchange prices), so every answer is based on the data the platform
+// is actually pulling and what the user is looking at.
 
 import { useCallback, useEffect, useRef } from 'react';
 import { useChat } from '@ai-sdk/react';
@@ -11,18 +16,19 @@ import { useStrategy } from '@/stores/strategy-store';
 import { useToast } from '@/hooks/use-toast';
 import { useMarket } from '@/hooks/use-market';
 import { resolveStrategyLegs, strategyById } from '@/lib/strategies';
+import type { CopilotContextSnapshot } from '@/lib/copilot-context';
 import { MarkdownLite } from './markdown-lite';
 import { ToolCard } from './agent-activity';
 import { ResearchView } from './research-view';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { MessageSquare, Send, Sparkles, Square, Telescope, User, X } from 'lucide-react';
+import { Crosshair, MessageSquare, Send, Sparkles, Square, Telescope, User, X } from 'lucide-react';
 import type { ViewId } from '@/components/terminal/topbar';
 
 const QUICK_PROMPTS = [
+  'Analyse my current strategy against the live market metrics',
   'Deep dive BTC: technicals, charts, macro and vol — then recommend a strategy',
   'Best income strategy on ETH for the next 30 days?',
-  'Is SOL overbought? Check momentum and chart patterns',
   'Design a defined-risk hedge for a long BTC position',
   'Compare iron condor vs butterfly on BTC right now',
 ];
@@ -41,6 +47,73 @@ export function MarketSpotBridge() {
   return null;
 }
 
+// --- copilot context bridge --------------------------------------------------------
+// Mirrors the live terminal state (view · strategy · market) into a ref that
+// ships with every chat request, so the copilot answers based on the data the
+// platform is actually pulling and what the user is looking at.
+
+let copilotContextRef: { current: CopilotContextSnapshot | null } = { current: null };
+
+const VIEW_LABELS: Record<string, string> = {
+  strategies: 'Strategies',
+  gamma: 'Gamma & Flow',
+  chain: 'Option Chain',
+  trade: 'Trading',
+  paper: 'Paper Desk',
+};
+
+export function CopilotContextBridge({ view }: { view: ViewId }) {
+  const { market, live, smooth } = useMarket();
+  const { underlying, strategyName, legs, size, catalogId, mode } = useStrategy();
+
+  useEffect(() => {
+    const assets = (['BTC', 'ETH', 'SOL'] as const).map((a) => {
+      const st = market.assets[a];
+      const chg = (st?.change24h ?? 0) as number;
+      return { asset: a, spot: st?.spot ?? 0, change24hPct: chg * 100 };
+    });
+    // Resolve the selected catalog strategy's legs when no custom strategy
+    // is loaded — mirrors the strategies workspace preview semantics.
+    let resolvedName = strategyName;
+    let resolvedLegs = legs;
+    const spec = catalogId ? strategyById(catalogId) : undefined;
+    if (spec && legs.length === 0) {
+      const spot = smooth[underlying]?.spot ?? market.assets[underlying]?.spot ?? 0;
+      resolvedName = spec.name;
+      resolvedLegs = resolveStrategyLegs(spec, spot);
+    }
+    copilotContextRef.current = {
+      tsIso: new Date().toISOString(),
+      activeSide: view === 'gamma' || view === 'chain' || view === 'trade' ? 'analytics' : 'lab',
+      activeView: view,
+      viewLabel: VIEW_LABELS[view] ?? view,
+      underlying,
+      strategy: {
+        catalogId,
+        name: resolvedName,
+        mode,
+        size,
+        legCount: resolvedLegs.length,
+        legs: resolvedLegs.slice(0, 25).map((l) => ({
+          kind: l.kind,
+          side: l.side,
+          qty: l.qty,
+          strike: l.strike,
+          expiryDays: l.expiryDays,
+          fundingPeriodDays: l.fundingPeriodDays,
+        })),
+      },
+      market: {
+        source: live?.ok ? `live · ${live.source}` : market.source === 'rust' ? 'rust engine' : 'local sim',
+        tsMs: market.tsMs,
+        assets,
+      },
+    };
+  }, [view, market, live, smooth, underlying, strategyName, legs, size, catalogId, mode]);
+
+  return null;
+}
+
 interface CopilotPanelProps {
   view: ViewId;
   onView: (v: ViewId) => void;
@@ -48,8 +121,9 @@ interface CopilotPanelProps {
 
 export function CopilotPanel({ onView }: CopilotPanelProps) {
   const { open, tab, setTab, toggle } = useCopilot();
-  const { underlying } = useStrategy();
+  const { underlying, strategyName, legs } = useStrategy();
   const { toast } = useToast();
+  const ctx = copilotContextRef.current;
 
   const loadStrategyById = useCallback(
     (strategyId: string, u: string, size: number) => {
@@ -108,7 +182,15 @@ export function CopilotPanel({ onView }: CopilotPanelProps) {
         >
           <Telescope className="h-3 w-3" /> Deep Research
         </button>
-        <span className="ml-auto self-center font-mono text-[9px] text-zinc-600">ctx: {underlying}</span>
+        <span
+          className="ml-auto flex items-center gap-1 self-center font-mono text-[9px] text-zinc-600"
+          title={ctx ? `Copilot is grounded in your live terminal context: ${ctx.viewLabel} · ${ctx.strategy.name} · ${ctx.market.source}` : 'Copilot context: waiting for live data…'}
+        >
+          <Crosshair className="h-2.5 w-2.5 text-teal-500/80" />
+          {underlying}
+          {legs.length > 0 && <span className="text-zinc-700">·</span>}
+          {legs.length > 0 && <span className="max-w-[90px] truncate text-zinc-500">{strategyName}</span>}
+        </span>
       </div>
 
       {/* body */}
@@ -125,6 +207,7 @@ export function CopilotPanel({ onView }: CopilotPanelProps) {
 function ChatTab({ onLoadStrategy }: { onLoadStrategy: (id: string, u: string, size: number) => void }) {
   const { messages, input, handleInputChange, handleSubmit, isLoading, stop, reload } = useChat({
     api: '/api/ai/copilot',
+    body: { context: copilotContextRef.current },
   });
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -132,6 +215,12 @@ function ChatTab({ onLoadStrategy }: { onLoadStrategy: (id: string, u: string, s
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // ship the freshest context snapshot with every request
+    handleSubmit(e, { body: { context: copilotContextRef.current } });
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -204,10 +293,7 @@ function ChatTab({ onLoadStrategy }: { onLoadStrategy: (id: string, u: string, s
 
       {/* input */}
       <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          handleSubmit(e);
-        }}
+        onSubmit={submit}
         className="border-t border-zinc-800/70 bg-zinc-950/40 p-2.5"
       >
         <div className="flex items-end gap-2">
@@ -221,7 +307,7 @@ function ChatTab({ onLoadStrategy }: { onLoadStrategy: (id: string, u: string, s
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                handleSubmit(e);
+                submit(e);
               }
             }}
           />

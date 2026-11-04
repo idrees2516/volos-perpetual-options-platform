@@ -1,14 +1,14 @@
 'use client';
 
-// Terminal top bar: brand, MAIN navigation tabs (Strategies · Gamma & Flow ·
-// Option Chain · Paper Desk — the tab bar itself is collapsible to icons),
-// live asset ticker with REAL exchange prices, AI Copilot, engine status.
+// Terminal top bar: brand, live asset ticker with REAL exchange prices,
+// AI Copilot and engine status.
+//
+// The old MAIN tab strip is RETIRED — navigation moved into the two-sided
+// collapsible Workbench (left Analytics rail · right Strategy Lab rail),
+// so the header stays a clean, slim command bar.
 
-import React, { useState } from 'react';
-import {
-  Waves, Sparkles, Layers, Activity, CircleDot, FlaskConical, LineChart,
-  ChevronsLeft, ChevronsRight, Radio,
-} from 'lucide-react';
+import React from 'react';
+import { Waves, Sparkles, Radio } from 'lucide-react';
 import type { UnderlyingId } from '@/lib/types';
 import { ASSET_META } from '@/lib/types';
 import { useMarket } from '@/hooks/use-market';
@@ -18,53 +18,7 @@ import { fmtNum, fmtPctSigned } from '@/lib/format';
 
 export type ViewId = 'strategies' | 'gamma' | 'chain' | 'trade' | 'paper';
 
-/** The four MAIN tabs + Trading (compact, still one click away). */
-export const MAIN_TABS: { id: ViewId; label: string; icon: React.ReactNode; main: boolean; hint: string }[] = [
-  {
-    id: 'strategies',
-    label: 'Strategies',
-    icon: <Layers className="h-3.5 w-3.5" />,
-    main: true,
-    hint: '131-strategy catalog · payoff up front · intelligence · platforms · backtests',
-  },
-  {
-    id: 'gamma',
-    label: 'Gamma & Flow',
-    icon: <Activity className="h-3.5 w-3.5" />,
-    main: true,
-    hint: 'GEX · dealer positioning · heatmaps · options flow · 0DTE · skew',
-  },
-  {
-    id: 'chain',
-    label: 'Option Chain',
-    icon: <CircleDot className="h-3.5 w-3.5" />,
-    main: true,
-    hint: 'live chains with per-strike BUY / SELL',
-  },
-  {
-    id: 'paper',
-    label: 'Paper Desk',
-    icon: <FlaskConical className="h-3.5 w-3.5" />,
-    main: true,
-    hint: 'fills at real venue BBO',
-  },
-  {
-    id: 'trade',
-    label: 'Trading',
-    icon: <LineChart className="h-3.5 w-3.5" />,
-    main: false,
-    hint: 'engine CLOB · $1M demo equity',
-  },
-];
-
-interface TopBarProps {
-  view: ViewId;
-  onView: (v: ViewId) => void;
-  tabsCollapsed: boolean;
-  onToggleTabs: () => void;
-}
-
-export function TopBar({ view, onView, tabsCollapsed, onToggleTabs }: TopBarProps) {
+export function TopBar() {
   const { market, smooth, connected, live, retry } = useMarket();
   const { underlying, setUnderlying } = useStrategy();
   const { open: copilotOpen, toggle: toggleCopilot } = useCopilot();
@@ -145,51 +99,6 @@ export function TopBar({ view, onView, tabsCollapsed, onToggleTabs }: TopBarProp
             {connected ? 'rust engine · live' : 'local sim · fallback'}
           </span>
         </button>
-      </div>
-
-      {/* ── MAIN tab bar — collapsible to icon-only strip ── */}
-      <div className="border-t border-zinc-800/60">
-        <div className="mx-auto flex max-w-[1600px] items-center gap-1 px-4 py-1.5">
-          {MAIN_TABS.map((t) => {
-            const active = view === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => onView(t.id)}
-                title={`${t.label} — ${t.hint}`}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition ${
-                  active
-                    ? t.main
-                      ? 'bg-teal-950/60 text-teal-300 ring-1 ring-teal-500/30'
-                      : 'bg-zinc-800/80 text-zinc-100 ring-1 ring-zinc-600'
-                    : t.main
-                      ? 'text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200'
-                      : 'text-zinc-600 hover:bg-zinc-900 hover:text-zinc-300'
-                } ${tabsCollapsed ? 'px-2.5' : ''} ${!t.main && !tabsCollapsed ? 'ml-2 border-l border-zinc-800 pl-3' : ''}`}
-              >
-                <span className={active ? 'text-teal-400' : 'text-zinc-500'}>
-                  {t.icon}
-                </span>
-                {!tabsCollapsed && <span>{t.label}</span>}
-                {!t.main && !tabsCollapsed && (
-                  <span className="rounded bg-zinc-800 px-1 text-[8px] uppercase tracking-wide text-zinc-500">
-                    desk
-                  </span>
-                )}
-              </button>
-            );
-          })}
-
-          {/* collapse toggle */}
-          <button
-            onClick={onToggleTabs}
-            title={tabsCollapsed ? 'Expand the tab bar labels' : 'Collapse the tab bar to icons'}
-            className="ml-auto flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900/50 px-2 py-1.5 text-[9px] font-medium uppercase tracking-wider text-zinc-500 transition hover:text-zinc-200"
-          >
-            {tabsCollapsed ? <ChevronsRight className="h-3 w-3" /> : <ChevronsLeft className="h-3 w-3" />}
-            {!tabsCollapsed && 'collapse tabs'}
-          </button>
-        </div>
       </div>
     </header>
   );
