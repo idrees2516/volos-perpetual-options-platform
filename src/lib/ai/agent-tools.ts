@@ -2,13 +2,15 @@
 // agent-tools — the toolbelt exposed to the agentic research desk.
 // Each tool is a Vercel AI SDK `tool()` with a JSON schema, executed
 // server-side against the market intelligence engine, the 118-strategy
-// catalog and the pricing analytics core.
+// catalog, the pricing analytics core and the Strategy Lab engine
+// (optimizer · alternatives · teaching).
 // ---------------------------------------------------------------------------
 
 import { tool, jsonSchema } from 'ai';
 import type { Leg, LegKind, Side, AssetMarket } from '@/lib/types';
 import { STRATEGIES, resolveStrategyLegs, type StrategySpec } from '@/lib/strategies';
 import { analyzeStrategy } from '@/lib/pricing';
+import { optimizeStrategyPayload, alternativesPayload, teachingPayload, OPTIMIZE_GOALS } from './strategy-lab';
 import {
   ASSET_IDS,
   type AssetId,
@@ -1029,6 +1031,116 @@ export const marketTools = {
         return { error: err instanceof Error ? err.message : String(err) };
       }
     },
+  }),
+
+  // ------------------------------------------------------------------
+  // STRATEGY LAB — optimizer · alternatives · teaching (live-grounded)
+  // ------------------------------------------------------------------
+
+  optimize_strategy: tool({
+    description:
+      "Tune the user's CURRENT strategy (from the terminal context, or by strategyId/custom legs) toward ONE goal: 'increase_pop' (raise probability of profit), 'reduce_risk' (shrink max loss / define risk / cut margin), 'increase_profit' (bigger profit ceiling + EV), or 'balanced'. Generates real adjustment variants (short strikes further OTM, widen/narrow wings, shorter/longer tenor, add tail wings, cut size, plus stacked combos), prices EVERY variant at live market, and ranks them with exact deltas (ΔPOP, Δmax loss, Δmax profit, ΔEV) versus the current baseline. Use it whenever the user says: increase my POP, make this safer, cut losses, boost profit, optimize/tune/improve my strategy.",
+    parameters: jsonSchema<{
+      goal?: string;
+      strategyId?: string;
+      underlying?: string;
+      size?: number;
+      legs?: Array<{ kind: string; side: string; qty: number; strike?: number; expiryDays?: number; fundingPeriodDays?: number }>;
+    }>({
+      type: 'object',
+      properties: {
+        goal: { type: 'string', enum: [...OPTIMIZE_GOALS], description: 'What to improve — default "balanced"' },
+        strategyId: { type: 'string', description: 'Catalog id — defaults to the strategy in the user\'s live context' },
+        underlying: { type: 'string', enum: ['BTC', 'ETH', 'SOL'] },
+        size: { type: 'number', description: 'Package size multiplier, default 1 (or the context size)' },
+        legs: {
+          type: 'array',
+          description: 'Custom legs (from the terminal context) when no strategyId is given',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: ['call', 'put', 'perp_option', 'perp', 'spot'] },
+              side: { type: 'string', enum: ['buy', 'sell'] },
+              qty: { type: 'number' },
+              strike: { type: 'number' },
+              expiryDays: { type: 'number' },
+              fundingPeriodDays: { type: 'number' },
+            },
+            required: ['kind', 'side', 'qty'],
+          },
+        },
+      },
+    }),
+    execute: async (args) => optimizeStrategyPayload(args),
+  }),
+
+  suggest_alternatives: tool({
+    description:
+      "Find ALTERNATIVE strategies to the user's current one (terminal context strategy, strategyId or custom legs) and compare them LIVE: same-stance siblings plus contrasting structures (credit vs debit, defined vs undefined risk), each priced at live market with exact deltas vs the current strategy (ΔPOP, Δmax profit, Δmax loss, ΔEV) and an auto-generated reason why to switch. Use whenever the user asks: what are my alternatives, show me other options/strategies, is there a better structure for this view, compare my strategy against the catalog.",
+    parameters: jsonSchema<{
+      strategyId?: string;
+      underlying?: string;
+      size?: number;
+      legs?: Array<{ kind: string; side: string; qty: number; strike?: number; expiryDays?: number; fundingPeriodDays?: number }>;
+    }>({
+      type: 'object',
+      properties: {
+        strategyId: { type: 'string', description: 'Catalog id of the current strategy — defaults to the live context one' },
+        underlying: { type: 'string', enum: ['BTC', 'ETH', 'SOL'] },
+        size: { type: 'number' },
+        legs: {
+          type: 'array',
+          description: 'Current custom legs (from the terminal context)',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: ['call', 'put', 'perp_option', 'perp', 'spot'] },
+              side: { type: 'string', enum: ['buy', 'sell'] },
+              qty: { type: 'number' },
+              strike: { type: 'number' },
+              expiryDays: { type: 'number' },
+              fundingPeriodDays: { type: 'number' },
+            },
+            required: ['kind', 'side', 'qty'],
+          },
+        },
+      },
+    }),
+    execute: async (args) => alternativesPayload(args),
+  }),
+
+  explain_metrics: tool({
+    description:
+      'TEACHING MODE: a full lesson pack for every metric on the platform — POP, EV, max profit/loss, breakevens, net premium, risk/reward, margin, liquidity, all Greeks (delta/gamma/vega/theta), IV, skew, term structure, expected move, funding, GEX — each grounded in the user\'s LIVE numbers (their actual strategy analysis + live market state) with what it means, how it is computed, HOW TO USE IT BENEFICIALLY, and the pitfall to watch for. Use whenever the user asks: explain/teach me X, what does this metric mean, how do I use this data, teach me options, what am I looking at.',
+    parameters: jsonSchema<{ underlying?: string; strategyId?: string; size?: number; topics?: string[]; legs?: Array<Record<string, unknown>> }>({
+      type: 'object',
+      properties: {
+        underlying: { type: 'string', enum: ['BTC', 'ETH', 'SOL'] },
+        strategyId: { type: 'string', description: 'Ground the lessons in this strategy (default: the live context one)' },
+        size: { type: 'number' },
+        topics: {
+          type: 'array',
+          description: 'Optional focus subset',
+          items: {
+            type: 'string',
+            enum: [
+              'net_premium', 'pop', 'expected_value', 'max_profit', 'max_loss', 'breakevens', 'risk_reward',
+              'margin', 'liquidity', 'delta', 'gamma', 'vega', 'theta', 'iv', 'skew', 'term_structure',
+              'expected_move', 'funding', 'gex',
+            ],
+          },
+        },
+        legs: { type: 'array', description: 'Custom legs (from the terminal context)', items: { type: 'object' } },
+      },
+    }),
+    execute: async (args) =>
+      teachingPayload({
+        underlying: args.underlying,
+        strategyId: args.strategyId,
+        size: args.size,
+        topics: args.topics,
+        legs: Array.isArray(args.legs) ? (args.legs as never as Array<Partial<Leg>>) : undefined,
+      }),
   }),
 
   // ------------------------------------------------------------------
