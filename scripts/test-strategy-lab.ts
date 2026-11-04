@@ -1,6 +1,12 @@
-// Smoke test for the Strategy Lab engine — optimizer, alternatives, teaching.
-// Runs against the pricing core with simulated market anchors (no network).
-import { optimizeStrategyPayload, alternativesPayload, teachingPayload } from '../src/lib/ai/strategy-lab';
+// Smoke test for the Strategy Lab engine — optimizer (with AUTO-BACKTEST on
+// real exchange history), alternatives, teaching.
+// Runs against the pricing core with live market anchors (degrades gracefully
+// without network: backtest stats are simply absent).
+import { optimizeStrategyPayload, alternativesPayload, teachingPayload, type VariantBacktest } from '../src/lib/ai/strategy-lab';
+
+function btLine(bt: VariantBacktest): string {
+  return `win ${bt.winRate}% · PF ${bt.profitFactor} · CAGR ${bt.cagrPct}% · maxDD ${bt.maxDrawdownPct}% · Sharpe ${bt.sharpe} · P&L $${bt.totalPnl} · ${bt.cycles} cycles`;
+}
 
 async function main() {
   // --- 1. OPTIMIZER: increase POP on an iron condor ---
@@ -24,6 +30,29 @@ async function main() {
   const popImproved = optPop.variants.some((v) => v.dPop > 0.5);
   if (!popImproved) throw new Error('no variant actually improved POP');
   if (!optPop.variants.every((v) => Array.isArray(v.loadLegs) && v.loadLegs.length > 0)) throw new Error('variants missing loadLegs');
+
+  // --- 1b. AUTO-BACKTEST: baseline + variants validated on real history ----
+  if (optPop.backtested) console.log(`auto-backtest: ON (backtested=${optPop.backtested})`);
+  else console.log('auto-backtest: degraded (no network / history unavailable)');
+  if (optPop.baseline.backtest) {
+    console.log(`  baseline  → ${btLine(optPop.baseline.backtest)}`);
+  }
+  const withBt = optPop.variants.filter((v) => v.backtest);
+  console.log(`  variants  → ${withBt.length}/${optPop.variants.length} backtested on 365d real history`);
+  for (const v of withBt.slice(0, 3)) {
+    const d = v.btDelta;
+    console.log(
+      `    ${v.moveId.padEnd(14)} ${btLine(v.backtest!)}${d ? ` (Δwin ${d.dWinRate >= 0 ? '+' : ''}${d.dWinRate}pp · ΔPF ${d.dProfitFactor >= 0 ? '+' : ''}${d.dProfitFactor} · ΔP&L ${d.dTotalPnl >= 0 ? '+' : ''}${d.dTotalPnl})` : ''}`,
+    );
+  }
+  if (withBt.length > 0) {
+    if (!withBt.every((v) => v.backtest!.cycles > 0 && v.backtest!.windowDays === 365)) throw new Error('attached backtest malformed');
+    if (!withBt.every((v) => v.btDelta || optPop.baseline.backtest === undefined)) throw new Error('variant backtest missing deltas vs baseline');
+    if (optPop.recommendation.why.includes('Auto-backtest') !== (optPop.baseline.backtest != null && !!withBt[0]?.backtest)) {
+      // recommendation should cite historical evidence whenever stats exist
+      if (optPop.baseline.backtest && withBt[0]?.backtest) throw new Error('recommendation.why missing auto-backtest evidence');
+    }
+  }
 
   // --- 2. OPTIMIZER: reduce risk ---
   const optRisk = await optimizeStrategyPayload({ strategyId: 'iron-condor', underlying: 'BTC', goal: 'reduce_risk' });
