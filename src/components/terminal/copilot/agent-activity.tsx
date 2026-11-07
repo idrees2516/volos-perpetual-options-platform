@@ -11,16 +11,20 @@ import type { ToolInvocation } from 'ai';
 import {
   Activity,
   Bot,
+  BookOpen,
   CheckCircle2,
   ChevronDown,
   Cpu,
   Database,
+  FileText,
   Flame,
   Gauge,
+  Globe,
   GraduationCap,
   Layers,
   LineChart,
   Loader2,
+  PanelsTopLeft,
   Search,
   ShieldMinus,
   Sparkles,
@@ -62,6 +66,10 @@ const TOOL_META: Record<string, { label: string; icon: React.ReactNode }> = {
   optimize_strategy: { label: 'Strategy optimizer', icon: <SlidersHorizontal className="h-3 w-3" /> },
   suggest_alternatives: { label: 'Alternatives', icon: <Wand2 className="h-3 w-3" /> },
   explain_metrics: { label: 'Teaching pack', icon: <GraduationCap className="h-3 w-3" /> },
+  research_web: { label: 'Web research', icon: <Globe className="h-3 w-3" /> },
+  scrape_page: { label: 'Page digest', icon: <FileText className="h-3 w-3" /> },
+  web_sources: { label: 'Source catalog', icon: <BookOpen className="h-3 w-3" /> },
+  render_card: { label: 'UI card', icon: <PanelsTopLeft className="h-3 w-3" /> },
 };
 
 /** Leg spec shape shared by the optimizer/alternatives payloads. */
@@ -222,6 +230,137 @@ export function ToolCard({ invocation, onLoadStrategy, onLoadLegs, onPaperDeploy
         >
           Load into Strategy Builder →
         </Button>
+      </div>
+    );
+  }
+
+  // --- research_web: internet research hits card (VolOS Alexandria) ----------
+  if (name === 'research_web') {
+    const running = state === 'call' || state === 'partial-call';
+    const hits = (result?.hits ?? []) as Array<{ title: string; url: string; snippet: string; domain: string; source?: string | null; publishedDate?: string | null }>;
+    const routed = (result?.routedSources ?? []) as Array<{ id: string; name: string; domain: string; focus: string }>;
+    const provider = String(result?.provider ?? '');
+    const query = String(args.query ?? '');
+    return (
+      <div className="rounded-lg border border-zinc-800/80 bg-zinc-900/40 p-3">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <Globe className="h-3.5 w-3.5 text-sky-300" />
+          <span className="text-[11.5px] font-semibold text-zinc-200">Web research</span>
+          {provider && (
+            <span className="rounded-full border border-sky-800/50 bg-sky-950/40 px-1.5 py-px text-[8.5px] font-medium uppercase tracking-wider text-sky-300">
+              {provider === 'firecrawl' ? 'firecrawl · alexandria' : provider}
+            </span>
+          )}
+          {running ? (
+            <span className="ml-auto flex items-center gap-1 text-[10px] text-teal-300">
+              <Loader2 className="h-3 w-3 animate-spin" /> searching the industry web…
+            </span>
+          ) : (
+            <span className="ml-auto text-[9px] text-emerald-500/80">✓ {hits.length} hits</span>
+          )}
+        </div>
+        {query && <p className="mt-0.5 truncate text-[10px] italic text-zinc-500">“{query}”</p>}
+        {hits.length > 0 && (
+          <div className="mt-2 space-y-1.5">
+            {hits.slice(0, 6).map((h, i) => (
+              <a
+                key={i}
+                href={h.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block rounded-md border border-zinc-800/60 bg-zinc-950/40 px-2 py-1.5 transition-colors hover:border-sky-800/60"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-[10.5px] font-medium text-zinc-200">{h.title}</span>
+                  {h.source && (
+                    <span className="shrink-0 rounded-full border border-zinc-700/60 px-1.5 py-px text-[8px] text-zinc-500">{h.source}</span>
+                  )}
+                </div>
+                <p className="mt-0.5 line-clamp-2 text-[9.5px] leading-snug text-zinc-500">{h.snippet}</p>
+                <p className="mt-0.5 truncate text-[8.5px] text-sky-500/70">{h.domain}{h.publishedDate ? ` · ${h.publishedDate.slice(0, 10)}` : ''}</p>
+              </a>
+            ))}
+          </div>
+        )}
+        {!running && routed.length > 0 && (
+          <div className="mt-2 border-t border-zinc-800/70 pt-1.5">
+            <p className="text-[8.5px] font-medium uppercase tracking-wider text-zinc-600">alexandria routing</p>
+            <p className="mt-0.5 line-clamp-2 text-[9px] leading-snug text-zinc-500">
+              {routed.map((r) => r.name).join(' · ')}
+            </p>
+          </div>
+        )}
+        {!running && hits.length === 0 && (
+          <p className="mt-1.5 text-[9.5px] leading-snug text-zinc-500">{String(result?.note ?? 'no results')}</p>
+        )}
+      </div>
+    );
+  }
+
+  // --- scrape_page: page digest card -------------------------------------------
+  if (name === 'scrape_page' && result) {
+    const running = state === 'call' || state === 'partial-call';
+    const title = String(result.title ?? '');
+    const content = String(result.content ?? '');
+    const provider = String(result.provider ?? '');
+    return (
+      <div className="rounded-lg border border-zinc-800/80 bg-zinc-900/40 p-3">
+        <div className="flex items-center gap-2">
+          <FileText className="h-3.5 w-3.5 text-amber-300" />
+          <span className="truncate text-[11.5px] font-semibold text-zinc-200">{title || 'reading page…'}</span>
+          {running ? (
+            <Loader2 className="ml-auto h-3 w-3 animate-spin text-teal-400" />
+          ) : (
+            <span className="ml-auto text-[9px] text-zinc-500">{content.length > 0 ? `${content.length.toLocaleString()} chars · ${provider}` : 'unreadable'}</span>
+          )}
+        </div>
+        {String(args.url ?? '') && <p className="mt-0.5 truncate text-[8.5px] text-sky-500/70">{String(args.url)}</p>}
+        {content && !running && (
+          <div className="mt-2">
+            <button
+              onClick={() => setOpen(!open)}
+              className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+            >
+              {open ? 'hide' : 'read'} digest
+              <ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+            </button>
+            {open && (
+              <p className="mt-1.5 max-h-52 overflow-y-auto whitespace-pre-wrap rounded-md bg-zinc-950/60 p-2 text-[9.5px] leading-relaxed text-zinc-400">
+                {content.slice(0, 2400)}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // --- web_sources: the Alexandria industry catalog ----------------------------
+  if (name === 'web_sources' && result) {
+    const running = state === 'call' || state === 'partial-call';
+    const sources = (result.sources ?? []) as Array<{ name: string; domain: string; categories: string[]; focus: string }>;
+    const engine = String(result.engine ?? '');
+    return (
+      <div className="rounded-lg border border-zinc-800/80 bg-zinc-900/40 p-3">
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-3.5 w-3.5 text-violet-300" />
+          <span className="text-[11.5px] font-semibold text-zinc-200">Alexandria source catalog</span>
+          {!running && <span className="ml-auto text-[9px] text-zinc-500">{sources.length} sources · {engine}</span>}
+        </div>
+        {!running && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {sources.slice(0, 18).map((s) => (
+              <span
+                key={s.domain + s.name}
+                title={s.focus}
+                className="rounded-full border border-zinc-700/60 bg-zinc-950/40 px-1.5 py-px text-[8.5px] text-zinc-400"
+              >
+                {s.name}
+              </span>
+            ))}
+            {sources.length > 18 && <span className="text-[8.5px] text-zinc-600">+{sources.length - 18} more</span>}
+          </div>
+        )}
       </div>
     );
   }
@@ -590,6 +729,20 @@ function summarizeToolResult(name: string, result: Record<string, unknown> | und
       }
       case 'analyze_volatility_regime':
         return `regime ${String(result.regime ?? '')} · IV pct ${Number(result.ivPercentile).toFixed(0)}% · term ${String(result.termStructure ?? '')}`;
+      case 'research_web': {
+        const hits = (result.hits ?? []) as Array<{ domain: string }>;
+        const domains = [...new Set(hits.map((h) => h.domain))].slice(0, 3);
+        return `${hits.length} web hits · ${domains.join(' · ') || 'no results'}`;
+      }
+      case 'scrape_page':
+        return `${String(result.title ?? '')} · ${Number(result.chars ?? 0).toLocaleString()} chars`;
+      case 'web_sources':
+        return `${Number(result.sourceCount ?? 0)} industry sources · ${String(result.engine ?? '')}`;
+      case 'render_card': {
+        if (result?.rendered === false) return `rejected: ${String(result.error ?? 'invalid spec')}`;
+        const types = (result.componentTypes ?? []) as string[];
+        return `card rendered · ${types.join(' + ')}`;
+      }
       case 'analyze_market_environment': {
         const funding = (result.funding ?? {}) as Record<string, number>;
         return `${String(result.regime ?? '')} · funding ${(Number(funding.rate) * 100).toFixed(2)}%/p`;

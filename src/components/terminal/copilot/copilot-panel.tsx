@@ -27,10 +27,11 @@ import { buildSuggestions, CAPABILITY_ACTIONS, type SuggestInput, type Suggestio
 import { MarkdownLite } from './markdown-lite';
 import { ToolCard } from './agent-activity';
 import { ResearchView } from './research-view';
+import { JsonCard, setCardActionHandlers } from './json-cards';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  ArrowUpRight, BookOpen, Crosshair, GraduationCap, Layers, Lightbulb,
+  ArrowUpRight, BookOpen, Crosshair, Globe, GraduationCap, Layers, Lightbulb,
   MessageSquare, Send, ShieldMinus, Sparkles, Square, Telescope, TrendingUp, User, X,
 } from 'lucide-react';
 import type { ViewId } from '@/components/terminal/topbar';
@@ -41,6 +42,7 @@ const CAPABILITY_ICONS: Record<string, React.ReactNode> = {
   profit: <ArrowUpRight className="h-3 w-3" />,
   alt: <Layers className="h-3 w-3" />,
   teach: <GraduationCap className="h-3 w-3" />,
+  research: <Globe className="h-3 w-3" />,
 };
 
 // --- live spot bridge -------------------------------------------------------------
@@ -302,6 +304,45 @@ export function CopilotPanel({ view, onView }: CopilotPanelProps) {
     [toast],
   );
 
+  // ── Generative-UI card action bridge ─────────────────────────────────────
+  // Buttons inside json-render cards (render_card tool) drive the REAL
+  // platform through the same handlers the tool cards use: load_strategy →
+  // strategy builder, paper_deploy → paper desk with the CURRENT strategy's
+  // resolved legs, open_url → new tab (handled in-card).
+  useEffect(() => {
+    setCardActionHandlers({
+      onLoadStrategy: (strategyId) => loadStrategyById(strategyId, underlying, 1),
+      onPaperDeploy: async (variantName) => {
+        const st = useStrategy.getState();
+        const u = st.underlying;
+        let legSpecs: Array<{ kind: string; side: 'buy' | 'sell'; qty: number; strike?: number; expiryDays?: number; fundingPeriodDays?: number }> = st.legs.map((l) => ({
+          kind: l.kind,
+          side: l.side,
+          qty: l.qty,
+          ...(l.strike !== undefined ? { strike: l.strike } : {}),
+          ...(l.expiryDays !== undefined ? { expiryDays: l.expiryDays } : {}),
+          ...(l.fundingPeriodDays !== undefined ? { fundingPeriodDays: l.fundingPeriodDays } : {}),
+        }));
+        if (legSpecs.length === 0 && st.catalogId) {
+          const spec = strategyById(st.catalogId);
+          if (spec) {
+            const spot = marketRef?.assets[u]?.spot ?? (u === 'BTC' ? 97450 : u === 'ETH' ? 2462 : 138.4);
+            legSpecs = resolveStrategyLegs(spec, spot).map((l) => ({
+              kind: l.kind,
+              side: l.side,
+              qty: l.qty,
+              ...(l.strike !== undefined ? { strike: l.strike } : {}),
+              ...(l.expiryDays !== undefined ? { expiryDays: l.expiryDays } : {}),
+              ...(l.fundingPeriodDays !== undefined ? { fundingPeriodDays: l.fundingPeriodDays } : {}),
+            }));
+          }
+        }
+        await paperDeployLegs(variantName ?? st.strategyName ?? 'Copilot strategy', legSpecs, u, st.size);
+      },
+    });
+    return () => setCardActionHandlers(null);
+  }, [loadStrategyById, paperDeployLegs, underlying, toast]);
+
   if (!open) return null;
 
   return (
@@ -396,7 +437,6 @@ function ChatTab({ onLoadStrategy, onLoadLegs, onPaperDeploy, suggestions, getIn
   const { messages, input, handleInputChange, handleSubmit, isLoading, stop, reload, append, error, setMessages } =
     useChat({ api: '/api/ai/copilot' });
   const scrollRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -456,6 +496,23 @@ function ChatTab({ onLoadStrategy, onLoadLegs, onPaperDeploy, suggestions, getIn
                     );
                   }
                   if (part.type === 'tool-invocation') {
+                    const inv = part.toolInvocation;
+                    // Generative-UI cards: render_card tool args ARE the card spec,
+                    // rendered through the VolOS json-render registry as native
+                    // tables / stat grids / charts / digests / action buttons.
+                    if (
+                      inv.toolName === 'render_card' &&
+                      inv.args &&
+                      typeof inv.args === 'object' &&
+                      'elements' in (inv.args as Record<string, unknown>)
+                    ) {
+                      const rejected =
+                        'result' in inv &&
+                        (inv.result as { rendered?: boolean } | undefined)?.rendered === false;
+                      if (!rejected) {
+                        return <JsonCard key={i} spec={inv.args} />;
+                      }
+                    }
                     return (
                       <ToolCard
                         key={i}
@@ -634,6 +691,8 @@ function SuggestionIcon({ kind }: { kind: SuggestionChip['kind'] }) {
       return <Layers className="h-3 w-3 shrink-0 text-violet-400/80" />;
     case 'teach':
       return <BookOpen className="h-3 w-3 shrink-0 text-amber-400/80" />;
+    case 'research':
+      return <Globe className="h-3 w-3 shrink-0 text-sky-400/80" />;
     case 'paper':
       return <ShieldMinus className="h-3 w-3 shrink-0 text-sky-400/80" />;
     case 'trade':
