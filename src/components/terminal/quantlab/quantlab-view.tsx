@@ -9,20 +9,24 @@
 // uses (vq_* tools) and the /api/quant surface.
 //
 //   Overview        brief: spot vs dealer levels, IV/VRP, EM, perps, tape
+//   Signals         decision battery: regime gauge, playbook, watchlist
+//   Whole Market    cross-symbol screener: z-scores, leaderboards
 //   GEX & Positioning   levels, strike profile, heatmap, ladder, history
 //   Chain & OPEX    per-expiry summary, dual-sided chain, OPEX calendar
-//   IV Analytics    term, skew, smile, IV-vs-RV, expected move, surface
+//   IV Analytics    term, skew, smile, IV-vs-RV, expected move, 3D surface
+//   Vol Regime      IV rank, vol cone, DVOL — where we are in the vol cycle
 //   Probability     risk-neutral PDF with interactive level probe
 //   Greeks & TRACE  per-greek profiles, surfaces, forward gamma maps
 //   OI & Flow       OI by expiry, PCR, premium tide, futures basis
 //   Tape · LIVE     SSE-streamed prints, whales, imbalance, strike heat
 //   Perps & Liq     cross-venue OI, funding, CVD, liquidation heatmap
+//   Risk & Orders   portfolio greeks, scenario matrix, order drill-downs
 //   ETF & Filings   real ETF flows, COT, Form 4, 13F
 //   API Catalog     our endpoint registry + live try-it + engine health
 // -----------------------------------------------------------------------------
 
-import React, { useState } from 'react';
-import { Atom, LayoutGrid, Activity, Link2, Sigma, Layers3, Waves, Radio, LineChart, Landmark, BookOpen } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Atom, LayoutGrid, Activity, Link2, Sigma, Layers3, Waves, Radio, LineChart, Landmark, BookOpen, Compass, Globe2, ShieldAlert, Gauge } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Pill } from './quant-viz';
 import { useAgeLabel, useQuant } from './use-quant';
@@ -35,6 +39,11 @@ import { TapePanel } from './panels-tape';
 import { PerpsPanel } from './panels-perps';
 import { MacroPanel } from './panels-macro';
 import { CatalogPanel } from './panels-catalog';
+import { SignalsPanel } from './panels-signals';
+import { ScreenerPanel } from './panels-screener';
+import { VolRegimePanel } from './panels-volregime';
+import { RiskPanel } from './panels-risk';
+import { TradeDrawer, type InspectTarget } from './trade-drawer';
 
 const SYMBOLS = [
   { id: 'BTC', label: 'BTC' },
@@ -46,14 +55,18 @@ const OPTIONS_SYMBOLS = new Set(['BTC', 'ETH']);
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: <LayoutGrid className="h-3 w-3" /> },
+  { id: 'signals', label: 'Signals & Decisions', icon: <Compass className="h-3 w-3" /> },
+  { id: 'screener', label: 'Whole Market', icon: <Globe2 className="h-3 w-3" /> },
   { id: 'gex', label: 'GEX & Positioning', icon: <Activity className="h-3 w-3" /> },
   { id: 'chain', label: 'Chain & OPEX', icon: <Link2 className="h-3 w-3" /> },
   { id: 'iv', label: 'IV Analytics', icon: <Sigma className="h-3 w-3" /> },
+  { id: 'volregime', label: 'Vol Regime', icon: <Gauge className="h-3 w-3" /> },
   { id: 'prob', label: 'Probability', icon: <Atom className="h-3 w-3" /> },
   { id: 'greeks', label: 'Greeks & TRACE', icon: <Layers3 className="h-3 w-3" /> },
   { id: 'oi', label: 'OI & Flow', icon: <Waves className="h-3 w-3" /> },
   { id: 'tape', label: 'Tape · Live', icon: <Radio className="h-3 w-3" /> },
   { id: 'perps', label: 'Perps & Liquidations', icon: <LineChart className="h-3 w-3" /> },
+  { id: 'risk', label: 'Risk & Orders', icon: <ShieldAlert className="h-3 w-3" /> },
   { id: 'macro', label: 'ETF & Filings', icon: <Landmark className="h-3 w-3" /> },
   { id: 'catalog', label: 'API Catalog', icon: <BookOpen className="h-3 w-3" /> },
 ] as const;
@@ -61,10 +74,26 @@ const TABS = [
 export function QuantLabView() {
   const [symbol, setSymbol] = useState<string>('BTC');
   const [tab, setTab] = useState<string>('overview');
+  const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const hasOptions = OPTIONS_SYMBOLS.has(symbol);
   const health = useQuant<{ sources: { name: string; ok: boolean; ageMs: number | null }[] }>('/catalog', { view: 'status' }, { pollMs: 20000 });
   const age = useAgeLabel(health.fetchedAt);
   const okCount = (health.data?.sources ?? []).filter((s) => s.ok).length;
+
+  // escape closes the drawer
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setInspect(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const focusSymbol = useCallback((s: string) => {
+    if (SYMBOLS.some((x) => x.id === s)) setSymbol(s);
+  }, []);
+
+  const openInspect = useCallback((t: InspectTarget) => setInspect(t), []);
 
   return (
     <div className="space-y-2">
@@ -77,7 +106,7 @@ export function QuantLabView() {
               Quant<span className="text-teal-400">Lab</span>
             </p>
             <p className="mt-0.5 text-[8px] uppercase tracking-[0.14em] text-zinc-600">
-              volquant native engine · dealer positioning · gex · iv · pdf · tape · macro — all realtime, zero vendors
+              volquant native engine · decisions · gex · iv · pdf · tape · risk · macro — all realtime, zero vendors
             </p>
           </div>
         </div>
@@ -119,14 +148,23 @@ export function QuantLabView() {
         <TabsContent value="overview" className="mt-2">
           <OverviewPanel symbol={symbol} hasOptions={hasOptions} />
         </TabsContent>
+        <TabsContent value="signals" className="mt-2">
+          <SignalsPanel symbol={symbol} />
+        </TabsContent>
+        <TabsContent value="screener" className="mt-2">
+          <ScreenerPanel onFocusSymbol={focusSymbol} />
+        </TabsContent>
         <TabsContent value="gex" className="mt-2">
           <GexPanel symbol={symbol} hasOptions={hasOptions} />
         </TabsContent>
         <TabsContent value="chain" className="mt-2">
-          <ChainPanel symbol={symbol} hasOptions={hasOptions} />
+          <ChainPanel symbol={symbol} hasOptions={hasOptions} onInspect={openInspect} />
         </TabsContent>
         <TabsContent value="iv" className="mt-2">
           <IvPanel symbol={symbol} hasOptions={hasOptions} />
+        </TabsContent>
+        <TabsContent value="volregime" className="mt-2">
+          <VolRegimePanel symbol={symbol} hasOptions={hasOptions} />
         </TabsContent>
         <TabsContent value="prob" className="mt-2">
           <ProbabilityPanel symbol={symbol} hasOptions={hasOptions} />
@@ -138,10 +176,13 @@ export function QuantLabView() {
           <OiPanel symbol={symbol} hasOptions={hasOptions} />
         </TabsContent>
         <TabsContent value="tape" className="mt-2">
-          <TapePanel symbol={symbol} hasOptions={hasOptions} />
+          <TapePanel symbol={symbol} hasOptions={hasOptions} onInspect={openInspect} />
         </TabsContent>
         <TabsContent value="perps" className="mt-2">
           <PerpsPanel symbol={symbol} />
+        </TabsContent>
+        <TabsContent value="risk" className="mt-2">
+          <RiskPanel symbol={symbol} />
         </TabsContent>
         <TabsContent value="macro" className="mt-2">
           <MacroPanel />
@@ -150,6 +191,9 @@ export function QuantLabView() {
           <CatalogPanel />
         </TabsContent>
       </Tabs>
+
+      {/* the order anatomy drawer — control on each and every order */}
+      <TradeDrawer target={inspect} onClose={() => setInspect(null)} onScenario={(t) => { setTab('risk'); setSymbol(t.symbol); setInspect(null); }} />
     </div>
   );
 }
