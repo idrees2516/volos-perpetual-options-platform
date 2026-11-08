@@ -30,3 +30,51 @@ model Post {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VolQuant — native realtime quant engine persistence.
+// Snapshots of computed dealer-positioning metrics (GEX history / stress
+// history / OI history) and the persisted options tape, so analytics have
+// true time depth across restarts (our own data, computed live from Deribit).
+// ─────────────────────────────────────────────────────────────────────────────
+
+model QuantSnapshot {
+  id                String   @id @default(cuid())
+  symbol            String // BTC | ETH
+  ts                DateTime
+  spot              Float
+  totalGexUsd1pct   Float // net dealer gamma exposure, USD per 1% spot move
+  callGexUsd1pct    Float
+  putGexUsd1pct     Float
+  hvl               Float? // gamma-flip (high volatility level)
+  callWall          Float?
+  putSupport        Float?
+  maxPain           Float?
+  atmIv30           Float? // our own constant-maturity 30d ATM IV (annualized %)
+  totalOiContracts  Float // options open interest in underlying contracts
+  totalOiNotionalUsd Float
+  putCallRatioOi    Float
+  perpOiUsd         Float? // aggregated perp OI across venues
+  fundingRate       Float?
+  dataJson          String? // compact extras (top strikes, per-expiry gex…)
+
+  @@index([symbol, ts])
+}
+
+model OptionTrade {
+  id          String   @id // venue trade id (dedupe key)
+  symbol      String // BTC | ETH
+  ts          DateTime
+  instrument  String
+  strike      Float
+  expiry      String // ISO date
+  isCall      Boolean
+  side        String // taker side: buy | sell
+  premiumUsd  Float
+  amount      Float // contracts (underlying units)
+  iv          Float? // implied vol at trade (annualized %)
+  indexPrice  Float
+  venue       String @default("deribit")
+
+  @@index([symbol, ts])
+}

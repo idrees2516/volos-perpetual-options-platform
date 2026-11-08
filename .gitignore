@@ -78,3 +78,7 @@ scripts/bq_schemas.py
 scripts/bq_endpoints.txt
 scripts/bq_openapi_summary.py
 scripts/openapi-v2.json
+
+# local research/ops artifacts (not part of the app)
+/.persist/
+/scripts/
