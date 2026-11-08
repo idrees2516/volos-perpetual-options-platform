@@ -8,45 +8,40 @@
 // a CopilotContextBridge snapshot (active view, selected strategy + legs,
 // live exchange prices), so every answer is based on the data the platform
 // is actually pulling and what the user is looking at.
+//
+// PROACTIVE CAPABILITIES: a one-click capability bar (POP+ · Risk− ·
+// Profit+ · Alts · Teach) plus AUTO-SUGGESTIONS derived from the active
+// view's live data — every chip quotes the user's real strategy numbers.
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { useCopilot } from '@/stores/copilot-store';
 import { useStrategy } from '@/stores/strategy-store';
 import { useToast } from '@/hooks/use-toast';
 import { useMarket } from '@/hooks/use-market';
 import { resolveStrategyLegs, strategyById } from '@/lib/strategies';
+import { analyzeStrategy } from '@/lib/pricing';
+import type { Leg } from '@/lib/types';
 import type { CopilotContextSnapshot } from '@/lib/copilot-context';
+import { buildSuggestions, CAPABILITY_ACTIONS, type SuggestInput, type SuggestionChip } from '@/lib/copilot-suggest';
 import { MarkdownLite } from './markdown-lite';
 import { ToolCard } from './agent-activity';
 import { ResearchView } from './research-view';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Crosshair, MessageSquare, Send, Sparkles, Square, Telescope, User, X } from 'lucide-react';
+import {
+  ArrowUpRight, BookOpen, Crosshair, GraduationCap, Layers, Lightbulb,
+  MessageSquare, Send, ShieldMinus, Sparkles, Square, Telescope, TrendingUp, User, X,
+} from 'lucide-react';
 import type { ViewId } from '@/components/terminal/topbar';
 
-const QUICK_PROMPTS: Array<{ q: string; chip: string }> = [
-  {
-    q: 'Analyse my current strategy against the live market metrics',
-    chip: 'Analyse my strategy',
-  },
-  {
-    q: 'Deep dive BTC: technicals, charts, macro and vol — then recommend a strategy',
-    chip: 'Deep dive BTC',
-  },
-  {
-    q: 'Best income strategy on ETH for the next 30 days?',
-    chip: 'ETH income 30d',
-  },
-  {
-    q: 'Design a defined-risk hedge for a long BTC position',
-    chip: 'BTC defined-risk hedge',
-  },
-  {
-    q: 'Compare iron condor vs butterfly on BTC right now',
-    chip: 'Condor vs butterfly',
-  },
-];
+const CAPABILITY_ICONS: Record<string, React.ReactNode> = {
+  pop: <TrendingUp className="h-3 w-3" />,
+  risk: <ShieldMinus className="h-3 w-3" />,
+  profit: <ArrowUpRight className="h-3 w-3" />,
+  alt: <Layers className="h-3 w-3" />,
+  teach: <GraduationCap className="h-3 w-3" />,
+};
 
 // --- live spot bridge -------------------------------------------------------------
 // MarketSpotBridge subscribes to the market context and mirrors it into a
@@ -80,7 +75,6 @@ const VIEW_LABELS: Record<string, string> = {
 export function CopilotContextBridge({ view }: { view: ViewId }) {
   const { market, live, smooth } = useMarket();
   const { underlying, strategyName, legs, size, catalogId, mode } = useStrategy();
-
   useEffect(() => {
     const assets = (['BTC', 'ETH', 'SOL'] as const).map((a) => {
       const st = market.assets[a];
@@ -134,11 +128,69 @@ interface CopilotPanelProps {
   onView: (v: ViewId) => void;
 }
 
-export function CopilotPanel({ onView }: CopilotPanelProps) {
+/** Live strategy numbers for the suggestion chips — same resolution rules as
+ *  the context bridge (catalog legs previewed on live spot when no custom
+ *  strategy is loaded), analysed through the pricing engine. */
+function useSuggestInput(view: ViewId): SuggestInput {
+  const { market, smooth } = useMarket();
+  const { underlying, strategyName, legs, size, catalogId } = useStrategy();
+  return useMemo(() => {
+    let resolvedLegs = legs;
+    let resolvedName = strategyName;
+    const spec = legs.length === 0 && catalogId ? strategyById(catalogId) : undefined;
+    const asset = smooth[underlying] ?? market.assets[underlying];
+    if (spec) {
+      const spot = asset?.spot ?? 0;
+      resolvedLegs = resolveStrategyLegs(spec, spot);
+      resolvedName = spec.name;
+    }
+    let popPct: number | undefined;
+    let maxLossUsd: number | undefined;
+    let maxProfitUsd: number | undefined;
+    let isCredit: boolean | undefined;
+    if (resolvedLegs.length > 0 && asset) {
+      try {
+        const a = analyzeStrategy(resolvedLegs, underlying, asset, size);
+        popPct = a.pop * 100;
+        maxLossUsd = a.maxLoss.kind === 'value' ? a.maxLoss.value : undefined;
+        maxProfitUsd = a.maxProfit.kind === 'value' ? a.maxProfit.value : undefined;
+        isCredit = a.isCredit;
+      } catch {
+        /* numbers stay undefined — chips fall back to generic labels */
+      }
+    }
+    return {
+      view,
+      underlying,
+      strategyName: resolvedName,
+      legCount: resolvedLegs.length,
+      popPct,
+      maxLossUsd,
+      maxProfitUsd,
+      isCredit,
+    };
+  }, [view, market, smooth, underlying, strategyName, legs, size, catalogId]);
+}
+
+export function CopilotPanel({ view, onView }: CopilotPanelProps) {
   const { open, tab, setTab, toggle } = useCopilot();
   const { underlying, strategyName, legs } = useStrategy();
   const { toast } = useToast();
   const ctx = copilotContextRef.current;
+
+  // live strategy numbers → quantized so the derived suggestions stay stable
+  // between market ticks (only re-chip when a number actually moves)
+  const raw = useSuggestInput(view);
+  const qPop = raw.popPct !== undefined ? Math.round(raw.popPct * 10) / 10 : undefined;
+  const qLoss = raw.maxLossUsd !== undefined ? Math.round(raw.maxLossUsd / 25) * 25 : undefined;
+  const qProfit = raw.maxProfitUsd !== undefined ? Math.round(raw.maxProfitUsd / 25) * 25 : undefined;
+  const stableInput = useMemo<SuggestInput>(
+    () => ({ view: raw.view, underlying: raw.underlying, strategyName: raw.strategyName, legCount: raw.legCount, popPct: qPop, maxLossUsd: qLoss, maxProfitUsd: qProfit, isCredit: raw.isCredit }),
+    [raw.view, raw.underlying, raw.strategyName, raw.legCount, qPop, qLoss, qProfit, raw.isCredit],
+  );
+  const suggestions = useMemo(() => buildSuggestions(stableInput), [stableInput]);
+  const inputRef = useRef(stableInput);
+  inputRef.current = stableInput;
 
   const loadStrategyById = useCallback(
     (strategyId: string, u: string, size: number) => {
@@ -155,6 +207,99 @@ export function CopilotPanel({ onView }: CopilotPanelProps) {
       onView('strategies');
     },
     [onView, toast],
+  );
+
+  /** Push an optimizer variant / custom leg set straight into the builder. */
+  const loadCustomLegs = useCallback(
+    (name: string, legSpecs: Array<{ kind: string; side: 'buy' | 'sell'; qty: number; strike?: number; expiryDays?: number; fundingPeriodDays?: number }>, u: string, size: number) => {
+      const nextLegs: Leg[] = legSpecs.slice(0, 25).map((l, i) => ({
+        id: `copilot-${Date.now().toString(36)}-${i}`,
+        kind: l.kind as Leg['kind'],
+        side: l.side,
+        qty: l.qty,
+        ...(l.strike !== undefined ? { strike: l.strike } : {}),
+        ...(l.expiryDays !== undefined ? { expiryDays: l.expiryDays } : {}),
+        ...(l.fundingPeriodDays !== undefined ? { fundingPeriodDays: l.fundingPeriodDays } : {}),
+      }));
+      if (nextLegs.length === 0) {
+        toast({ title: 'Nothing to load', description: 'The variant has no legs.', variant: 'destructive' });
+        return;
+      }
+      const st = useStrategy.getState();
+      if (u !== st.underlying) st.setUnderlying(u as never);
+      const n = st.loadStrategy(name, nextLegs);
+      if (size !== 1 && Number.isFinite(size)) st.setSize(size);
+      toast({ title: `Loaded ${name}`, description: `${n} legs on ${u} — builder updated. Backtest it or paper-deploy it next.` });
+      onView('strategies');
+    },
+    [onView, toast],
+  );
+
+  /** Paper-deploy an optimizer variant straight from its card: every leg is
+   *  auto-routed to the venue with the best real quote and fills atomically
+   *  on the paper account. Returns true when the package landed. */
+  const paperDeployLegs = useCallback(
+    async (
+      name: string,
+      legSpecs: Array<{ kind: string; side: 'buy' | 'sell'; qty: number; strike?: number; expiryDays?: number; fundingPeriodDays?: number }>,
+      u: string,
+      size: number,
+    ): Promise<boolean> => {
+      const legs = legSpecs
+        .filter((l) => (l.kind === 'call' || l.kind === 'put') && Number(l.qty) > 0 && Number(l.strike) > 0)
+        .slice(0, 25)
+        .map((l) => ({
+          kind: l.kind as 'call' | 'put',
+          side: l.side,
+          qty: Number(l.qty),
+          strike: Number(l.strike),
+          expiryDays: l.expiryDays,
+        }));
+      if (legs.length === 0) {
+        toast({ title: 'Nothing to deploy', description: 'The variant has no dated option legs to paper-trade.', variant: 'destructive' });
+        return false;
+      }
+      try {
+        const res = await fetch('/api/paper', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'strategy',
+            name,
+            asset: u,
+            venue: 'auto',
+            sizeMultiplier: Number.isFinite(size) && size > 0 ? size : 1,
+            legs,
+          }),
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          name?: string;
+          legs?: Array<{ venue?: string }>;
+          netPremium?: number;
+          cashAfter?: number;
+        };
+        if (!res.ok || !data.ok) {
+          toast({ title: 'Paper-deploy failed', description: data.error ?? `HTTP ${res.status}`, variant: 'destructive' });
+          return false;
+        }
+        const venues = [...new Set((data.legs ?? []).map((l) => l.venue).filter(Boolean))].join(' · ');
+        toast({
+          title: `Paper-deployed ${data.name ?? name}`,
+          description:
+            `${(data.legs ?? []).length} legs filled${venues ? ` on ${venues}` : ''}` +
+            (data.netPremium != null ? ` · net premium ${data.netPremium >= 0 ? '+' : '−'}$${Math.abs(data.netPremium).toFixed(2)}` : '') +
+            (data.cashAfter != null ? ` · cash $${Math.round(data.cashAfter).toLocaleString('en-US')}` : '') +
+            ' — positions are live on the Paper Desk.',
+        });
+        return true;
+      } catch (err) {
+        toast({ title: 'Paper-deploy failed', description: err instanceof Error ? err.message : 'network error', variant: 'destructive' });
+        return false;
+      }
+    },
+    [toast],
   );
 
   if (!open) return null;
@@ -210,7 +355,17 @@ export function CopilotPanel({ onView }: CopilotPanelProps) {
 
       {/* body */}
       <div className="min-h-0 flex-1">
-        {tab === 'chat' ? <ChatTab onLoadStrategy={loadStrategyById} /> : <ResearchView onView={onView} />}
+        {tab === 'chat' ? (
+          <ChatTab
+            onLoadStrategy={loadStrategyById}
+            onLoadLegs={loadCustomLegs}
+            onPaperDeploy={paperDeployLegs}
+            suggestions={suggestions}
+            getInput={() => inputRef.current}
+          />
+        ) : (
+          <ResearchView onView={onView} />
+        )}
       </div>
     </aside>
   );
@@ -219,8 +374,26 @@ export function CopilotPanel({ onView }: CopilotPanelProps) {
 
 // --- chat tab --------------------------------------------------------------------
 
-function ChatTab({ onLoadStrategy }: { onLoadStrategy: (id: string, u: string, size: number) => void }) {
-  const { messages, input, setInput, handleInputChange, handleSubmit, isLoading, stop, reload, append, error, setMessages } =
+interface ChatTabProps {
+  onLoadStrategy: (id: string, u: string, size: number) => void;
+  onLoadLegs: (
+    name: string,
+    legs: Array<{ kind: string; side: 'buy' | 'sell'; qty: number; strike?: number; expiryDays?: number; fundingPeriodDays?: number }>,
+    u: string,
+    size: number,
+  ) => void;
+  onPaperDeploy: (
+    name: string,
+    legs: Array<{ kind: string; side: 'buy' | 'sell'; qty: number; strike?: number; expiryDays?: number; fundingPeriodDays?: number }>,
+    u: string,
+    size: number,
+  ) => Promise<boolean>;
+  suggestions: SuggestionChip[];
+  getInput: () => SuggestInput;
+}
+
+function ChatTab({ onLoadStrategy, onLoadLegs, onPaperDeploy, suggestions, getInput }: ChatTabProps) {
+  const { messages, input, handleInputChange, handleSubmit, isLoading, stop, reload, append, error, setMessages } =
     useChat({ api: '/api/ai/copilot' });
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -237,14 +410,23 @@ function ChatTab({ onLoadStrategy }: { onLoadStrategy: (id: string, u: string, s
     handleSubmit(e, { body: ctxBody() });
   };
 
-  // Quick prompts / chips: append the question as a real user message and
-  // fire the request immediately (button clicked → question asked → tools
-  // pull live data → streamed answer).
-  const ask = (q: string) => {
-    if (isLoading) return;
-    setInput('');
-    append({ role: 'user', content: q }, { body: ctxBody() });
-  };
+  // One-click send (auto-suggestions · capability bar): append the question
+  // as a real user message and fire immediately — button clicked → question
+  // asked → tools pull live data → streamed answer.
+  const ask = useCallback(
+    (q: string) => {
+      if (isLoading || !q.trim()) return;
+      append({ role: 'user', content: q }, { body: ctxBody() });
+    },
+    [isLoading, append],
+  );
+
+  const sendCapability = useCallback(
+    (cap: (typeof CAPABILITY_ACTIONS)[number]) => {
+      ask(cap.build(getInput()));
+    },
+    [ask, getInput],
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -274,7 +456,15 @@ function ChatTab({ onLoadStrategy }: { onLoadStrategy: (id: string, u: string, s
                     );
                   }
                   if (part.type === 'tool-invocation') {
-                    return <ToolCard key={i} invocation={part.toolInvocation} onLoadStrategy={onLoadStrategy} />;
+                    return (
+                      <ToolCard
+                        key={i}
+                        invocation={part.toolInvocation}
+                        onLoadStrategy={onLoadStrategy}
+                        onLoadLegs={onLoadLegs}
+                        onPaperDeploy={onPaperDeploy}
+                      />
+                    );
                   }
                   return null;
                 })}
@@ -317,36 +507,43 @@ function ChatTab({ onLoadStrategy }: { onLoadStrategy: (id: string, u: string, s
         )}
       </div>
 
-      {/* quick prompts — full cards when the thread is empty, compact chips after */}
-      <div className="border-t border-zinc-800/70 p-3">
-        {messages.length === 0 ? (
-          <div className="space-y-1.5">
-            {QUICK_PROMPTS.map(({ q }) => (
-              <button
-                key={q}
-                onClick={() => ask(q)}
-                disabled={isLoading}
-                className="w-full rounded-md border border-zinc-800/70 bg-zinc-900/40 px-2.5 py-1.5 text-left text-[10.5px] text-zinc-400 transition hover:border-teal-800/60 hover:text-teal-200 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-            {QUICK_PROMPTS.map(({ q, chip }) => (
-              <button
-                key={q}
-                onClick={() => ask(q)}
-                disabled={isLoading}
-                title={q}
-                className="shrink-0 rounded-full border border-zinc-800/70 bg-zinc-900/40 px-2.5 py-1 text-[9.5px] whitespace-nowrap text-zinc-400 transition hover:border-teal-800/60 hover:text-teal-200 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {chip}
-              </button>
-            ))}
-          </div>
-        )}
+      {/* auto-suggestions — derived from the ACTIVE VIEW's live data; one click sends */}
+      {messages.length === 0 && suggestions.length > 0 && (
+        <div className="space-y-1.5 border-t border-zinc-800/70 p-3">
+          <p className="flex items-center gap-1 text-[9px] font-medium uppercase tracking-[0.14em] text-zinc-600">
+            <Lightbulb className="h-2.5 w-2.5 text-amber-400/80" />
+            suggested for this view · live numbers
+          </p>
+          {suggestions.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => ask(s.prompt)}
+              disabled={isLoading}
+              title={s.prompt}
+              className="flex w-full items-center gap-2 rounded-md border border-zinc-800/70 bg-zinc-900/40 px-2.5 py-1.5 text-left text-[10.5px] text-zinc-400 transition hover:border-teal-800/60 hover:bg-teal-950/20 hover:text-teal-200 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <SuggestionIcon kind={s.kind} />
+              <span className="min-w-0 flex-1">{s.label}</span>
+              <Send className="h-2.5 w-2.5 shrink-0 text-zinc-700" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* capability bar — always-available one-click actions on the current strategy */}
+      <div className="flex items-center gap-1 border-t border-zinc-800/70 bg-zinc-950/40 px-2.5 py-1.5">
+        {CAPABILITY_ACTIONS.map((cap) => (
+          <button
+            key={cap.id}
+            onClick={() => sendCapability(cap)}
+            title={cap.title}
+            disabled={isLoading}
+            className="flex flex-1 items-center justify-center gap-1 rounded-md border border-zinc-800/70 bg-zinc-900/50 px-1 py-1 text-[9.5px] font-semibold tracking-tight text-zinc-400 transition hover:border-teal-700/60 hover:bg-teal-950/30 hover:text-teal-200 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {CAPABILITY_ICONS[cap.id]}
+            {cap.label}
+          </button>
+        ))}
       </div>
 
       {/* input */}
@@ -426,6 +623,24 @@ function textOf(m: { content?: string | Array<{ type: string; text?: string }> }
   if (typeof m.content === 'string') return m.content;
   if (Array.isArray(m.content)) return m.content.filter((p) => p.type === 'text').map((p) => p.text ?? '').join('');
   return '';
+}
+
+/** Tiny per-kind icon for suggestion chips. */
+function SuggestionIcon({ kind }: { kind: SuggestionChip['kind'] }) {
+  switch (kind) {
+    case 'optimize':
+      return <TrendingUp className="h-3 w-3 shrink-0 text-teal-400/80" />;
+    case 'alternative':
+      return <Layers className="h-3 w-3 shrink-0 text-violet-400/80" />;
+    case 'teach':
+      return <BookOpen className="h-3 w-3 shrink-0 text-amber-400/80" />;
+    case 'paper':
+      return <ShieldMinus className="h-3 w-3 shrink-0 text-sky-400/80" />;
+    case 'trade':
+      return <ArrowUpRight className="h-3 w-3 shrink-0 text-emerald-400/80" />;
+    default:
+      return <Lightbulb className="h-3 w-3 shrink-0 text-zinc-500" />;
+  }
 }
 
 function EmptyState() {
