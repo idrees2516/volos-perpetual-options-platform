@@ -169,8 +169,13 @@ export async function portfolioRisk(): Promise<PortfolioRisk> {
     const T = Math.max(pos.expiryMs - now, 15 * 60_000) / YEAR_MS;
     const spotRef = snap.spot;
     const sigma = row.iv > 0 ? row.iv : 0.5;
-    // break-even: entry-adjusted underlying price where P&L = 0
-    const be = pos.strike + (pos.kind === 'call' ? pos.entryPrice : -pos.entryPrice);
+    // paper fills are USD-normalized (all venue premiums quoted USD per
+    // contract); chain marks are in underlying units — keep both explicit.
+    const entryUsdPer = pos.entryPrice;
+    const entryUnderlying = spotRef > 0 ? entryUsdPer / spotRef : entryUsdPer;
+    // break-even in price units: premium USD per 1-underlying contract IS
+    // denominated in price units (e.g. $3,155 → 77,000 − 3,155 for the put)
+    const be = pos.strike + (pos.kind === 'call' ? entryUsdPer : -entryUsdPer);
     const distSig = Math.abs(be - spotRef) / (spotRef * sigma * Math.sqrt(T));
     const iso = new Date(pos.expiryMs).toISOString().slice(0, 10);
     legs.push({
@@ -185,12 +190,12 @@ export async function portfolioRisk(): Promise<PortfolioRisk> {
       side: pos.side,
       qty: pos.qty,
       signedQty,
-      entry: pos.entryPrice,
+      entry: entryUnderlying,
       mark: row.mid,
       markUsd: row.midUsd * pos.qty,
-      entryUsd: pos.entryPrice * spotRef * pos.qty,
-      unrealizedUsd: (row.mid - pos.entryPrice) * spotRef * signedQty,
-      unrealizedPct: pos.entryPrice > 0 ? ((row.mid - pos.entryPrice) / pos.entryPrice) * (pos.side === 'long' ? 100 : -100) : NaN,
+      entryUsd: entryUsdPer * pos.qty,
+      unrealizedUsd: signedQty * (row.midUsd - entryUsdPer),
+      unrealizedPct: entryUsdPer > 0 ? ((row.midUsd - entryUsdPer) / entryUsdPer) * (pos.side === 'long' ? 100 : -100) : NaN,
       iv: row.iv,
       ...g,
       probItm: probItm(row.forward, pos.strike, T, sigma, pos.kind === 'call'),
