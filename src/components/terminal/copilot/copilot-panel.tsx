@@ -235,6 +235,73 @@ export function CopilotPanel({ view, onView }: CopilotPanelProps) {
     [onView, toast],
   );
 
+  /** Paper-deploy an optimizer variant straight from its card: every leg is
+   *  auto-routed to the venue with the best real quote and fills atomically
+   *  on the paper account. Returns true when the package landed. */
+  const paperDeployLegs = useCallback(
+    async (
+      name: string,
+      legSpecs: Array<{ kind: string; side: 'buy' | 'sell'; qty: number; strike?: number; expiryDays?: number; fundingPeriodDays?: number }>,
+      u: string,
+      size: number,
+    ): Promise<boolean> => {
+      const legs = legSpecs
+        .filter((l) => (l.kind === 'call' || l.kind === 'put') && Number(l.qty) > 0 && Number(l.strike) > 0)
+        .slice(0, 25)
+        .map((l) => ({
+          kind: l.kind as 'call' | 'put',
+          side: l.side,
+          qty: Number(l.qty),
+          strike: Number(l.strike),
+          expiryDays: l.expiryDays,
+        }));
+      if (legs.length === 0) {
+        toast({ title: 'Nothing to deploy', description: 'The variant has no dated option legs to paper-trade.', variant: 'destructive' });
+        return false;
+      }
+      try {
+        const res = await fetch('/api/paper', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'strategy',
+            name,
+            asset: u,
+            venue: 'auto',
+            sizeMultiplier: Number.isFinite(size) && size > 0 ? size : 1,
+            legs,
+          }),
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          name?: string;
+          legs?: Array<{ venue?: string }>;
+          netPremium?: number;
+          cashAfter?: number;
+        };
+        if (!res.ok || !data.ok) {
+          toast({ title: 'Paper-deploy failed', description: data.error ?? `HTTP ${res.status}`, variant: 'destructive' });
+          return false;
+        }
+        const venues = [...new Set((data.legs ?? []).map((l) => l.venue).filter(Boolean))].join(' · ');
+        toast({
+          title: `Paper-deployed ${data.name ?? name}`,
+          description:
+            `${(data.legs ?? []).length} legs filled${venues ? ` on ${venues}` : ''}` +
+            (data.netPremium != null ? ` · net premium ${data.netPremium >= 0 ? '+' : '−'}$${Math.abs(data.netPremium).toFixed(2)}` : '') +
+            (data.cashAfter != null ? ` · cash $${Math.round(data.cashAfter).toLocaleString('en-US')}` : '') +
+            ' — positions are live on the Paper Desk.',
+        });
+        return true;
+      } catch (err) {
+        toast({ title: 'Paper-deploy failed', description: err instanceof Error ? err.message : 'network error', variant: 'destructive' });
+        return false;
+      }
+    },
+    [toast],
+  );
+
   if (!open) return null;
 
   return (
@@ -292,6 +359,7 @@ export function CopilotPanel({ view, onView }: CopilotPanelProps) {
           <ChatTab
             onLoadStrategy={loadStrategyById}
             onLoadLegs={loadCustomLegs}
+            onPaperDeploy={paperDeployLegs}
             suggestions={suggestions}
             getInput={() => inputRef.current}
           />
@@ -314,11 +382,17 @@ interface ChatTabProps {
     u: string,
     size: number,
   ) => void;
+  onPaperDeploy: (
+    name: string,
+    legs: Array<{ kind: string; side: 'buy' | 'sell'; qty: number; strike?: number; expiryDays?: number; fundingPeriodDays?: number }>,
+    u: string,
+    size: number,
+  ) => Promise<boolean>;
   suggestions: SuggestionChip[];
   getInput: () => SuggestInput;
 }
 
-function ChatTab({ onLoadStrategy, onLoadLegs, suggestions, getInput }: ChatTabProps) {
+function ChatTab({ onLoadStrategy, onLoadLegs, onPaperDeploy, suggestions, getInput }: ChatTabProps) {
   const { messages, input, handleInputChange, handleSubmit, isLoading, stop, reload, append, error, setMessages } =
     useChat({ api: '/api/ai/copilot' });
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -388,6 +462,7 @@ function ChatTab({ onLoadStrategy, onLoadLegs, suggestions, getInput }: ChatTabP
                         invocation={part.toolInvocation}
                         onLoadStrategy={onLoadStrategy}
                         onLoadLegs={onLoadLegs}
+                        onPaperDeploy={onPaperDeploy}
                       />
                     );
                   }

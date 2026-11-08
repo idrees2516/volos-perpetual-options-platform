@@ -4,6 +4,10 @@
 // comparisons, and a teaching pack that explains every metric grounded in
 // the user's ACTUAL live numbers.
 //
+// Every optimization AUTO-RUNS a backtest on real exchange history (Bybit
+// klines + Deribit IV calibration) for the baseline and each surviving
+// variant, so optimizer answers always ship with historical validation.
+//
 // Pure server-side functions over the pricing core + live market state.
 // Consumed by the agent toolbelt (agent-tools.ts) which anchors every run
 // to real exchange data.
@@ -13,6 +17,7 @@ import type { Leg, LegKind, Side, AssetMarket } from '@/lib/types';
 import { STRATEGIES, resolveStrategyLegs, type StrategySpec } from '@/lib/strategies';
 import { analyzeStrategy } from '@/lib/pricing';
 import { ASSET_IDS, liveMarketState, marketDataSource, primeLiveMarket } from './market-intel';
+import { runBacktest, legsToSpecs, type BacktestLegSpec, type BacktestResult } from './backtest';
 
 export type OptimizeGoal = 'increase_pop' | 'reduce_risk' | 'increase_profit' | 'balanced';
 export const OPTIMIZE_GOALS: OptimizeGoal[] = ['increase_pop', 'reduce_risk', 'increase_profit', 'balanced'];
@@ -266,6 +271,59 @@ function runMoves(ids: string[], legs: Leg[], spot: number, u: string): Leg[] {
 }
 
 // ---------------------------------------------------------------------------
+// AUTO-BACKTEST — historical validation attached to every optimization
+// ---------------------------------------------------------------------------
+
+/** Compact backtest summary auto-attached to the baseline + each variant. */
+export interface VariantBacktest {
+  windowDays: number;
+  cycles: number;
+  totalPnl: number;
+  cagrPct: number;
+  winRate: number;
+  profitFactor: number;
+  expectancy: number;
+  maxDrawdownPct: number;
+  sharpe: number;
+}
+
+/** Deltas of a variant's backtest vs the baseline's backtest. */
+export interface VariantBacktestDelta {
+  dWinRate: number;
+  dTotalPnl: number;
+  dCagrPct: number;
+  dProfitFactor: number;
+  dMaxDrawdownPct: number;
+  dSharpe: number;
+}
+
+function btSummary(r: BacktestResult): VariantBacktest {
+  return {
+    windowDays: r.windowDays,
+    cycles: r.stats.cycles,
+    totalPnl: r.stats.totalPnl,
+    cagrPct: r.stats.cagrPct,
+    winRate: r.stats.winRate,
+    profitFactor: r.stats.profitFactor,
+    expectancy: r.stats.expectancy,
+    maxDrawdownPct: r.stats.maxDrawdownPct,
+    sharpe: r.stats.sharpe,
+  };
+}
+
+/** Backtest one leg set on real exchange history. Never throws — a failed
+ *  run degrades to null and the optimizer still returns its live numbers. */
+async function autoBacktest(asset: 'BTC' | 'ETH' | 'SOL', strategyName: string, legsSpecs: BacktestLegSpec[]): Promise<VariantBacktest | null> {
+  if (legsSpecs.length === 0) return null;
+  try {
+    const r = await runBacktest({ asset, legs: legsSpecs, strategyName, windowDays: 365 });
+    return r.stats.cycles > 0 ? btSummary(r) : null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // OPTIMIZER
 // ---------------------------------------------------------------------------
 
@@ -327,9 +385,12 @@ export async function optimizeStrategyPayload(args: OptimizeArgs) {
     loadLegs: ReturnType<typeof legSpec>;
   }
 
+  const variantSpecs = new Map<string, BacktestLegSpec[]>();
+
   const buildVariant = (moveId: string, label: string, rationale: string, ids: string[]): Variant | null => {
     const vLegs = runMoves(ids, legs, spot, underlying);
     if (vLegs.length === 0) return null;
+    variantSpecs.set(moveId, legsToSpecs(vLegs, spot));
     const a = labAnalyze(vLegs, underlying, market, size);
     const dMaxProfit =
       base.maxProfit.kind === 'value' && a.maxProfit.kind === 'value' && base.maxProfit.value !== undefined && a.maxProfit.value !== undefined
@@ -417,7 +478,35 @@ export async function optimizeStrategyPayload(args: OptimizeArgs) {
 
   const top = ranked.slice(0, 5);
 
-  const rec = top[0];
+  // --- AUTO-BACKTEST after each optimization ---------------------------------
+  // The baseline and every surviving variant are backtested in parallel on
+  // real exchange history (Bybit klines, Deribit IV calibration, 365d window).
+  // History is fetched once and shared (exchange-feeds cache), so the whole
+  // batch adds only a couple of seconds. Failures degrade silently.
+  const [baseBt, ...variantBts] = await Promise.all([
+    autoBacktest(underlying, `${name} (baseline)`, legsToSpecs(legs, spot)),
+    ...top.map((v) => autoBacktest(underlying, `${name} · ${v.label}`, variantSpecs.get(v.moveId) ?? [])),
+  ]);
+
+  type VariantWithBt = Variant & { backtest?: VariantBacktest; btDelta?: VariantBacktestDelta };
+  const attachBt = (v: Variant, bt: VariantBacktest | null): VariantWithBt => {
+    if (!bt) return { ...v };
+    const btDelta: VariantBacktestDelta | undefined = baseBt
+      ? {
+          dWinRate: +(bt.winRate - baseBt.winRate).toFixed(1),
+          dTotalPnl: +(bt.totalPnl - baseBt.totalPnl).toFixed(2),
+          dCagrPct: +(bt.cagrPct - baseBt.cagrPct).toFixed(1),
+          dProfitFactor: +(bt.profitFactor - baseBt.profitFactor).toFixed(2),
+          dMaxDrawdownPct: +(bt.maxDrawdownPct - baseBt.maxDrawdownPct).toFixed(1),
+          dSharpe: +(bt.sharpe - baseBt.sharpe).toFixed(2),
+        }
+      : undefined;
+    return { ...v, backtest: bt, ...(btDelta ? { btDelta } : {}) };
+  };
+  const topWithBt = top.map((v, i) => attachBt(v, variantBts[i] ?? null));
+
+  const rec = topWithBt[0];
+  const recBt = rec?.backtest ?? null;
   return {
     action: 'optimize_strategy',
     goal,
@@ -426,6 +515,7 @@ export async function optimizeStrategyPayload(args: OptimizeArgs) {
     spot: +spot.toFixed(2),
     size,
     source: marketDataSource(),
+    backtested: baseBt != null || topWithBt.some((v) => v.backtest != null),
     baseline: {
       strategyId,
       name,
@@ -440,15 +530,20 @@ export async function optimizeStrategyPayload(args: OptimizeArgs) {
       breakevens: base.breakevens.map((b) => +b.toFixed(1)),
       marginEstimate: +base.marginEstimate.toFixed(2),
       loadLegs: legSpec(legs),
+      ...(baseBt ? { backtest: baseBt } : {}),
     },
-    variants: top,
+    variants: topWithBt,
     recommendation: rec
       ? {
           moveId: rec.moveId,
           label: rec.label,
           why: `Best fit for "${GOAL_LABELS[goal]}": ΔPOP ${rec.dPop >= 0 ? '+' : ''}${rec.dPop}pp, ΔEV ${rec.dEv >= 0 ? '+' : ''}${rec.dEv}, Δmax loss ${
             rec.dMaxLoss === null ? 'risk now defined' : `${rec.dMaxLoss >= 0 ? '+' : ''}${rec.dMaxLoss}`
-          }, Δmax profit ${rec.dMaxProfit === null ? '—' : `${rec.dMaxProfit >= 0 ? '+' : ''}${rec.dMaxProfit}`}.`,
+          }, Δmax profit ${rec.dMaxProfit === null ? '—' : `${rec.dMaxProfit >= 0 ? '+' : ''}${rec.dMaxProfit}`}.${
+            recBt && baseBt
+              ? ` Auto-backtest on 365d real exchange history: win rate ${recBt.winRate}% vs ${baseBt.winRate}% baseline, profit factor ${recBt.profitFactor} vs ${baseBt.profitFactor}, CAGR ${recBt.cagrPct}% vs ${baseBt.cagrPct}%, max drawdown ${recBt.maxDrawdownPct}% vs ${baseBt.maxDrawdownPct}%.`
+              : ''
+          }`,
         }
       : { moveId: '', label: 'no improving adjustment found', why: 'Every tested adjustment hurt more than it helped for this goal — the current structure is already near its efficient frontier. Consider suggest_alternatives for a different structure.' },
   };

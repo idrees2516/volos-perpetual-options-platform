@@ -11,6 +11,7 @@ import type { ToolInvocation } from 'ai';
 import {
   Activity,
   Bot,
+  CheckCircle2,
   ChevronDown,
   Cpu,
   Database,
@@ -21,6 +22,7 @@ import {
   LineChart,
   Loader2,
   Search,
+  ShieldMinus,
   Sparkles,
   SlidersHorizontal,
   Target,
@@ -81,9 +83,15 @@ interface ToolCardProps {
     underlying: string,
     size: number,
   ) => void;
+  onPaperDeploy?: (
+    name: string,
+    legs: LoadableLegSpec[],
+    underlying: string,
+    size: number,
+  ) => Promise<boolean> | void;
 }
 
-export function ToolCard({ invocation, onLoadStrategy, onLoadLegs }: ToolCardProps) {
+export function ToolCard({ invocation, onLoadStrategy, onLoadLegs, onPaperDeploy }: ToolCardProps) {
   const [open, setOpen] = useState(false);
   const name = invocation.toolName;
   const state = invocation.state;
@@ -99,6 +107,7 @@ export function ToolCard({ invocation, onLoadStrategy, onLoadLegs }: ToolCardPro
         result={result}
         running={state === 'call' || state === 'partial-call'}
         onLoadLegs={onLoadLegs}
+        onPaperDeploy={onPaperDeploy}
       />
     );
   }
@@ -270,10 +279,12 @@ function OptimizerCard({
   result,
   running,
   onLoadLegs,
+  onPaperDeploy,
 }: {
   result: Record<string, unknown>;
   running: boolean;
   onLoadLegs?: (name: string, legs: LoadableLegSpec[], underlying: string, size: number) => void;
+  onPaperDeploy?: (name: string, legs: LoadableLegSpec[], underlying: string, size: number) => Promise<boolean> | void;
 }) {
   const goal = String(result.goal ?? 'balanced');
   const underlying = String(result.underlying ?? 'BTC');
@@ -281,15 +292,35 @@ function OptimizerCard({
   const baseline = (result.baseline ?? {}) as Record<string, unknown>;
   const variants = (result.variants ?? []) as Array<Record<string, unknown>>;
   const rec = (result.recommendation ?? {}) as Record<string, unknown>;
+  const baselineBt = (baseline.backtest ?? null) as Record<string, number> | null;
   const [showAll, setShowAll] = useState(false);
+  const [deploying, setDeploying] = useState<string | null>(null);
+  const [deployed, setDeployed] = useState<Record<string, boolean>>({});
 
   if (running) {
     return (
       <div className="flex items-center gap-2 rounded-md border border-zinc-800/60 bg-zinc-900/30 px-2.5 py-1.5 text-[10.5px] text-zinc-400">
-        <Loader2 className="h-3 w-3 animate-spin text-teal-400" /> pricing adjustment variants at live market…
+        <Loader2 className="h-3 w-3 animate-spin text-teal-400" /> pricing adjustment variants at live market + auto-backtesting on real history…
       </div>
     );
   }
+
+  const deployVariant = async (v: Record<string, unknown>, loadLegs: LoadableLegSpec[]) => {
+    if (!onPaperDeploy || deploying !== null) return;
+    const moveId = String(v.moveId);
+    setDeploying(moveId);
+    try {
+      const ok = await onPaperDeploy(
+        `${String(baseline.name ?? 'Strategy')} · ${String(v.label ?? 'variant')}`,
+        loadLegs,
+        underlying,
+        size,
+      );
+      if (ok) setDeployed((d) => ({ ...d, [moveId]: true }));
+    } finally {
+      setDeploying(null);
+    }
+  };
 
   const visible = showAll ? variants : variants.slice(0, 3);
   return (
@@ -300,6 +331,14 @@ function OptimizerCard({
         <span className="rounded bg-violet-950/60 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-violet-300">
           {goal.replace('_', ' ')}
         </span>
+        {baselineBt && (
+          <span
+            className="flex items-center gap-1 rounded bg-teal-950/60 px-1.5 py-0.5 text-[8.5px] font-medium uppercase tracking-wider text-teal-300"
+            title={`Every variant was auto-backtested on ${Number(baselineBt.windowDays ?? 365)} days of real exchange klines with live IV calibration`}
+          >
+            <LineChart className="h-2.5 w-2.5" /> auto-backtested · {Number(baselineBt.windowDays ?? 365)}d real history
+          </span>
+        )}
         <span className="font-mono text-[10px] text-zinc-500">
           {String(baseline.name ?? 'current')} · {underlying}
         </span>
@@ -308,12 +347,21 @@ function OptimizerCard({
         <span>baseline POP {Number(baseline.popPct ?? 0).toFixed(1)}%</span>
         <span>max profit {extremeText(baseline.maxProfit)}</span>
         <span>max loss {extremeText(baseline.maxLoss)}</span>
+        {baselineBt && (
+          <span title="Baseline auto-backtest on real exchange history">
+            365d: win {Number(baselineBt.winRate ?? 0).toFixed(0)}% · PF {Number(baselineBt.profitFactor ?? 0).toFixed(2)} · P&amp;L {fmtUsd(baselineBt.totalPnl)}
+          </span>
+        )}
       </div>
 
       <div className="mt-2.5 space-y-2">
         {visible.map((v, i) => {
           const loadLegs = (v.loadLegs ?? []) as LoadableLegSpec[];
           const isRec = rec.moveId !== '' && v.moveId === rec.moveId;
+          const bt = (v.backtest ?? null) as Record<string, number> | null;
+          const bd = (v.btDelta ?? null) as Record<string, number> | null;
+          const vDeployed = deployed[String(v.moveId)] === true;
+          const vDeploying = deploying === String(v.moveId);
           return (
             <div
               key={`${v.moveId}-${i}`}
@@ -339,22 +387,66 @@ function OptimizerCard({
                   EV <span className="text-zinc-200">{fmtUsd(v.expectedValue)}</span> <Delta v={v.dEv as number} />
                 </span>
               </div>
+              {bt ? (
+                <div className="mt-1.5 rounded border border-zinc-800/60 bg-zinc-950/40 px-1.5 py-1 font-mono text-[9.5px] leading-relaxed text-zinc-500">
+                  <span className="font-medium text-teal-400/90">{Number(bt.windowDays ?? 365)}d backtest</span> · win{' '}
+                  <span className="text-zinc-300">{Number(bt.winRate ?? 0).toFixed(0)}%</span> <Delta v={bd ? (bd.dWinRate as number) : undefined} suffix="pp" />
+                  {' '}· PF <span className="text-zinc-300">{Number(bt.profitFactor ?? 0).toFixed(2)}</span> <Delta v={bd ? (bd.dProfitFactor as number) : undefined} />
+                  {' '}· CAGR <span className="text-zinc-300">{Number(bt.cagrPct ?? 0).toFixed(0)}%</span> <Delta v={bd ? (bd.dCagrPct as number) : undefined} suffix="pp" />
+                  {' '}· maxDD <span className="text-zinc-300">{Number(bt.maxDrawdownPct ?? 0).toFixed(0)}%</span> <Delta v={bd ? (bd.dMaxDrawdownPct as number) : undefined} suffix="pp" invert />
+                  {' '}· Sharpe <span className="text-zinc-300">{Number(bt.sharpe ?? 0).toFixed(1)}</span> <Delta v={bd ? (bd.dSharpe as number) : undefined} />
+                  {' '}· P&amp;L <span className="text-zinc-300">{fmtUsd(bt.totalPnl)}</span> <Delta v={bd ? (bd.dTotalPnl as number) : undefined} />
+                </div>
+              ) : (
+                <p className="mt-1.5 text-[9px] text-zinc-600">backtest unavailable for this variant (history fetch failed — live metrics above are still real)</p>
+              )}
               <p className="mt-1.5 text-[9.5px] leading-relaxed text-zinc-500">{String(v.rationale ?? '')}</p>
-              {loadLegs.length > 0 && onLoadLegs && (
-                <Button
-                  size="sm"
-                  className="mt-2 h-6 w-full bg-violet-600/70 text-[10px] font-medium text-zinc-50 hover:bg-violet-500"
-                  onClick={() =>
-                    onLoadLegs(
-                      `${String(baseline.name ?? 'Strategy')} · ${String(v.label ?? 'variant')}`,
-                      loadLegs,
-                      underlying,
-                      size,
-                    )
-                  }
-                >
-                  Load this variant into the builder →
-                </Button>
+              {loadLegs.length > 0 && (onLoadLegs || onPaperDeploy) && (
+                <div className="mt-2 grid grid-cols-2 gap-1.5">
+                  {onLoadLegs && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 border-zinc-700/80 text-[10px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+                      onClick={() =>
+                        onLoadLegs(
+                          `${String(baseline.name ?? 'Strategy')} · ${String(v.label ?? 'variant')}`,
+                          loadLegs,
+                          underlying,
+                          size,
+                        )
+                      }
+                    >
+                      Load into builder
+                    </Button>
+                  )}
+                  {onPaperDeploy && (
+                    <Button
+                      size="sm"
+                      className={`h-6 text-[10px] font-medium ${
+                        vDeployed
+                          ? 'bg-emerald-700/60 text-emerald-100 hover:bg-emerald-700/60'
+                          : 'bg-sky-600/80 text-zinc-50 hover:bg-sky-500'
+                      }`}
+                      disabled={vDeploying || deploying !== null}
+                      onClick={() => deployVariant(v, loadLegs)}
+                    >
+                      {vDeploying ? (
+                        <>
+                          <Loader2 className="h-3 w-3 animate-spin" /> deploying…
+                        </>
+                      ) : vDeployed ? (
+                        <>
+                          <CheckCircle2 className="h-3 w-3" /> deployed — see Paper Desk
+                        </>
+                      ) : (
+                        <>
+                          <ShieldMinus className="h-3 w-3" /> Paper-deploy
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
           );
@@ -479,7 +571,8 @@ function summarizeToolResult(name: string, result: Record<string, unknown> | und
       case 'optimize_strategy': {
         const rec = (result.recommendation ?? {}) as Record<string, unknown>;
         const vs = (result.variants ?? []) as Array<Record<string, unknown>>;
-        return `${vs.length} variants · best: ${String(rec.label ?? '—')}`;
+        const btOk = vs.some((x) => x.backtest);
+        return `${vs.length} variants · best: ${String(rec.label ?? '—')}${btOk ? ' · auto-backtested (365d real history)' : ''}`;
       }
       case 'suggest_alternatives': {
         const alts = (result.alternatives ?? []) as Array<{ name: string }>;
