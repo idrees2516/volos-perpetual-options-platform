@@ -16,7 +16,7 @@ import { useStrategy } from '@/stores/strategy-store';
 import { useCopilot } from '@/stores/copilot-store';
 import { fmtNum, fmtPctSigned } from '@/lib/format';
 
-export type ViewId = 'strategies' | 'gamma' | 'chain' | 'trade' | 'paper' | 'backquant';
+export type ViewId = 'strategies' | 'gamma' | 'chain' | 'trade' | 'paper' | 'quant';
 
 export function TopBar() {
   const { market, smooth, connected, live, retry } = useMarket();

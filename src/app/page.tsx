@@ -18,7 +18,7 @@ import { TopBar, type ViewId } from '@/components/terminal/topbar';
 import { Workbench, useRailHotkeys } from '@/components/terminal/workbench';
 import { StrategiesView } from '@/components/terminal/strategies/strategies-view';
 import { GammaLabView } from '@/components/terminal/gamma-lab/gamma-lab-view';
-import { BackQuantView } from '@/components/terminal/backquant/backquant-view';
+import { QuantLabView } from '@/components/terminal/quantlab/quantlab-view';
 import { ChainView } from '@/components/terminal/chain-view';
 import { TradeView } from '@/components/terminal/trade-view';
 import { PaperView } from '@/components/terminal/paper-view';
@@ -27,7 +27,7 @@ import { useCopilot } from '@/stores/copilot-store';
 import { rehydrateStrategy } from '@/stores/strategy-store';
 import { usePersistedFlag } from '@/hooks/use-persisted-flag';
 
-const VALID_VIEWS: ViewId[] = ['strategies', 'gamma', 'backquant', 'chain', 'trade', 'paper'];
+const VALID_VIEWS: ViewId[] = ['strategies', 'gamma', 'quant', 'chain', 'trade', 'paper'];
 
 function Terminal() {
   const [view, setView] = useState<ViewId>('strategies');
@@ -70,7 +70,7 @@ function Terminal() {
         >
           {view === 'strategies' && <StrategiesView onOpenTrade={() => setView('trade')} />}
           {view === 'gamma' && <GammaLabView />}
-          {view === 'backquant' && <BackQuantView />}
+          {view === 'quant' && <QuantLabView />}
           {view === 'chain' && <ChainView onOpenBuilder={() => setView('strategies')} />}
           {view === 'trade' && <TradeView onOpenBuilder={() => setView('strategies')} />}
           {view === 'paper' && <PaperView />}
@@ -83,7 +83,8 @@ function Terminal() {
             VolOS — perpetual options terminal. Real prices: Binance · Bybit · OKX · Deribit index. Research prototype, not investment advice.
           </p>
           <p className="font-mono">
-            rust engine: axum · clob · svi · everlasting · 131 strategies/25 legs &nbsp;|&nbsp; gamma lab: gex ·
+            rust engine: axum · clob · svi · everlasting · 131 strategies/25 legs &nbsp;|&nbsp; quant lab: volquant native ·
+            deribit chain · gex · iv/pdf · sse tape · perps &nbsp;|&nbsp; gamma lab: gex ·
             vex · dealer positioning · flow · 0dte &nbsp;|&nbsp; venues: deribit · bybit · okx · aevo · paradex ·
             derive · binance · hyperliquid · lighter &nbsp;|&nbsp; ai desk: vercel ai sdk · 6 agents · glm
             &nbsp;|&nbsp; frontend: next.js 16.3.4

@@ -85,7 +85,7 @@ export const cardsCatalog = defineCatalog(schema, {
       description: 'Horizontal bars for categorical comparisons — OI by venue, premium by leg, allocation by strike.',
     },
 
-    // ── BackQuant analytics visuals ────────────────────────────────────────
+    // ── VolQuant analytics visuals ────────────────────────────────────────
     HeatMatrix: {
       props: z.object({
         title: z.string().nullish(),

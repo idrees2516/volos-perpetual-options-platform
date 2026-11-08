@@ -200,7 +200,7 @@ const components = {
     );
   },
 
-  // ── BackQuant analytics visuals ─────────────────────────────────────────────
+  // ── VolQuant analytics visuals ─────────────────────────────────────────────
 
   HeatMatrix: ({ props }: { props: { title?: string | null; rowLabels: string[]; colLabels: string[]; values: number[][]; unit?: string | null; diverging?: boolean | null; compact?: boolean | null } }) => {
     const rows = props.rowLabels ?? [];
