@@ -62,18 +62,19 @@ export async function marketScreener(): Promise<ScreenerResult> {
   // ── cross-symbol z-scores on comparable metrics ────────────────────────────
   const metrics: (keyof ScreenerRow)[] = ['chg24hPct', 'fundingApr', 'basisPct', 'rv30Pct', 'iv30Pct', 'vrpPct', 'pcrOi', 'tapeImbalance', 'netGexUsd1pct', 'em1sPct'];
   for (const m of metrics) {
-    const vals = rows.map((r) => Number(r[m])).filter((v) => Number.isFinite(v));
+    const vals = rows.map((r) => r[m]).filter((v): v is number => v != null && Number.isFinite(v));
     if (vals.length < 2) continue;
     const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
     const sd = Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length) || 1;
     for (const r of rows) {
-      const v = Number(r[m]);
+      const raw = r[m];
+      const v = raw != null ? Number(raw) : NaN;
       r.z[m as string] = Number.isFinite(v) ? Math.round(((v - mean) / sd) * 100) / 100 : 0;
     }
   }
 
   const pick = (label: string, key: keyof ScreenerRow, dir: 'max' | 'min', format: (v: number) => string) => {
-    const cand = rows.filter((r) => Number.isFinite(Number(r[key])));
+    const cand = rows.filter((r) => r[key] != null && Number.isFinite(Number(r[key])));
     if (!cand.length) return null;
     const best = cand.reduce((a, b) => (dir === 'max' ? (Number(b[key]) > Number(a[key]) ? b : a) : Number(b[key]) < Number(a[key]) ? b : a));
     return { label, symbol: best.symbol, value: Number(best[key]), format: format(Number(best[key])) };
