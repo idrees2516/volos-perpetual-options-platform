@@ -165,6 +165,103 @@ function toOpenAIMessages(prompt: LanguageModelV1Prompt): Array<Record<string, u
 
 // --- helpers -------------------------------------------------------------------
 
+/**
+ * Sanitize accumulated tool-call arguments.
+ *
+ * GLM models occasionally emit slightly malformed JSON in LARGE tool calls
+ * (e.g. generative-UI card specs): raw control characters inside strings,
+ * unescaped quotes, or a truncated tail when the stream cuts early. The
+ * Vercel AI SDK hard-fails the whole stream ("An error occurred.") when
+ * JSON.parse on tool-call args throws — so we repair what we can here:
+ *   1. valid JSON → pass through untouched
+ *   2. escape raw control chars (\n, \t, other C0) inside the payload
+ *   3. close unbalanced strings/brackets/braces for truncated tails
+ *   4. give up → '{}' (tools treat missing fields as defaults and the
+ *      orchestrator recovers on the next step)
+ */
+function sanitizeToolArgs(raw: string): string {
+  const s = raw.trim();
+  if (s.length === 0) return '{}';
+  try {
+    JSON.parse(s);
+    return s;
+  } catch {
+    /* fall through to repairs */
+  }
+  // (2) escape raw C0 control characters that are invalid inside JSON strings.
+  let escaped = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').replace(/\t/g, '\\t').replace(/\r/g, '').replace(/\n/g, '\\n');
+  try {
+    JSON.parse(escaped);
+    return escaped;
+  } catch {
+    /* fall through */
+  }
+  // (3) close unbalanced structures for truncated payloads: append the
+  // closing quote for unterminated strings, strip dangling `,` / `:`,
+  // close open brackets in reverse order; on failure cut back to the last
+  // comma and retry (≤ 4 rounds).
+  for (let round = 0; round < 4; round++) {
+    const closed = closeTruncated(escaped);
+    if (closed != null) return closed;
+    const lastComma = escaped.lastIndexOf(',');
+    if (lastComma <= 0) break;
+    escaped = escaped.slice(0, lastComma);
+  }
+  return '{}';
+}
+
+/** Attempt to turn a truncated JSON payload into a valid one by closing
+ *  what is still open. Returns null when no repair is possible. */
+function closeTruncated(s: string): string | null {
+  const body = s.replace(/\s+$/, '');
+  if (body.length === 0) return null;
+  let inStr = false;
+  let esc = false;
+  const stack: string[] = [];
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === '{' || ch === '[') stack.push(ch);
+    else if (ch === '}' || ch === ']') stack.pop();
+  }
+  let cand = body;
+  if (inStr) {
+    cand += '"';
+  } else {
+    cand = cand.replace(/[,,:]$/, '');
+  }
+  // recompute open brackets on the (possibly modified) candidate
+  const open: string[] = [];
+  inStr = false;
+  esc = false;
+  for (let i = 0; i < cand.length; i++) {
+    const ch = cand[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === '{' || ch === '[') open.push(ch);
+    else if (ch === '}' || ch === ']') open.pop();
+  }
+  if (inStr) return null; // dangling quote inside — hopeless at this level
+  for (let i = open.length - 1; i >= 0; i--) cand += open[i] === '{' ? '}' : ']';
+  try {
+    JSON.parse(cand);
+    return cand;
+  } catch {
+    return null;
+  }
+}
+
 function mapToolChoice(choice: LanguageModelV1CallOptions['toolChoice']): string | undefined {
   if (!choice) return undefined;
   switch (choice.type) {
@@ -296,7 +393,7 @@ export function createZaiModel(modelId = 'glm-4-plus'): LanguageModelV1 {
         toolCallType: 'function' as const,
         toolCallId: tc.id ?? `call-${Date.now()}-${i}`,
         toolName: tc.function.name,
-        args: tc.function.arguments ?? '{}',
+        args: sanitizeToolArgs(tc.function.arguments ?? '{}'),
       }));
 
       return {
@@ -413,7 +510,7 @@ export function createZaiModel(modelId = 'glm-4-plus'): LanguageModelV1 {
                 toolCallType: 'function',
                 toolCallId: tc.id ?? `call-${Date.now()}-${idx}`,
                 toolName: tc.name,
-                args: tc.args.length > 0 ? tc.args : '{}',
+                args: sanitizeToolArgs(tc.args),
               });
               if (finishReason === 'stop') finishReason = 'tool-calls';
             }

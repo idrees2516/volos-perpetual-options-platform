@@ -82,6 +82,12 @@ export function buildSuggestions(input: SuggestInput): SuggestionChip[] {
             label: 'Teach me every metric here',
             prompt: `Teach me all the metrics on my current strategy (${strat} on ${u}) and the live market data — explain each one (POP, EV, max profit/loss, breakevens, Greeks, premium, margin) with my actual live numbers, how I can use each beneficially to increase profit and decrease losses, and the traps to avoid.`,
           },
+          {
+            id: 'web-industry',
+            kind: 'research',
+            label: `Web: how the industry plays ${strat}`,
+            prompt: `Research the OPTIONS INDUSTRY WEB for how professionals construct and manage ${strat} positions on ${u} right now — search for current commentary, position-sizing and management rules from analytics desks and research shops (Deribit Insights, Paradigm Research, Laevitas…), scrape the best one or two pieces, then combine what the web says with MY live strategy numbers (get_market_state + analyze_strategy) into a research digest card with clickable sources plus actionable buttons.`,
+          },
         ];
         return chips;
       }
@@ -109,6 +115,12 @@ export function buildSuggestions(input: SuggestInput): SuggestionChip[] {
           kind: 'teach',
           label: 'Explain POP and the Greeks',
           prompt: `Explain probability of profit, delta, gamma, vega and theta from first principles using live ${u} numbers — and teach me how traders use each one to make money.`,
+        },
+        {
+          id: 'web-outlook',
+          kind: 'research',
+          label: `Web: ${u} options market outlook`,
+          prompt: `Research the WEB for the current ${u} options market outlook — IV levels and sentiment from industry sources (news wires, analytics desks, research shops) — then pair it with our own live market state and volatility regime analysis, and render a research digest card with clickable sources and a stats card of the live desk numbers.`,
         },
       ];
     }
@@ -275,5 +287,12 @@ export const CAPABILITY_ACTIONS: CapabilityAction[] = [
     title: 'Teach me every metric on my screen with live numbers',
     build: (i) =>
       `Teach me every metric${i.legCount > 0 ? ` on my ${i.strategyName} (${i.underlying})` : ` and the live ${i.underlying} market data I'm looking at`} — explain each with my actual live numbers, how to use it beneficially to increase profit and cut losses, and the traps to avoid.`,
+  },
+  {
+    id: 'research',
+    label: 'Research',
+    title: 'Web-research the options industry for this view and render digest cards',
+    build: (i) =>
+      `Research the OPTIONS INDUSTRY WEB for ${i.underlying}${i.legCount > 0 ? ` and how professionals run ${i.strategyName} positions like mine` : ' options market conditions'} — current IV sentiment, positioning commentary and management rules from industry sources — then combine the web findings with MY live desk numbers (get_market_state${i.legCount > 0 ? ', analyze_strategy' : ''}) and render a research digest card with clickable sources, a stats card of the live numbers, and action buttons.`,
   },
 ];
