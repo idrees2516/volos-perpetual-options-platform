@@ -428,8 +428,28 @@ export function createZaiModel(modelId = 'glm-4-plus'): LanguageModelV1 {
             });
             controller.close();
           } catch (err) {
-            controller.enqueue({ type: 'error', error: err });
-            controller.close();
+            // Surface a human-readable explanation instead of the AI SDK's
+            // generic "An error occurred." — the user keeps their question
+            // and can hit regenerate/retry.
+            const msg = err instanceof Error ? err.message : String(err);
+            const friendly = /429|too many requests/i.test(msg)
+              ? '⚠️ The research desk is rate-limited right now (all retries exhausted). Your question is preserved — hit regenerate or ask again in a few seconds.'
+              : `⚠️ Research desk request failed: ${msg.slice(0, 200)}`;
+            try {
+              emitTextDelta(friendly);
+              controller.enqueue({
+                type: 'finish',
+                finishReason: 'stop',
+                usage: {
+                  promptTokens: estimateTokens(body.messages as never),
+                  completionTokens: Math.ceil(friendly.length / 3.6),
+                },
+              });
+              controller.close();
+            } catch {
+              controller.enqueue({ type: 'error', error: err });
+              controller.close();
+            }
           }
         },
       });

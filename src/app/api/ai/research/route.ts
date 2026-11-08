@@ -265,13 +265,24 @@ export async function POST(req: Request) {
         reports.architect = architect;
         emitReport(architect, 3);
 
-        // Extract any catalog strategy ids mentioned by the architect for the
-        // frontend's "load to builder" affordances.
-        const mentionedIds = new Set<string>();
+        // Extract catalog strategy ids for the frontend's "load to builder"
+        // affordances. Priority 1: the architect's explicit machine-readable
+        // "CATALOG PICKS:" line. Priority 2 (fallback): text matching over
+        // the report bodies.
         const architectText = `${architect.report} ${quant.report} ${extendedDigest}`;
-        for (const s of STRATEGIES) {
-          if (architectText.includes(s.id) || architectText.toLowerCase().includes(s.name.toLowerCase())) {
-            mentionedIds.add(s.id);
+        const picksMatch = architect.report.match(/CATALOG PICKS:\s*([a-z0-9\- ,]+)/i);
+        const mentionedIds = new Set<string>();
+        if (picksMatch) {
+          for (const raw of picksMatch[1].split(/[,]/)) {
+            const id = raw.trim().toLowerCase();
+            if (id && STRATEGIES.some((s) => s.id === id)) mentionedIds.add(id);
+          }
+        }
+        if (mentionedIds.size === 0) {
+          for (const s of STRATEGIES) {
+            if (architectText.includes(s.id) || architectText.toLowerCase().includes(s.name.toLowerCase())) {
+              mentionedIds.add(s.id);
+            }
           }
         }
         const strategyPayloads = [...mentionedIds].slice(0, 4).map((id) => {
