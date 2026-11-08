@@ -175,7 +175,7 @@ export async function dvolSnapshot(currency: string, maxAgeMs = 60_000): Promise
   const start = end - 2 * 864e5;
   const r = await deribitGet<{ data: [number, number, number, number, number][] } | null>(
     '/public/get_volatility_index_data',
-    { currency, start_timestamp: Math.floor(start / 1000), end_timestamp: Math.floor(end / 1000), resolution: 3600 },
+    { currency, start_timestamp: start, end_timestamp: end, resolution: 3600 },
   ).catch(() => null);
   if (!r?.data?.length) return null;
   // rows: [ts(ms), open, high, low, close] — take closes
