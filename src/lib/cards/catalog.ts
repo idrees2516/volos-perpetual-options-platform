@@ -85,6 +85,32 @@ export const cardsCatalog = defineCatalog(schema, {
       description: 'Horizontal bars for categorical comparisons — OI by venue, premium by leg, allocation by strike.',
     },
 
+    // ── BackQuant analytics visuals ────────────────────────────────────────
+    HeatMatrix: {
+      props: z.object({
+        title: z.string().nullish(),
+        rowLabels: z.array(z.string()).min(2).max(14),
+        colLabels: z.array(z.string()).min(2).max(10),
+        values: z.array(z.array(z.number())),
+        unit: z.string().nullish(),
+        diverging: z.boolean().nullish(),
+        compact: z.boolean().nullish(),
+      }),
+      description: 'Numeric heat grid — rowLabels × colLabels with one number per cell (values MUST align: values.length == rowLabels.length, values[i].length == colLabels.length). Use for strike×expiry GEX, IV surface, greek TRACE maps, liquidation intensity. diverging=true colors +/- around zero (teal positive, rose negative — GEX, flow); omit for pure intensity 0–100 (amber — liquidation heat). Round cell values compactly ($M for dollar flows).',
+    },
+    LevelStrip: {
+      props: z.object({
+        title: z.string().nullish(),
+        spot: z.number(),
+        levels: z.array(z.object({
+          label: z.string(),
+          price: z.number(),
+          tone: z.enum(['wall', 'support', 'flip', 'magnet']).nullish(),
+        })).min(2).max(8),
+      }),
+      description: 'Price-level ladder around spot — the dealer-positioning view: spot line plus key levels (HVL/flip, call walls, put support, max pain). tone: wall = resistance (rose), support = floor (teal), flip = gamma flip (amber), magnet = pin/max-pain (violet).',
+    },
+
     // ── research & teaching ────────────────────────────────────────────────
     ResearchDigest: {
       props: z.object({
@@ -232,6 +258,7 @@ const CARD_RULES = [
   'Cards are for DATA, not prose — keep narrative in chat text, put structure in cards.',
   'Root every card in a SectionCard; use a Grid (2–3 columns) when comparing distinct groups side by side.',
   'StatGrid for numeric metric sets; DataTable when comparing rows of like things (venues, variants, strikes); LineChart for numeric series of 6+ points; BarChart for categorical splits.',
+  'HeatMatrix for 2-D numeric grids (strike×expiry GEX, IV surface, TRACE maps — keep ≤ 14×10 cells, values aligned to labels); LevelStrip for spot vs key price levels (HVL, walls, support, max pain).',
   'Whenever an answer cites internet research, ALWAYS include a ResearchDigest card with clickable sources (label + absolute URL).',
   'Prefer ending a recommendation with an ActionCard — buttons like "Load into builder" (load_strategy), "Paper-deploy" (paper_deploy), "Read the research" (open_url).',
   'Keep cards compact: 14 or fewer elements total, 8 or fewer table rows. Numbers formatted like the platform: $78,412 · 39.5% · +3.2pp · 1.25x.',

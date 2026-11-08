@@ -21,7 +21,7 @@
 
 import React, { useEffect } from 'react';
 import {
-  Activity, CircleDot, LineChart, Layers, FlaskConical,
+  Activity, CircleDot, LineChart, Layers, FlaskConical, Database,
   BarChart3, Dna, ChevronsLeft, ChevronsRight, ChevronRight,
   TrendingUp, TrendingDown, Radio,
 } from 'lucide-react';
@@ -44,6 +44,7 @@ interface RailItem {
 /** Analytics side — market internals & data views. */
 const ANALYTICS_ITEMS: RailItem[] = [
   { id: 'gamma', label: 'Gamma & Flow', icon: <Activity className="h-4 w-4" />, hint: 'GEX · dealer positioning · heatmaps · options flow · 0DTE · skew' },
+  { id: 'backquant', label: 'BackQuant Data', icon: <Database className="h-4 w-4" />, hint: 'GEX levels · strike ladder · IV surface · greeks TRACE · live tape · ETF/COT · 70 endpoints · MCP' },
   { id: 'chain', label: 'Option Chain', icon: <CircleDot className="h-4 w-4" />, hint: 'live chains with per-strike BUY / SELL' },
   { id: 'trade', label: 'Trading', icon: <LineChart className="h-4 w-4" />, hint: 'engine CLOB · L2 book · $1M demo equity' },
 ];
@@ -56,6 +57,7 @@ const LAB_ITEMS: RailItem[] = [
 
 export const SIDE_OF_VIEW: Record<ViewId, SideId> = {
   gamma: 'analytics',
+  backquant: 'analytics',
   chain: 'analytics',
   trade: 'analytics',
   strategies: 'lab',
@@ -69,6 +71,7 @@ const SIDE_META: Record<SideId, { label: string; icon: React.ReactNode }> = {
 
 const VIEW_LABEL: Record<ViewId, string> = {
   gamma: 'Gamma & Flow',
+  backquant: 'BackQuant Data',
   chain: 'Option Chain',
   trade: 'Trading',
   strategies: 'Strategies',

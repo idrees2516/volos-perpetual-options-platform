@@ -200,6 +200,130 @@ const components = {
     );
   },
 
+  // ── BackQuant analytics visuals ─────────────────────────────────────────────
+
+  HeatMatrix: ({ props }: { props: { title?: string | null; rowLabels: string[]; colLabels: string[]; values: number[][]; unit?: string | null; diverging?: boolean | null; compact?: boolean | null } }) => {
+    const rows = props.rowLabels ?? [];
+    const cols = props.colLabels ?? [];
+    const grid = (props.values ?? []).filter((r) => Array.isArray(r));
+    const flat = grid.flat().filter((v) => Number.isFinite(v));
+    if (rows.length < 2 || cols.length < 2 || flat.length === 0) {
+      return <div className="py-2 text-[10px] text-zinc-500">heat matrix incomplete</div>;
+    }
+    const diverging = props.diverging ?? false;
+    const maxAbs = Math.max(...flat.map(Math.abs), 1e-9);
+    const fmt = (v: number) => {
+      if (!Number.isFinite(v)) return '—';
+      const a = Math.abs(v);
+      if (props.compact !== false && a >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+      if (props.compact !== false && a >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+      if (props.compact !== false && a >= 1e3) return `${(v / 1e3).toFixed(0)}k`;
+      return `${Math.round(v * 100) / 100}`;
+    };
+    const cellStyle = (v: number): React.CSSProperties => {
+      if (!Number.isFinite(v)) return { background: 'rgba(63,63,70,0.3)' };
+      if (diverging) {
+        const t = Math.min(Math.abs(v) / maxAbs, 1);
+        const alpha = 0.12 + t * 0.68;
+        return { background: v >= 0 ? `rgba(45,212,191,${alpha})` : `rgba(251,113,133,${alpha})` };
+      }
+      const t = Math.min(Math.max(v / (maxAbs || 100), 0), 1);
+      const alpha = 0.08 + t * 0.72;
+      return { background: `rgba(251,191,36,${alpha})` };
+    };
+    return (
+      <div className="overflow-hidden rounded-md border border-zinc-800/60 bg-zinc-950/40 px-2 py-1.5">
+        {props.title ? <p className="mb-1 text-[9px] font-medium uppercase tracking-wider text-zinc-500">{props.title}</p> : null}
+        <div className="overflow-x-auto">
+          <table className="w-full border-separate border-spacing-[2px] text-[8.5px]">
+            <thead>
+              <tr>
+                <th className="sticky left-0 z-[1] bg-zinc-950/95 px-1 text-left font-medium text-zinc-500">—</th>
+                {cols.map((c, i) => (
+                  <th key={i} className="px-1 font-medium text-zinc-500" title={c}>{c}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((rLabel, ri) => (
+                <tr key={ri}>
+                  <td className="sticky left-0 z-[1] bg-zinc-950/95 px-1 text-right font-mono text-zinc-400" title={rLabel}>{rLabel}</td>
+                  {cols.map((_, ci) => {
+                    const v = grid[ri]?.[ci];
+                    return (
+                      <td
+                        key={ci}
+                        className="px-1 py-[3px] text-center font-mono tabular-nums"
+                        style={cellStyle(v)}
+                        title={v != null ? `${rLabel} × ${cols[ci]}: ${fmt(v)}${props.unit ? ` ${props.unit}` : ''}` : ''}
+                      >
+                        {v != null ? fmt(v) : '·'}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {props.unit ? <p className="mt-1 text-[8px] text-zinc-600">unit: {props.unit}{diverging ? ' · teal + / rose −' : ' · intensity'}</p> : null}
+      </div>
+    );
+  },
+
+  LevelStrip: ({ props }: { props: { title?: string | null; spot: number; levels: Array<{ label: string; price: number; tone?: string | null }> } }) => {
+    const levels = (props.levels ?? []).filter((l) => Number.isFinite(l.price));
+    if (levels.length < 2 || !Number.isFinite(props.spot)) {
+      return <div className="py-2 text-[10px] text-zinc-500">level strip incomplete</div>;
+    }
+    const all = [...levels.map((l) => l.price), props.spot];
+    const min = Math.min(...all);
+    const max = Math.max(...all);
+    const pad = (max - min) * 0.06 || 1;
+    const lo = min - pad;
+    const hi = max + pad;
+    const pos = (p: number) => ((p - lo) / (hi - lo)) * 100;
+    const TONES: Record<string, { bar: string; text: string }> = {
+      wall: { bar: 'bg-rose-500/80', text: 'text-rose-300' },
+      support: { bar: 'bg-teal-500/80', text: 'text-teal-300' },
+      flip: { bar: 'bg-amber-500/80', text: 'text-amber-300' },
+      magnet: { bar: 'bg-violet-500/80', text: 'text-violet-300' },
+    };
+    const fmt = (p: number) => (p >= 1000 ? p.toLocaleString('en-US', { maximumFractionDigits: 0 }) : String(Math.round(p * 100) / 100));
+    return (
+      <div className="rounded-md border border-zinc-800/60 bg-zinc-950/40 px-2.5 py-2">
+        {props.title ? <p className="mb-1.5 text-[9px] font-medium uppercase tracking-wider text-zinc-500">{props.title}</p> : null}
+        <div className="relative h-16">
+          {/* level bars */}
+          {levels.map((l, i) => {
+            const tone = TONES[l.tone ?? ''] ?? { bar: 'bg-zinc-500/70', text: 'text-zinc-400' };
+            return (
+              <div key={i} className="absolute flex items-center gap-1" style={{ left: `${Math.min(Math.max(pos(l.price), 0), 100)}%`, top: `${(i % 2) * 30 + 2}px`, transform: 'translateX(-50%)' }}>
+                <div className={`h-4 w-[2.5px] rounded ${tone.bar}`} />
+                <span className={`whitespace-nowrap rounded bg-zinc-900/80 px-1 text-[8.5px] font-medium ${tone.text}`}>
+                  {l.label} <span className="font-mono tabular-nums text-zinc-400">{fmt(l.price)}</span>
+                </span>
+              </div>
+            );
+          })}
+          {/* spot line */}
+          <div className="absolute bottom-0 top-0" style={{ left: `${Math.min(Math.max(pos(props.spot), 0), 100)}%`, transform: 'translateX(-50%)' }}>
+            <div className="h-full w-[2px] rounded bg-zinc-100 shadow-[0_0_6px_rgba(255,255,255,0.5)]" />
+          </div>
+          <div className="absolute -translate-x-1/2 whitespace-nowrap rounded bg-zinc-100 px-1.5 py-px text-[9px] font-bold text-zinc-950" style={{ left: `${Math.min(Math.max(pos(props.spot), 0), 100)}%`, bottom: '-2px' }}>
+            SPOT {fmt(props.spot)}
+          </div>
+          {/* baseline */}
+          <div className="absolute bottom-0 left-0 right-0 h-px bg-zinc-800" />
+        </div>
+        <div className="mt-1 flex justify-between text-[8px] tabular-nums text-zinc-600">
+          <span>{fmt(lo)}</span>
+          <span>{fmt(hi)}</span>
+        </div>
+      </div>
+    );
+  },
+
   ResearchDigest: ({ props }: { props: { title: string; summary: string; findings?: Array<string | { title: string; detail: string }> | null; sources: Array<{ label: string; url: string }>; engine?: string | null } }) => (
     <div className="rounded-md border border-zinc-800/60 bg-zinc-950/40 p-2.5">
       <div className="flex items-center gap-1.5">

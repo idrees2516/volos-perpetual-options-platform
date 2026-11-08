@@ -14,6 +14,7 @@ import { streamText, convertToCoreMessages } from 'ai';
 import { zaiModel, ORCHESTRATOR_SYSTEM, dispatchAgentTool, loadStrategyTool } from '@/lib/ai/agents';
 import { marketTools } from '@/lib/ai/agent-tools';
 import { webIntelTools } from '@/lib/ai/web-intel-tools';
+import { backquantTools, backquantSystemPrompt } from '@/lib/ai/backquant-tools';
 import { renderCardTool } from '@/lib/cards/render-card-tool';
 import { cardsSystemPrompt } from '@/lib/cards/catalog';
 import { formatCopilotContext, type CopilotContextSnapshot } from '@/lib/copilot-context';
@@ -34,11 +35,13 @@ export async function POST(req: Request) {
     const messages = Array.isArray(body.messages) ? body.messages : [];
 
     // Ground the orchestrator in the user's live terminal context, the web
-    // research guide and the generative-UI card catalog vocabulary.
+    // research guide, the BackQuant data layer and the generative-UI card
+    // catalog vocabulary.
     const contextBlock = body.context ? formatCopilotContext(body.context) : '';
     const system = [
       ORCHESTRATOR_SYSTEM,
       WEB_RESEARCH_GUIDE,
+      backquantSystemPrompt(),
       cardsSystemPrompt(),
       contextBlock,
     ]
@@ -52,11 +55,12 @@ export async function POST(req: Request) {
       tools: {
         ...marketTools,
         ...webIntelTools,
+        ...backquantTools,
         render_card: renderCardTool,
         dispatch_agent: dispatchAgentTool,
         load_strategy: loadStrategyTool,
       },
-      maxSteps: 16,
+      maxSteps: 20,
       temperature: 0.4,
       onFinish: ({ usage }) => {
         console.log(
