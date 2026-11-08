@@ -18,6 +18,7 @@ import { TopBar, type ViewId } from '@/components/terminal/topbar';
 import { Workbench, useRailHotkeys } from '@/components/terminal/workbench';
 import { StrategiesView } from '@/components/terminal/strategies/strategies-view';
 import { GammaLabView } from '@/components/terminal/gamma-lab/gamma-lab-view';
+import { BackQuantView } from '@/components/terminal/backquant/backquant-view';
 import { ChainView } from '@/components/terminal/chain-view';
 import { TradeView } from '@/components/terminal/trade-view';
 import { PaperView } from '@/components/terminal/paper-view';
@@ -26,7 +27,7 @@ import { useCopilot } from '@/stores/copilot-store';
 import { rehydrateStrategy } from '@/stores/strategy-store';
 import { usePersistedFlag } from '@/hooks/use-persisted-flag';
 
-const VALID_VIEWS: ViewId[] = ['strategies', 'gamma', 'chain', 'trade', 'paper'];
+const VALID_VIEWS: ViewId[] = ['strategies', 'gamma', 'backquant', 'chain', 'trade', 'paper'];
 
 function Terminal() {
   const [view, setView] = useState<ViewId>('strategies');
@@ -69,6 +70,7 @@ function Terminal() {
         >
           {view === 'strategies' && <StrategiesView onOpenTrade={() => setView('trade')} />}
           {view === 'gamma' && <GammaLabView />}
+          {view === 'backquant' && <BackQuantView />}
           {view === 'chain' && <ChainView onOpenBuilder={() => setView('strategies')} />}
           {view === 'trade' && <TradeView onOpenBuilder={() => setView('strategies')} />}
           {view === 'paper' && <PaperView />}

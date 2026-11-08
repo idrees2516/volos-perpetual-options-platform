@@ -70,3 +70,11 @@ TODO
 
 # paper-desk runtime account state
 /data/
+
+# local research/ops artifacts (not part of the app)
+scripts/gh_pr.py
+scripts/land_pr_chain.py
+scripts/bq_schemas.py
+scripts/bq_endpoints.txt
+scripts/bq_openapi_summary.py
+scripts/openapi-v2.json
