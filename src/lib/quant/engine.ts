@@ -75,16 +75,23 @@ function gexLevels(rows: OptionRow[], strikes: StrikeAgg[]): GexLevels {
   const putGex = strikes.reduce((s, a) => s + a.putGex, 0);
   const total = callGex - putGex;
 
-  // HVL: interpolated zero-crossing of the cumulative net GEX curve
+  // HVL: zero-crossings of the cumulative net GEX curve; use the crossing
+  // NEAREST the forward — deep-wing crossings are noise when net GEX ≈ 0.
   let hvl: number | null = null;
   let cum = 0;
   let prev: { k: number; cum: number } | null = null;
+  const ref = strikes.length ? rows[0]?.forward ?? 0 : 0;
+  let bestDist = Infinity;
   for (const a of strikes) {
     cum += a.netGex;
     if (prev && prev.cum < 0 && cum >= 0) {
       const t = Math.abs(prev.cum) / (Math.abs(prev.cum) + Math.abs(cum) || 1);
-      hvl = prev.k + t * (a.strike - prev.k);
-      break;
+      const cross = prev.k + t * (a.strike - prev.k);
+      const dist = ref > 0 ? Math.abs(cross - ref) : 0;
+      if (dist < bestDist) {
+        bestDist = dist;
+        hvl = cross;
+      }
     }
     prev = { k: a.strike, cum };
   }
@@ -430,8 +437,10 @@ export async function getChainSnapshot(symbol: string, maxAgeMs = 4000): Promise
       forward: F,
       delta: g.delta,
       gamma: g.gamma,
-      vega: (g.vega / 100) * F,
-      thetaUsd: (g.theta / 365) * F,
+      // b76 vega/theta are ALREADY USD-denominated per contract (F·φ·√T per
+      // 1.00σ; −F·φ·σ/2√T per year) — convert to per-vol-pt / per-day only.
+      vega: g.vega / 100,
+      thetaUsd: g.theta / 365,
       vanna: g.vanna,
       charm: g.charm,
       gexUsd1pct: gex,

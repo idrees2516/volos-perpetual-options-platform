@@ -442,9 +442,10 @@ export async function decisionBrief(symbol: QuantSymbol): Promise<DecisionBrief>
   // ══ STRUCTURE GROUP ═════════════════════════════════════════════════════
   if (snap) {
     const em = snap.expectedMoves[0];
-    if (em && Number.isFinite(perp.rv30Pct) && em.oneSigmaPct > 0) {
+    const rv30Ref = snap.iv30vsRv30.rv30Pct; // Deribit 30d daily realized
+    if (em && Number.isFinite(rv30Ref) && em.oneSigmaPct > 0) {
       const emAnn = em.oneSigmaPct / Math.sqrt(Math.max(em.dte, 0.2) / 365);
-      const ratio = emAnn / (perp.rv30Pct > 0 ? perp.rv30Pct : NaN);
+      const ratio = emAnn / (rv30Ref > 0 ? rv30Ref : NaN);
       if (Number.isFinite(ratio)) {
         signals.push({
           id: 'em-vs-rv',
@@ -453,8 +454,8 @@ export async function decisionBrief(symbol: QuantSymbol): Promise<DecisionBrief>
           state: ratio >= 1.6 ? 'bearish' : ratio <= 0.9 ? 'bullish' : 'neutral',
           strength: Math.min(70, Math.abs(ratio - 1.2) * 80),
           weight: 0.06,
-          headline: `1σ ${em.oneSigmaPct.toFixed(2)}% by ${em.expiry} (${em.dte.toFixed(0)}d) vs RV30 ${perp.rv30Pct.toFixed(1)}%`,
-          detail: `The market prices a ${em.oneSigmaPct.toFixed(2)}% 1σ move by ${em.expiry}; annualized that is ${emAnn.toFixed(0)}% vs ${perp.rv30Pct.toFixed(1)}% realized — implied range runs ${ratio >= 1 ? `${((ratio - 1) * 100).toFixed(0)}% richer` : `${((1 - ratio) * 100).toFixed(0)}% cheaper`} than spot has actually moved.`,
+          headline: `1σ ${em.oneSigmaPct.toFixed(2)}% by ${em.expiry} (${em.dte.toFixed(0)}d) vs RV30 ${rv30Ref.toFixed(1)}%`,
+          detail: `The market prices a ${em.oneSigmaPct.toFixed(2)}% 1σ move by ${em.expiry}; annualized that is ${emAnn.toFixed(0)}% vs ${rv30Ref.toFixed(1)}% realized — implied range runs ${ratio >= 1 ? `${((ratio - 1) * 100).toFixed(0)}% richer` : `${((1 - ratio) * 100).toFixed(0)}% cheaper`} than spot has actually moved.`,
           action: ratio >= 1.6 ? 'Range is over-priced: iron condor / short strangle at the ±1σ strikes.' : ratio <= 0.9 ? 'Range is under-priced: straddle/strangle buys the cheap move.' : 'Priced range is fair vs realized — no range edge.',
         });
       }

@@ -166,32 +166,27 @@ export async function historicalVolatility(currency: string, maxAgeMs = 30 * 60_
   );
 }
 
-/** DVOL volatility index (BTC-DVOL / ETH-DVOL): current + recent trade series. */
-export async function dvolSnapshot(currency: string, maxAgeMs = 30_000): Promise<{ currentPct: number; changePct: number | null; series: { ts: number; v: number }[] } | null> {
-  const tick = await deribitGet<{ last_price?: number; mark_price?: number; current_price?: number; stats?: { price_change?: number }; timestamp: number }>(
-    '/public/ticker',
-    { instrument_name: `${currency}-DVOL` },
+/** DVOL volatility index (BTC/ETH): current + hourly series (2 days). */
+export async function dvolSnapshot(currency: string, maxAgeMs = 60_000): Promise<{ currentPct: number; changePct: number | null; series: { ts: number; v: number }[] } | null> {
+  const key = `dvol:${currency}`;
+  const hit = cache.get(key) as CacheEntry<{ currentPct: number; changePct: number | null; series: { ts: number; v: number }[] }> | undefined;
+  if (hit && Date.now() - hit.ts < maxAgeMs) return hit.v;
+  const end = Date.now();
+  const start = end - 2 * 864e5;
+  const r = await deribitGet<{ data: [number, number, number, number, number][] } | null>(
+    '/public/get_volatility_index_data',
+    { currency, start_timestamp: Math.floor(start / 1000), end_timestamp: Math.floor(end / 1000), resolution: 3600 },
   ).catch(() => null);
-  if (!tick) return null;
-  const current = tick.current_price ?? tick.last_price ?? tick.mark_price;
-  if (!current || !Number.isFinite(current)) return null;
-  const cachedSeries = cache.get(`dvol:${currency}`) as CacheEntry<{ ts: number; v: number }[]> | undefined;
-  let series = cachedSeries?.v ?? [];
-  const trades = await deribitGet<{ trades: { timestamp: number; price: number }[] } | null>(
-    '/public/get_last_trades_by_instrument',
-    { instrument_name: `${currency}-DVOL`, count: 200 },
-  ).catch(() => null);
-  if (trades?.trades?.length) {
-    const seen = new Set(series.map((p) => p.ts));
-    const fresh = trades.trades.map((t) => ({ ts: t.timestamp, v: t.price })).filter((p) => !seen.has(p.ts));
-    series = [...series, ...fresh].sort((a, b) => a.ts - b.ts).slice(-600);
-    cache.set(`dvol:${currency}`, { v: series, ts: Date.now() });
-  }
-  return {
-    currentPct: current,
-    changePct: tick.stats?.price_change ?? null,
-    series,
-  };
+  if (!r?.data?.length) return null;
+  // rows: [ts(ms), open, high, low, close] — take closes
+  const series = r.data.filter((d) => Number.isFinite(d[4])).map((d) => ({ ts: d[0], v: d[4] }));
+  if (!series.length) return null;
+  const current = series[series.length - 1].v;
+  const dayAgo = series.find((p) => p.ts >= end - 864e5) ?? series[0];
+  const changePct = dayAgo.v > 0 ? ((current - dayAgo.v) / dayAgo.v) * 100 : null;
+  const out = { currentPct: current, changePct, series };
+  cache.set(key, { v: out, ts: Date.now() });
+  return out;
 }
 
 export interface InstrumentMeta {

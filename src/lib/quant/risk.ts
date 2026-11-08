@@ -239,8 +239,9 @@ export async function portfolioRisk(): Promise<PortfolioRisk> {
           const sigma = Math.max(0.05, row.iv + dVol / 100);
           const T = Math.max(leg.expiryTs - now, 15 * 60_000) / YEAR_MS;
           const v = leg.kind === 'call' ? b76Call(F, leg.strike, T, sigma) : b76Put(F, leg.strike, T, sigma);
-          // P&L in USD: signedQty × (V' − currentMid) × currentSpot (premium in underlying)
-          pnlUsd += leg.signedQty * (v - row.mid) * spot;
+          // v is USD per contract (b76 F-units); the entry mark is in
+          // underlying units → its scenario USD value is mark × S.
+          pnlUsd += leg.signedQty * (v - row.mid * S);
         }
         return Math.round(pnlUsd);
       }),
@@ -348,16 +349,14 @@ export async function whatIf(legsIn: WhatIfLeg[]): Promise<WhatIfResult> {
     const symbol = legs[0].symbol;
     const snap = chains.get(symbol)!;
     const spot = snap.spot;
-    const earliestTs = Math.min(...legs.map((l) => snap.rows.find((r) => r.instrument === l.instrument)?.expiryTs ?? Infinity));
-    const T = Math.max(earliestTs - Date.now(), 15 * 60_000) / YEAR_MS;
     for (let i = -30; i <= 30; i++) {
       const S = spot * (1 + i / 100);
       let pnl = 0;
       for (const l of legs) {
-        const row = snap.rows.find((r) => r.instrument === l.instrument)!;
-        const F = row.forward * (S / spot);
-        const v = l.kind === 'call' ? b76Call(F, l.strike, T, row.iv) : b76Put(F, l.strike, T, row.iv);
-        pnl += l.signedQty * (v - l.mark) * spot;
+        // intrinsic at expiry (the classic payoff chart); entry premium
+        // (mark, underlying units) is worth mark × S at expiry.
+        const v = l.kind === 'call' ? Math.max(S - l.strike, 0) : Math.max(l.strike - S, 0);
+        pnl += l.signedQty * (v - l.mark * S);
       }
       payoff.push({ spot: Math.round(S), pnlUsd: Math.round(pnl) });
     }

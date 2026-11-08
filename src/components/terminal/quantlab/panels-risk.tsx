@@ -10,7 +10,6 @@
 
 import React, { useMemo, useState } from 'react';
 import { fmtUsd, fmtNum } from '@/lib/format';
-import { b76Call, b76Put } from '@/lib/quant/math';
 import { useQuant, useAgeLabel } from './use-quant';
 import { DataTable, EmptyNote, ErrNote, LiveDot, Panel, Pill, Segmented, StatGrid } from './quant-viz';
 import { AnimatedNumber, CrosshairChart, ScenarioHeatmap } from './viz-deep';
@@ -222,22 +221,20 @@ export function RiskPanel({ symbol: focusSymbol }: { symbol: string }) {
 // ── per-position drill-down ─────────────────────────────────────────────────
 
 function PositionDrill({ leg }: { leg: RiskLeg }) {
-  const spotRef = leg.mark > 0 ? leg.strike : leg.strike; // strike-anchored grid
+  const spotRef = leg.strike; // strike-anchored grid
   const payoff = useMemo(() => {
-    const T = Math.max(leg.expiryTs - Date.now(), 3600_000) / (365 * 864e5);
     const pts: { x: number; y: number }[] = [];
     const lo = spotRef * 0.7;
     const hi = spotRef * 1.3;
     for (let i = 0; i <= 60; i++) {
       const S = lo + ((hi - lo) * i) / 60;
-      const v = leg.kind === 'call' ? b76Call(S, leg.strike, T, leg.iv > 0 ? leg.iv : 0.5) : b76Put(S, leg.strike, T, leg.iv > 0 ? leg.iv : 0.5);
-      const pnl = leg.signedQty * (v - leg.mark) * S;
+      // intrinsic at expiry; the entry mark (underlying units) is worth mark × S
+      const v = leg.kind === 'call' ? Math.max(S - leg.strike, 0) : Math.max(leg.strike - S, 0);
+      const pnl = leg.signedQty * (v - leg.mark * S);
       pts.push({ x: S, y: pnl });
     }
     return pts;
   }, [leg]);
-  const pnlNow = payoff.length ? 0 : 0;
-  void pnlNow;
   return (
     <Panel
       title={`Order Drill-Down · ${leg.instrument}`}

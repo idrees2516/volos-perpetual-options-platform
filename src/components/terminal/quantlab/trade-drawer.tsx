@@ -10,7 +10,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { fmtUsd, fmtNum } from '@/lib/format';
-import { b76Call, b76Put } from '@/lib/quant/math';
 import { useQuant } from './use-quant';
 import { EmptyNote, ErrNote, LiveDot, Pill } from './quant-viz';
 import { CrosshairChart } from './viz-deep';
@@ -90,20 +89,20 @@ export function TradeDrawer({ target, onClose, onScenario }: { target: InspectTa
     return { rank: Math.round(rank * 100), atmIv, diff: quote.ivPct - atmIv };
   }, [chain.data, quote]);
 
-  // payoff if the user takes this trade at the live mark
+  // payoff at expiry if the user takes this trade at the live mark
   const payoff = useMemo(() => {
     if (!quote || !target || !(spot > 0)) return [];
-    const T = Math.max(dte, 0.05) / 365;
     const signed = side === 'buy' ? 1 : -1;
     const q = Math.max(0.1, Number(qty) || 1);
     const pts: { x: number; y: number }[] = [];
     for (let i = 0; i <= 50; i++) {
       const S = spot * (0.75 + (i / 50) * 0.5);
-      const v = target.kind === 'call' ? b76Call(S, target.strike, T, quote.ivPct / 100) : b76Put(S, target.strike, T, quote.ivPct / 100);
-      pts.push({ x: S, y: signed * q * (v - quote.mid) * S });
+      // intrinsic at expiry; entry premium (underlying units) worth mark × S
+      const v = target.kind === 'call' ? Math.max(S - target.strike, 0) : Math.max(target.strike - S, 0);
+      pts.push({ x: S, y: signed * q * (v - quote.mid * S) });
     }
     return pts;
-  }, [quote, target, spot, dte, side, qty]);
+  }, [quote, target, spot, side, qty]);
 
   const takeQty = Math.max(0.1, Number(qty) || 1);
   const premiumUsd = quote ? quote.mid * takeQty * spot : 0;

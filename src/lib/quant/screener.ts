@@ -11,6 +11,8 @@
 
 import { getChainSnapshot } from './engine';
 import { getPerpBundle } from './perps';
+import { candles } from './markets';
+import { realizedVol } from './math';
 import { ensureTape, tapeAggregates } from './tape';
 import { decisionBrief } from './signals';
 import type { ChainSnapshot, QuantSymbol } from './types';
@@ -101,16 +103,20 @@ export async function marketScreener(): Promise<ScreenerResult> {
 async function oneRow(symbol: QuantSymbol): Promise<ScreenerRow | null> {
   try {
     const hasOpts = symbol === 'BTC' || symbol === 'ETH';
-    const [perp, brief] = await Promise.all([
+    const [perp, brief, dailyCandles] = await Promise.all([
       getPerpBundle(symbol),
       decisionBrief(symbol),
+      candles(symbol, '1d', 31).catch(() => [] as { c: number }[]),
     ]);
-    const candles = perp.candles.map((c) => ({ ts: c.ts, c: c.c }));
-    const last = candles.at(-1)?.c ?? perp.spot;
-    const dayAgoIdx = Math.max(0, candles.length - 288); // 5m bars
-    const twoDayAgoIdx = 0;
-    const chg24h = candles.length > 288 ? ((last - candles[dayAgoIdx].c) / candles[dayAgoIdx].c) * 100 : NaN;
-    const chg48h = candles.length > 2 ? ((last - candles[twoDayAgoIdx].c) / candles[twoDayAgoIdx].c) * 100 : NaN;
+    // true 30d realized vol (percent) from daily candles; fallback to the perp
+    // bundle's shorter-window estimate if daily candles are unavailable
+    const rv30 = dailyCandles.length >= 10 ? realizedVol(dailyCandles.map((c) => c.c)) * 100 : perp.rv30Pct;
+    const candles5m = perp.candles.map((c) => ({ ts: c.ts, c: c.c }));
+    const last = candles5m.at(-1)?.c ?? perp.spot;
+    // bundle exposes the trailing 288 5m bars = 24h
+    const chg24h = candles5m.length >= 288 ? ((last - candles5m[0].c) / candles5m[0].c) * 100 : NaN;
+    const dailyCloses = dailyCandles.map((c) => c.c);
+    const chg48h = dailyCloses.length >= 3 ? ((dailyCloses[dailyCloses.length - 1] - dailyCloses[dailyCloses.length - 3]) / dailyCloses[dailyCloses.length - 3]) * 100 : Number.isFinite(chg24h) ? chg24h : 0;
 
     let snap: ChainSnapshot | null = null;
     if (hasOpts) {
@@ -127,12 +133,12 @@ async function oneRow(symbol: QuantSymbol): Promise<ScreenerRow | null> {
       spot: perp.spot,
       chg48hPct: Number.isFinite(chg48h) ? chg48h : 0,
       chg24hPct: Number.isFinite(chg24h) ? chg24h : 0,
-      spark: candles.slice(-96).map((c) => c.c),
+      spark: candles5m.slice(-96).map((c) => c.c),
       perpOiUsd: perp.oiUsdTotal,
       fundingApr: perp.fundingApr,
       fundingPctile: brief.context.fundingPctile,
       basisPct: perp.perpBasisPct * 100,
-      rv30Pct: perp.rv30Pct,
+      rv30Pct: rv30,
       options: Boolean(snap),
       iv30Pct: snap ? snap.iv30vsRv30.iv30Pct : null,
       vrpPct: snap ? snap.iv30vsRv30.vrpPct : null,
