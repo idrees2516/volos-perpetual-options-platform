@@ -252,7 +252,7 @@ export async function decisionBrief(symbol: QuantSymbol): Promise<DecisionBrief>
         weight: 0.1,
         headline: `VRP ${vrp >= 0 ? '+' : ''}${vrp.toFixed(1)} pts (IV ${snap.iv30vsRv30.iv30Pct.toFixed(1)}% vs RV ${snap.iv30vsRv30.rv30Pct.toFixed(1)}%)`,
         detail: `${vrp >= 0 ? `Implied is running ${vrp.toFixed(1)} points ABOVE realized — the market pays a premium for insurance that has not (yet) been needed.` : `Implied is ${Math.abs(vrp).toFixed(1)} points BELOW realized — options are priced UNDER how the market actually moved. This is statistically unusual and mean-reverts.`}`,
-        action: vrp >= 2.5 ? 'Sell the richness: credit structures / short strangles with hard stops at the flip level.' : vrp <= -1 ? 'Buy realized before it reprices: long straddle/strangle, or long front / short back calendar.',
+        action: vrp >= 2.5 ? 'Sell the richness: credit structures / short strangles with hard stops at the flip level.' : vrp <= -1 ? 'Buy realized before it reprices: long straddle/strangle, or long front / short back calendar.' : 'VRP is mid-range — vol pricing is fair, no statistical edge either way.',
       });
     }
 
@@ -292,7 +292,7 @@ export async function decisionBrief(symbol: QuantSymbol): Promise<DecisionBrief>
         weight: 0.07,
         headline: `RR25 ${rr25.toFixed(1)} pts · ${rr25 > 4.5 ? 'puts rich' : rr25 < 1.5 ? 'calls bid / puts cheap' : 'normal'}`,
         detail: `Front-expiry 25Δ risk reversal (${front.expiry}). ${rr25 >= 4.5 ? `Downside protection is bid — hedgers dominate. Historically extreme put skew marks local bottoms when spot stabilizes.` : rr25 <= 1.5 ? `Upside calls are favored vs puts — greed positioning; cheap crash insurance while it lasts.` : 'Skew near its typical mid.'}`,
-        action: rr25 >= 4.5 ? 'Skew harvest: sell the rich put wing (risk reversal / put credit spread), keep size small — skew can go richer.' : rr25 <= 1.5 ? 'Cheap tail insurance: buy the neglected put wing or 1x2 call spreads while calls are the bid side.',
+        action: rr25 >= 4.5 ? 'Skew harvest: sell the rich put wing (risk reversal / put credit spread), keep size small — skew can go richer.' : rr25 <= 1.5 ? 'Cheap tail insurance: buy the neglected put wing or 1x2 call spreads while calls are the bid side.' : 'Skew mid-range — no wing is statistically mispriced; trade the body if anything.',
       });
     }
   }
@@ -434,7 +434,7 @@ export async function decisionBrief(symbol: QuantSymbol): Promise<DecisionBrief>
         weight: 0.05,
         headline: `PCR ${pcr.toFixed(2)} · ${pcr >= 1 ? 'puts ≥ calls' : 'calls ≥ puts'} in OI`,
         detail: `${pcr >= 1.15 ? 'Unusually put-heavy open interest — either genuine hedging demand (bearish) or crowded insurance at a bottom (contrarian bullish).' : pcr <= 0.55 ? 'Extremely call-heavy positioning — greed; downside is unhedged.' : 'Balanced options positioning.'}`,
-        action: pcr <= 0.55 ? 'With calls this crowded, own convexity via put spreads (cheap insurance against a de-greed event).' : pcr >= 1.15 ? 'Heavy hedging often precedes bottoms — combine with IV rank before fading.',
+        action: pcr <= 0.55 ? 'With calls this crowded, own convexity via put spreads (cheap insurance against a de-greed event).' : pcr >= 1.15 ? 'Heavy hedging often precedes bottoms — combine with IV rank before fading.' : 'PCR is mid-range — positioning gives no edge.',
       });
     }
   }
@@ -455,7 +455,7 @@ export async function decisionBrief(symbol: QuantSymbol): Promise<DecisionBrief>
           weight: 0.06,
           headline: `1σ ${em.oneSigmaPct.toFixed(2)}% by ${em.expiry} (${em.dte.toFixed(0)}d) vs RV30 ${perp.rv30Pct.toFixed(1)}%`,
           detail: `The market prices a ${em.oneSigmaPct.toFixed(2)}% 1σ move by ${em.expiry}; annualized that is ${emAnn.toFixed(0)}% vs ${perp.rv30Pct.toFixed(1)}% realized — implied range runs ${ratio >= 1 ? `${((ratio - 1) * 100).toFixed(0)}% richer` : `${((1 - ratio) * 100).toFixed(0)}% cheaper`} than spot has actually moved.`,
-          action: ratio >= 1.6 ? 'Range is over-priced: iron condor / short strangle at the ±1σ strikes.' : ratio <= 0.9 ? 'Range is under-priced: straddle/strangle buys the cheap move.',
+          action: ratio >= 1.6 ? 'Range is over-priced: iron condor / short strangle at the ±1σ strikes.' : ratio <= 0.9 ? 'Range is under-priced: straddle/strangle buys the cheap move.' : 'Priced range is fair vs realized — no range edge.',
         });
       }
     }

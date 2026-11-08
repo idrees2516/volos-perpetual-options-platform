@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface EndpointSpec {
-  method: 'GET';
+  method: 'GET' | 'POST';
   path: string;
   group: string;
   summary: string;

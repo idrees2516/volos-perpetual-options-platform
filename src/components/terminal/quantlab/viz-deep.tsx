@@ -95,7 +95,7 @@ export interface Surface3DProps {
 export function Surface3D({ xLabels, yLabels, values, height = 300, zLabel = '', formatValue = (v) => fmtNum(v, 1), diverging = true, yHighlight = null }: Surface3DProps) {
   const [yaw, setYaw] = useState(0.62);
   const [pitch, setPitch] = useState(0.5);
-  const [probe, setProbe] = useState<{ x: number; y: number; v: number } | null>(null);
+  const [probe, setProbe] = useState<{ xi: number; yi: number; v: number } | null>(null);
   const dragRef = useRef<{ x: number; y: number; yaw: number; pitch: number } | null>(null);
 
   const nx = xLabels.length;
@@ -194,7 +194,7 @@ export function Surface3D({ xLabels, yLabels, values, height = 300, zLabel = '',
               fillOpacity={diverging ? 0.82 : 0.9}
               stroke={hi ? '#ffffff' : rowHi ? 'rgba(45,212,191,0.9)' : 'rgba(9,9,11,0.5)'}
               strokeWidth={hi ? 1.6 : rowHi ? 0.8 : 0.3}
-              onPointerEnter={() => setProbe({ x: c.xi, y: c.yi, v: c.v })}
+              onPointerEnter={() => setProbe({ xi: c.xi, yi: c.yi, v: c.v })}
               onPointerLeave={() => setProbe(null)}
               style={{ pointerEvents: 'stroke' }}
             />
@@ -226,7 +226,7 @@ export function Surface3D({ xLabels, yLabels, values, height = 300, zLabel = '',
       </svg>
       {probe && (
         <div className="pointer-events-none absolute left-2 top-2 rounded-md border border-zinc-700/60 bg-zinc-950/90 px-2 py-1 font-mono text-[9px] text-zinc-200 shadow-lg">
-          <span className="text-zinc-500">{xLabels[probe.x]}</span> · <span className="text-zinc-400">{yLabels[probe.y]}</span> →{' '}
+          <span className="text-zinc-500">{xLabels[probe.xi]}</span> · <span className="text-zinc-400">{yLabels[probe.yi]}</span> →{' '}
           <span className="font-bold text-teal-300">{formatValue(probe.v)}</span>
         </div>
       )}
@@ -502,6 +502,8 @@ export interface ConeWindowView {
   p50Pct: number;
   p75Pct: number;
   maxPct: number;
+  cheap?: boolean;
+  rich?: boolean;
 }
 
 export function VolCone({ windows, ivPct }: { windows: ConeWindowView[]; ivPct: number | null }) {

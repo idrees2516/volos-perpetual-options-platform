@@ -159,7 +159,7 @@ const COLUMNS: { key: keyof Row; label: string; render: (r: Row) => React.ReactN
       ),
   },
   {
-    key: 'liq',
+    key: 'liqAbovePct',
     label: 'liq magnets',
     render: (r) => (
       <span className="font-mono text-[8.5px] text-zinc-400">
@@ -168,8 +168,9 @@ const COLUMNS: { key: keyof Row; label: string; render: (r: Row) => React.ReactN
     ),
   },
   {
-    key: 'regime',
+    key: 'regimeScore',
     label: 'regime',
+    num: (r) => r.regimeScore,
     render: (r) => (
       <span className="flex items-center justify-end gap-1.5">
         <span className="relative h-1.5 w-10 overflow-hidden rounded-full bg-zinc-800">

@@ -230,10 +230,14 @@ export function TradeDrawer({ target, onClose, onScenario }: { target: InspectTa
                 <p>premium: <span className="text-zinc-100">{fmtUsd(t.from.premiumUsd, { compact: true })}</span></p>
                 <p>iv at print: {t.from.ivPct != null ? `${t.from.ivPct.toFixed(1)}%` : '—'}</p>
                 {t.from.ts != null && <p className="col-span-2 text-zinc-500">{new Date(t.from.ts).toLocaleString()}</p>}
-                {quote && t.from.ivPct != null && (
+                {quote && t.from.ivPct != null && Number.isFinite(t.from.premiumUsd) && (t.from.amount ?? 0) > 0 && spot > 0 && (
                   <p className="col-span-2 text-zinc-500">
                     iv since print: {(quote.ivPct - t.from.ivPct >= 0 ? '+' : '') + (quote.ivPct - t.from.ivPct).toFixed(1)} pts ·{' '}
-                    mark move {((quote.mark / (t.from.premiumUsd / Math.max(t.from.amount ?? 1, 1e-9) / spot) - 1) * 100).toFixed(1) > 0 ? 'in the taker\'s favor' : 'against the taker'}
+                    {(() => {
+                      const takerPrice = t.from!.premiumUsd! / Math.max(t.from!.amount ?? 1, 1e-9) / spot;
+                      const markMovePct = (quote.mark / takerPrice - 1) * 100;
+                      return `${markMovePct >= 0 ? '+' : ''}${markMovePct.toFixed(1)}% mark move ${markMovePct >= 0 ? "— in the taker's favor" : '— against the taker'}`;
+                    })()}
                   </p>
                 )}
               </div>

@@ -13,7 +13,7 @@ import { getChainSnapshot } from './engine';
 import { getPerpBundle } from './perps';
 import { ensureTape, tapeAggregates } from './tape';
 import { decisionBrief } from './signals';
-import type { QuantSymbol } from './types';
+import type { ChainSnapshot, QuantSymbol } from './types';
 
 export interface ScreenerRow {
   symbol: string;
@@ -73,7 +73,7 @@ export async function marketScreener(): Promise<ScreenerResult> {
   const pick = (label: string, key: keyof ScreenerRow, dir: 'max' | 'min', format: (v: number) => string) => {
     const cand = rows.filter((r) => Number.isFinite(Number(r[key])));
     if (!cand.length) return null;
-    const best = cand.reduce((a, b) => (dir === 'max' ? (Number(b[key]) > Number(a[key]) ? b : a) : Number(b[key]) < Number(a[key]) ? b : a)));
+    const best = cand.reduce((a, b) => (dir === 'max' ? (Number(b[key]) > Number(a[key]) ? b : a) : Number(b[key]) < Number(a[key]) ? b : a));
     return { label, symbol: best.symbol, value: Number(best[key]), format: format(Number(best[key])) };
   };
   const rankings = [
@@ -112,7 +112,7 @@ async function oneRow(symbol: QuantSymbol): Promise<ScreenerRow | null> {
     const chg24h = candles.length > 288 ? ((last - candles[dayAgoIdx].c) / candles[dayAgoIdx].c) * 100 : NaN;
     const chg48h = candles.length > 2 ? ((last - candles[twoDayAgoIdx].c) / candles[twoDayAgoIdx].c) * 100 : NaN;
 
-    let snap = null;
+    let snap: ChainSnapshot | null = null;
     if (hasOpts) {
       snap = await getChainSnapshot(symbol, 30_000).catch(() => null);
       if (snap) ensureTape(symbol);

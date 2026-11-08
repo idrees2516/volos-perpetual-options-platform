@@ -170,7 +170,7 @@ export async function portfolioRisk(): Promise<PortfolioRisk> {
     const spotRef = snap.spot;
     const sigma = row.iv > 0 ? row.iv : 0.5;
     // break-even: entry-adjusted underlying price where P&L = 0
-    const be = pos.side === 'long' ? pos.strike + (pos.kind === 'call' ? pos.entry : -pos.entry) : pos.strike + (pos.kind === 'call' ? pos.entry : -pos.entry);
+    const be = pos.strike + (pos.kind === 'call' ? pos.entryPrice : -pos.entryPrice);
     const distSig = Math.abs(be - spotRef) / (spotRef * sigma * Math.sqrt(T));
     const iso = new Date(pos.expiryMs).toISOString().slice(0, 10);
     legs.push({
