@@ -15,6 +15,12 @@ export interface EndpointSpec {
 }
 
 export const ENDPOINTS: EndpointSpec[] = [
+  // ── decision support ───────────────────────────────────────────────────────
+  { method: 'GET', path: '/api/quant/signals', group: 'Decision Support', summary: 'THE decision brief: live signal battery (gamma regime, IV rank, VRP, skew, term, funding, OI, CVD, tape, PCR, liquidation magnets), composite regime score, strategy playbook with concrete strikes, and a watchlist of the levels that matter', params: [{ name: 'symbol', desc: 'BTC | ETH | SOL', example: 'BTC' }] },
+  { method: 'GET', path: '/api/quant/screener', group: 'Decision Support', summary: 'Whole-market scanner: every symbol side-by-side (momentum, crowding, vol pricing, gamma regime, flow, liq magnets) with cross-symbol z-scores, leaderboards and regime scores', params: [] },
+  { method: 'GET', path: '/api/quant/risk', group: 'Decision Support', summary: 'Portfolio risk on the LIVE paper account: per-position greeks, portfolio totals, full spot×vol scenario P&L (Black-76 repriced), break-evens, working-order fill odds, concentration', params: [] },
+  { method: 'POST', path: '/api/quant/risk', group: 'Decision Support', summary: 'What-if structure analysis: hypothetical legs → instant greeks, premium, payoff curve and break-evens from the live chain', params: [{ name: 'body', desc: '{ legs: [{symbol, expiry, strike, kind, side, qty}] }' }] },
+  { method: 'GET', path: '/api/quant/vol', group: 'Decision Support', summary: 'Vol-cycle brief: IV percentile/rank from our own snapshot history, realized-vol cone (3/7/14/30/60/90d windows vs own distribution), DVOL index + series, IV-vs-DVOL-vs-RV triangle', params: [{ name: 'symbol', desc: 'BTC | ETH', example: 'BTC' }] },
   // ── positioning & levels ────────────────────────────────────────────────────
   { method: 'GET', path: '/api/quant/brief', group: 'Positioning', summary: 'One-call market brief: spot vs dealer-gamma levels, IV/VRP, expected move, perps, 12h tape, front expiry', params: [{ name: 'symbol', desc: 'BTC | ETH | SOL', example: 'BTC' }] },
   { method: 'GET', path: '/api/quant/gex', group: 'Positioning', summary: 'GEX suite: dealer levels (HVL/call wall/put support/max pain), strike profile, per-expiry GEX, strike×expiry heatmap, strike ladder, multi-symbol comparison', params: [{ name: 'symbol', desc: 'BTC | ETH' }, { name: 'view', desc: 'levels | strike | expiry | heatmap | ladder | multi' }], views: ['levels', 'strike', 'expiry', 'heatmap', 'ladder', 'multi'] },
