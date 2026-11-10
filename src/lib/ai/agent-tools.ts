@@ -32,6 +32,9 @@ import {
 } from './market-intel';
 import { getOrderFlowManager } from '@/lib/orderflow/manager';
 import { summarizeLiquidations, liquidationState, bucketLiquidations } from '@/lib/orderflow/derivatives';
+import { buildForecastPanel } from '@/lib/forecast/panel';
+import { DEFAULT_FC_SPECS, Forecaster } from '@/lib/forecast/forecaster';
+import type { FcTargetId } from '@/lib/forecast/types';
 
 import {
   VENUE_IDS,
@@ -1555,6 +1558,172 @@ export const marketTools = {
         iceberg: detail.iceberg,
         verdict: detail.verdict,
       };
+    },
+  }),
+
+  // ── forecast (conformal prediction on flow bars — TimeCopilot-style) ─────────
+
+  forecast_now: tool({
+    description:
+      'Conformal prediction-interval forecast on the order-flow engine\'s flow bars (the TimeCopilot foundationforecast method, built natively on our live data): point forecast + calibrated level bands per horizon step for price, volume, delta, CVD, buy share, prints, open interest or per-venue panels. Returns every model (FlowX/Ensemble native vs conformal_distribution/conformal_error), expected-move readout for price targets, calibration diagnostics and provenance. Use for "where will price be in N minutes", expected move, volume/delta/OI outlook, or any forward-looking band question.',
+    parameters: jsonSchema<{
+      asset: string;
+      target?: string;
+      tf?: string;
+      h?: number;
+      levels?: string;
+      nWindows?: number;
+    }>({
+      type: 'object',
+      properties: {
+        asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'], description: 'Asset to forecast.' },
+        target: {
+          type: 'string',
+          enum: ['close', 'volume', 'delta', 'cvd', 'imbalance', 'trades', 'oi', 'venueVolumeShare', 'venueDelta'],
+          description: 'Series to forecast. Default close (price).',
+        },
+        tf: { type: 'string', enum: ['1m', '5m', '15m', '30m'], description: 'Flow-bar timeframe. Default 1m.' },
+        h: { type: 'number', description: 'Horizon steps ahead (1–120). Default 30.' },
+        levels: { type: 'string', description: 'Interval levels CSV, e.g. "80,95". Default "80,95".' },
+        nWindows: { type: 'number', description: 'Conformal calibration windows W (2–64). Default 10.' },
+      },
+      required: ['asset'],
+    }),
+    execute: async ({ asset, target, tf, h, levels, nWindows }) => {
+      try {
+        const a = (['BTC', 'ETH', 'SOL'] as const).includes(asset as 'BTC') ? (asset as 'BTC') : 'BTC';
+        const tfMs = tf === '5m' ? 300_000 : tf === '15m' ? 900_000 : tf === '30m' ? 1_800_000 : 60_000;
+        const targets = new Set(['close', 'volume', 'delta', 'cvd', 'imbalance', 'trades', 'oi', 'venueVolumeShare', 'venueDelta']);
+        const tgt = (target && targets.has(target) ? target : 'close') as FcTargetId;
+        const hh = Math.max(1, Math.min(120, Number(h) || 30));
+        const lvl = (levels ?? '80,95')
+          .split(',')
+          .map((s) => Number(s.trim()))
+          .filter((v) => Number.isFinite(v) && v > 50 && v < 100);
+        const useLevels = lvl.length ? [...new Set(lvl)].sort((x, y) => x - y) : [80, 95];
+        const W = Math.max(2, Math.min(64, Number(nWindows) || 10));
+
+        const panel = await buildForecastPanel(a, tfMs, tgt, { backfill: 720 });
+        if (!panel.series.length) return { error: 'no series yet — engine warming up, retry shortly' };
+        const specs = DEFAULT_FC_SPECS.map((s) => ({ ...s, nWindows: s.nWindows ?? W }));
+        const out = new Forecaster(specs).forecast(panel, { h: hh, levels: useLevels, nWindows: W });
+
+        const models = out.primary.map((m) => {
+          const last = m.rows[m.rows.length - 1];
+          const widest = useLevels[useLevels.length - 1];
+          const li = last?.levels.find((l) => l.level === widest);
+          return {
+            alias: m.alias,
+            intervals: m.intervals,
+            note: m.note,
+            pointAtH: last ? +last.point.toFixed(4) : null,
+            bandAtH: li && Number.isFinite(li.lo) ? [+li.lo.toFixed(4), +li.hi.toFixed(4)] : null,
+            calibration: m.calibration
+              ? { W: m.calibration.nWindows, ok: m.calibration.ok, required: m.calibration.required, available: m.calibration.available }
+              : null,
+          };
+        });
+        const em = out.primary.find((m) => m.intervals === 'conformal_error') ?? out.primary[0];
+        const lastEm = em.rows[em.rows.length - 1];
+        const liEm = lastEm?.levels.find((l) => l.level === useLevels[useLevels.length - 1]);
+        const point = lastEm?.point ?? NaN;
+
+        return {
+          asset: a,
+          target: tgt,
+          tf,
+          h: hh,
+          levels: useLevels,
+          provenance: panel.provenance,
+          models,
+          expectedMove:
+            liEm && Number.isFinite(liEm.lo) && tgt === 'close'
+              ? {
+                  level: liEm.level,
+                  lo: +liEm.lo.toFixed(1),
+                  hi: +liEm.hi.toFixed(1),
+                  width: +(liEm.hi - liEm.lo).toFixed(1),
+                  widthPct: Number.isFinite(point) && point > 0 ? +(((liEm.hi - liEm.lo) / point) * 100).toFixed(2) : null,
+                  horizonMin: (hh * tfMs) / 60_000,
+                }
+              : null,
+          guidance:
+            'conformal_* models give calibrated coverage (empirically ~level% hits in cross-validation); native models clamp levels wider than 80% to the 80% band — prefer conformal for 95%+ questions.',
+        };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+
+  forecast_evaluate: tool({
+    description:
+      'Cross-validated evaluation of the conformal forecast models on flow bars: rolling-cutoff coverage per level (empirical hit-rate vs nominal), mean interval width, MASE, scaled CRPS and native clamp detection — the honest way to compare native quantile intervals vs conformal_distribution vs conformal_error before trusting a model\'s bands. Use when asked "which forecast model is best", "are these intervals reliable", or to sanity-check coverage.',
+    parameters: jsonSchema<{
+      asset?: string;
+      target?: string;
+      tf?: string;
+      h?: number;
+      levels?: string;
+      cvWindows?: number;
+    }>({
+      type: 'object',
+      properties: {
+        asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'], description: 'Asset. Default BTC.' },
+        target: {
+          type: 'string',
+          enum: ['close', 'volume', 'delta', 'cvd', 'imbalance', 'trades', 'oi'],
+          description: 'Series to evaluate. Default close.',
+        },
+        tf: { type: 'string', enum: ['1m', '5m', '15m', '30m'], description: 'Flow-bar timeframe. Default 1m.' },
+        h: { type: 'number', description: 'Horizon steps. Default 30.' },
+        levels: { type: 'string', description: 'Interval levels CSV. Default "80,95".' },
+        cvWindows: { type: 'number', description: 'Cross-validation windows (1–16). Default 3.' },
+      },
+    }),
+    execute: async ({ asset, target, tf, h, levels, cvWindows }) => {
+      try {
+        const a = (['BTC', 'ETH', 'SOL'] as const).includes(asset as 'BTC') ? (asset as 'BTC') : 'BTC';
+        const tfMs = tf === '5m' ? 300_000 : tf === '15m' ? 900_000 : tf === '30m' ? 1_800_000 : 60_000;
+        const targets = new Set(['close', 'volume', 'delta', 'cvd', 'imbalance', 'trades', 'oi']);
+        const tgt = (target && targets.has(target) ? target : 'close') as FcTargetId;
+        const hh = Math.max(1, Math.min(120, Number(h) || 30));
+        const lvl = (levels ?? '80,95')
+          .split(',')
+          .map((s) => Number(s.trim()))
+          .filter((v) => Number.isFinite(v) && v > 50 && v < 100);
+        const useLevels = lvl.length ? [...new Set(lvl)].sort((x, y) => x - y) : [80, 95];
+        const cvW = Math.max(1, Math.min(16, Number(cvWindows) || 3));
+
+        const panel = await buildForecastPanel(a, tfMs, tgt, { backfill: 720 });
+        if (!panel.series.length) return { error: 'no series yet — engine warming up, retry shortly' };
+        const forecaster = new Forecaster(DEFAULT_FC_SPECS);
+        const cvRows = forecaster.crossValidate(panel, { h: hh, levels: useLevels, nWindows: 10, cvWindows: cvW });
+        const evalRows = forecaster.evaluate(cvRows, panel, useLevels);
+        return {
+          asset: a,
+          target: tgt,
+          tf,
+          h: hh,
+          levels: useLevels,
+          cvWindows: cvW,
+          panelPoints: panel.series[0]?.points.length ?? 0,
+          evalRows: evalRows.map((r) => ({
+            alias: r.alias,
+            intervals: r.intervals,
+            coverage: Object.fromEntries(Object.entries(r.coverage).map(([k, v]) => [k, Number.isFinite(v) ? +v.toFixed(3) : null])),
+            width: Object.fromEntries(Object.entries(r.width).map(([k, v]) => [k, Number.isFinite(v) ? +v.toFixed(2) : null])),
+            mase: r.mase !== null ? +r.mase.toFixed(3) : null,
+            scaledCrps: r.scaledCrps !== null ? +r.scaledCrps.toFixed(3) : null,
+            clampedAt: r.clampedAt,
+            forecasts: r.forecasts,
+          })),
+          note:
+            'conformal models recalibrate at every cutoff using only prior data — coverage is honest out-of-sample. clampedAt=80 means the model\'s native quantile knots cap at the 80% band, so its "95%" interval is really an 80% one.',
+        };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
     },
   }),
 };
