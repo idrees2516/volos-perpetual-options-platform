@@ -171,19 +171,8 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
         for (const p of st.prints) {
           if (p.timestamp >= t0 && p.timestamp <= t1) consider(p.price);
         }
-        if (opts.showLevels && st.levels && st.session?.last) {
-          // Only levels within 5% of price expand the range; anything
-          // further out is edge-pinned with an arrow instead of squashing
-          // the heatmap into a thin band.
-          const c = st.session.last;
-          const near = (p: number | null | undefined) => p != null && Number.isFinite(p) && Math.abs(p - c) / c <= 0.05;
-          const lv = st.levels;
-          if (near(lv.previous?.poc)) consider(lv.previous!.poc);
-          if (near(lv.previous?.vah)) consider(lv.previous!.vah);
-          if (near(lv.previous?.val)) consider(lv.previous!.val);
-          if (near(lv.previous?.vwap)) consider(lv.previous!.vwap);
-          for (const n of lv.naked) if (near(n.poc)) consider(n.poc);
-        }
+        // prior-session levels never EXPAND the range — those outside the
+        // traded range are edge-pinned with an arrow (reference behaviour).
         if (st.session?.high) consider(st.session.high);
         if (st.session?.low) consider(st.session.low);
       }
@@ -191,7 +180,7 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
         pMin = 0;
         pMax = 100;
       }
-      const pad = (pMax - pMin) * 0.04 || 1;
+      const pad = (pMax - pMin) * 0.03 || 1;
       pMin -= pad;
       pMax += pad;
       const priceY = (p: number) => plotT + ((pMax - p) / (pMax - pMin)) * plotH;
