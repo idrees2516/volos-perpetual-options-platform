@@ -5,7 +5,8 @@
 // Adapted from the open-source order-flow-screener by zadescoxp (Apache-2.0).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { OfDerivatives, OfLiquidation, OfOiPoint, OfVenueId } from './types';
+import type { OfDerivatives, OfLiquidation, OfVenueId } from './types';
+import type { OfOiPoint } from './engine';
 
 const DEFAULT_FUNDING_HOURS = 8;
 

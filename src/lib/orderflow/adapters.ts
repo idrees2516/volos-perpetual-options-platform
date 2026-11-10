@@ -265,7 +265,7 @@ export abstract class BaseVenueAdapter extends EventEmitter {
       const value = update[key];
       if (value === undefined || !Number.isFinite(value)) continue;
       if (key !== 'fundingRate' && value <= 0) continue;
-      (clean as Record<string, number>)[key] = value;
+      (clean as unknown as Record<string, number>)[key] = value;
       any = true;
     }
     if (any) this.emit('derivatives', clean);
