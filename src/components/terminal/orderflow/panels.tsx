@@ -195,6 +195,7 @@ export function TapePanel({
   const [bigOnly, setBigOnly] = useState(false);
   const [liqOnly, setLiqOnly] = useState(false);
   const st = store?.state;
+  const notifyCount = store?.notifyCount ?? 0;
 
   const rows = useMemo(() => {
     if (!st) return [] as Array<{ kind: 'trade' | 'liq'; ts: number; data: unknown }>;
@@ -213,7 +214,9 @@ export function TapePanel({
     }
     merged.sort((a, b) => b.ts - a.ts);
     return merged.slice(0, 80);
-  }, [st, venueFilter, minNotional, bigOnly, liqOnly]);
+    // notifyCount re-runs the memo when mutable state changed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [st, notifyCount, venueFilter, minNotional, bigOnly, liqOnly]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">

@@ -71,7 +71,7 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef(new HeatmapRenderer());
   const dirtyRef = useRef(true);
-  const viewRef = useRef({ t1: Date.now(), span: tf * 60 });
+  const viewRef = useRef({ t1: Date.now(), span: tf * 60, effT0: 0, effT1: 0 });
   const hoverRef = useRef<{ x: number; y: number } | null>(null);
   const hitsRef = useRef<HitBubble[]>([]);
   const dragRef = useRef<{ x: number; t1: number; moved: boolean } | null>(null);
@@ -137,8 +137,21 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
       const view = viewRef.current;
       if (followRef.current) view.t1 = Date.now();
       const t1 = view.t1;
-      const t0 = t1 - view.span;
-      const xOf = (t: number) => plotL + ((t - t0) / view.span) * plotW;
+      // Clamp the left edge to the data we actually have: a fresh session
+      // shouldn't show an hour of empty grid — the window grows to `span`.
+      let dataStart = Infinity;
+      if (st) {
+        if (st.heatmapColumns.size) {
+          const first = st.heatmapColumns.keys().next();
+          if (!first.done) dataStart = Math.min(dataStart, first.value);
+        }
+        if (st.candles.length) dataStart = Math.min(dataStart, st.candles[0].openTime);
+        if (st.prints.length) dataStart = Math.min(dataStart, st.prints[0].timestamp);
+      }
+      const t0 = Number.isFinite(dataStart)
+        ? Math.max(t1 - view.span, Math.min(dataStart - 3000, t1 - 5000))
+        : t1 - view.span;
+      const xOf = (t: number) => plotL + ((t - t0) / Math.max(1, t1 - t0)) * plotW;
 
       // ── price range from the visible window ───────────────────────────
       let pMin = Infinity;
@@ -207,11 +220,14 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       for (let i = 0; i <= 6; i++) {
-        const t = t0 + (view.span * i) / 6;
+        const t = t0 + ((t1 - t0) * i) / 6;
         const d = new Date(t);
         const label = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
         ctx.fillText(label, plotL + (plotW * i) / 6, plotB + 4);
       }
+      // remember the effective window for pan/zoom math
+      viewRef.current.effT0 = t0;
+      viewRef.current.effT1 = t1;
 
       // ── 1. resting-liquidity heatmap ──────────────────────────────────
       if (st && opts.showHeatmap && st.heatmapColumns.size) {
@@ -468,7 +484,7 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
       hitsRef.current = hits;
       const hover = hoverRef.current;
       if (hover && hover.x >= plotL && hover.x <= plotR && hover.y >= plotT && hover.y <= plotB) {
-        const t = t0 + ((hover.x - plotL) / plotW) * view.span;
+        const t = t0 + ((hover.x - plotL) / plotW) * (t1 - t0);
         const p = pMax - ((hover.y - plotT) / plotH) * (pMax - pMin);
         ctx.strokeStyle = 'rgba(139,149,165,0.4)';
         ctx.setLineDash([4, 4]);
@@ -578,7 +594,8 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
         drag.moved = true;
         const rect = canvas.getBoundingClientRect();
         const plotW = rect.width - 72;
-        const dt = (dx / Math.max(1, plotW)) * viewRef.current.span;
+        const effective = Math.max(1, viewRef.current.effT1 - viewRef.current.effT0);
+        const dt = (dx / Math.max(1, plotW)) * effective;
         viewRef.current.t1 = Math.min(Date.now() + 60_000, drag.t1 - dt);
         if (followRef.current) cbRef.current.onFollowChange?.(false);
         dirtyRef.current = true;
@@ -615,7 +632,8 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
       const plotW = rect.width - 72;
       const anchor = (e.clientX - rect.left - 6) / Math.max(1, plotW); // 0..1
       const view = viewRef.current;
-      const tAnchor = view.t1 - view.span * (1 - anchor);
+      const effective = Math.max(1, view.effT1 - view.effT0);
+      const tAnchor = view.effT1 - effective * (1 - anchor);
       view.span = Math.max(tfRef.current, Math.min(2 * 3_600_000, view.span * factor));
       if (followRef.current) view.t1 = Date.now();
       else view.t1 = tAnchor + view.span * (1 - anchor);

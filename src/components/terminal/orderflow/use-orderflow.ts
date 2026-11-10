@@ -105,6 +105,8 @@ export class OrderFlowStore {
   readonly key: string;
   private listeners = new Set<OfClientListener>();
   private notifyScheduled = false;
+  /** increments on every notify — lets memos recompute on mutable state. */
+  notifyCount = 0;
   private es: EventSource | null = null;
   readonly tf: number;
   readonly minNotional: number;
@@ -288,6 +290,7 @@ export class OrderFlowStore {
     this.notifyScheduled = true;
     setTimeout(() => {
       this.notifyScheduled = false;
+      this.notifyCount++;
       for (const l of this.listeners) l();
     }, 300);
   }
