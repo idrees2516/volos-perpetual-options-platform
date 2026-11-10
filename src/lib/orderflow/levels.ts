@@ -175,8 +175,8 @@ export async function getLevels(asset: OfAsset): Promise<OfLevels> {
   const tick = autoTick(last.close);
   const days = dayLevels(klines, tick, 0.7, today);
   const todayBars = klines.filter((k) => utcDay(k.openTime) >= today);
-  let todayHigh = NaN;
-  let todayLow = NaN;
+  let todayHigh = -Infinity;
+  let todayLow = Infinity;
   let todayVol = 0;
   let todayQuote = 0;
   for (const b of todayBars) {

@@ -201,6 +201,16 @@ export class OrderFlowEngine {
   private updateFlowBar(trade: { timestamp: number; price: number; quantity: number; side: 'buy' | 'sell' }): void {
     const time = Math.floor(trade.timestamp / 1000) * 1000;
     let bar = this.bars[this.bars.length - 1];
+    if (bar && time < bar.time) {
+      // A late print from a slower venue folds into the latest bar.
+      bar.volume += trade.quantity;
+      if (trade.side === 'buy') bar.buyVolume += trade.quantity;
+      else bar.sellVolume += trade.quantity;
+      bar.trades++;
+      if (trade.price > bar.high) bar.high = trade.price;
+      if (trade.price < bar.low) bar.low = trade.price;
+      return;
+    }
     if (!bar || bar.time !== time) {
       if (bar && bar.time < time) {
         // fill empty seconds so the series stays contiguous
@@ -228,6 +238,16 @@ export class OrderFlowEngine {
       if (!list) this.candles.set(tf, (list = []));
       const openTime = Math.floor(trade.timestamp / tf) * tf;
       let candle = list[list.length - 1];
+      if (candle && openTime < candle.openTime) {
+        // A late print from a slower venue folds into the latest candle.
+        candle.volume += trade.quantity;
+        candle.delta += trade.side === 'buy' ? trade.quantity : -trade.quantity;
+        candle.venueVolumes[trade.venue] = (candle.venueVolumes[trade.venue] ?? 0) + trade.quantity;
+        if (trade.price > candle.high) candle.high = trade.price;
+        if (trade.price < candle.low) candle.low = trade.price;
+        this.stampLevel(candle, trade);
+        continue;
+      }
       if (!candle || candle.openTime !== openTime) {
         if (candle) candle.complete = openTime > candle.openTime;
         candle = {
@@ -253,23 +273,26 @@ export class OrderFlowEngine {
       candle.delta += trade.side === 'buy' ? trade.quantity : -trade.quantity;
       candle.cumulativeDelta = this.sessionCvd;
       candle.venueVolumes[trade.venue] = (candle.venueVolumes[trade.venue] ?? 0) + trade.quantity;
-
-      const tick = this._tick;
-      if (tick > 0) {
-        const price = Math.round(trade.price / tick) * tick;
-        let level = candle.levels.get(price);
-        if (!level) {
-          level = { price, bidVolume: 0, askVolume: 0, delta: 0, tradeCount: 0 };
-          candle.levels.set(price, level);
-        }
-        // bid volume = volume traded AT the bid (aggressive sells);
-        // ask volume = volume traded AT the ask (aggressive buys).
-        if (trade.side === 'sell') level.bidVolume += trade.quantity;
-        else level.askVolume += trade.quantity;
-        level.delta = level.askVolume - level.bidVolume;
-        level.tradeCount++;
-      }
+      this.stampLevel(candle, trade);
     }
+  }
+
+  /** Record one print into a candle's price-level footprint. */
+  private stampLevel(candle: OfCandle, trade: { price: number; quantity: number; side: 'buy' | 'sell' }): void {
+    const tick = this._tick;
+    if (!(tick > 0)) return;
+    const price = Math.round(trade.price / tick) * tick;
+    let level = candle.levels.get(price);
+    if (!level) {
+      level = { price, bidVolume: 0, askVolume: 0, delta: 0, tradeCount: 0 };
+      candle.levels.set(price, level);
+    }
+    // bid volume = volume traded AT the bid (aggressive sells);
+    // ask volume = volume traded AT the ask (aggressive buys).
+    if (trade.side === 'sell') level.bidVolume += trade.quantity;
+    else level.askVolume += trade.quantity;
+    level.delta = level.askVolume - level.bidVolume;
+    level.tradeCount++;
   }
 
   private updateVenueBuckets(trade: { venue: OfVenueId; timestamp: number; price: number; quantity: number; side: 'buy' | 'sell' }): void {
