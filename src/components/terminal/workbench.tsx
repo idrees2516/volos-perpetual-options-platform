@@ -21,7 +21,7 @@
 
 import React, { useEffect } from 'react';
 import {
-  Activity, CircleDot, LineChart, Layers, FlaskConical, Atom,
+  Activity, CircleDot, LineChart, Layers, FlaskConical, Atom, Flame,
   BarChart3, Dna, ChevronsLeft, ChevronsRight, ChevronRight,
   TrendingUp, TrendingDown, Radio,
 } from 'lucide-react';
@@ -44,6 +44,7 @@ interface RailItem {
 /** Analytics side — market internals & data views. */
 const ANALYTICS_ITEMS: RailItem[] = [
   { id: 'gamma', label: 'Gamma & Flow', icon: <Activity className="h-4 w-4" />, hint: 'GEX · dealer positioning · heatmaps · options flow · 0DTE · skew' },
+  { id: 'orderflow', label: 'Order Flow', icon: <Flame className="h-4 w-4" />, hint: 'resting-liquidity heatmap · absorption & icebergs · tape · venues · liquidations · OI & funding · whole market' },
   { id: 'quant', label: 'Quant Lab', icon: <Atom className="h-4 w-4" />, hint: 'native realtime engine · GEX levels · IV/PDF/greeks · live SSE tape · perps · ETF/COT/SEC · /api/quant' },
   { id: 'chain', label: 'Option Chain', icon: <CircleDot className="h-4 w-4" />, hint: 'live chains with per-strike BUY / SELL' },
   { id: 'trade', label: 'Trading', icon: <LineChart className="h-4 w-4" />, hint: 'engine CLOB · L2 book · $1M demo equity' },
@@ -57,6 +58,7 @@ const LAB_ITEMS: RailItem[] = [
 
 export const SIDE_OF_VIEW: Record<ViewId, SideId> = {
   gamma: 'analytics',
+  orderflow: 'analytics',
   quant: 'analytics',
   chain: 'analytics',
   trade: 'analytics',
@@ -71,6 +73,7 @@ const SIDE_META: Record<SideId, { label: string; icon: React.ReactNode }> = {
 
 const VIEW_LABEL: Record<ViewId, string> = {
   gamma: 'Gamma & Flow',
+  orderflow: 'Order Flow',
   quant: 'Quant Lab',
   chain: 'Option Chain',
   trade: 'Trading',

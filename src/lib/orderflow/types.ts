@@ -194,6 +194,8 @@ export interface OfWireTrade extends OfTrade {
   /** quantity ÷ session average print, when known */
   ratio?: number;
   flags?: string[]; // 'big' | 'liq' | 'iceberg' | 'absorb'
+  /** displayed size at the trade price on that venue's book at insert time */
+  bookSize?: number;
 }
 
 export interface OfHeatmapColumn {

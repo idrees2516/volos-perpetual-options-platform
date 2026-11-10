@@ -30,6 +30,9 @@ import {
   analyzeMarketEnvironment,
   monteCarlo,
 } from './market-intel';
+import { getOrderFlowManager } from '@/lib/orderflow/manager';
+import { summarizeLiquidations, liquidationState, bucketLiquidations } from '@/lib/orderflow/derivatives';
+
 import {
   VENUE_IDS,
   VENUE_META,
@@ -1384,6 +1387,175 @@ export const marketTools = {
       }
     },
   }),
-};
+  // ── order flow (native order-flow engine: Binance · Bybit · OKX · Deribit) ──
 
+  orderflow_overview: tool({
+    description:
+      'Whole-market order-flow state for BTC/ETH/SOL across Binance, Bybit, OKX and Deribit: last price, 1-minute change, CVD, open interest + 5m regime, funding, basis, liquidation totals, absorption/iceberg counts, leading venue. Use for any question about aggregate flow, positioning or which venue moves first.',
+    parameters: jsonSchema<Record<string, never>>({
+      type: 'object',
+      properties: {},
+    }),
+    execute: async () => {
+      const manager = getOrderFlowManager();
+      manager.touchAll(300_000);
+      const ov = manager.overview();
+      return {
+        tsMs: ov.tsMs,
+        assets: ov.assets.map((a) => ({
+          asset: a.asset,
+          connected: a.connected,
+          ...(Number.isFinite(a.last) && a.last > 0
+            ? {
+                last: +a.last.toFixed(2),
+                change1mPct: +a.change1mPct.toFixed(3),
+                cvd1m: +a.cvd1m.toFixed(2),
+                openInterest: a.openInterest ? Math.round(a.openInterest) : null,
+                oiRegime: a.oiRegime,
+                funding8h: a.funding8h ? +a.funding8h.toFixed(6) : null,
+                basisBps: a.basisBps ? +a.basisBps.toFixed(2) : null,
+                liquidations1h: a.liquidations
+                  ? {
+                      longUsd: Math.round(a.liquidations.last1h?.longNotional ?? 0),
+                      shortUsd: Math.round(a.liquidations.last1h?.shortNotional ?? 0),
+                      cascade: a.liquidations.cascadeActive,
+                    }
+                  : null,
+                absorption5m: a.micro?.absorption ?? 0,
+                icebergs5m: a.micro?.icebergs ?? 0,
+                leaderVenue: a.leaderVenue,
+              }
+            : { note: 'feeds warming up' }),
+        })),
+      };
+    },
+  }),
+
+  orderflow_symbol: tool({
+    description:
+      'Full order-flow state for one asset: session stats (VWAP, buy share, average print), microstructure markers (absorption bands / iceberg diamonds with prices, ratios and venues), prior-session levels (previous UTC day POC/VAH/VAL/VWAP + naked POCs), cross-venue comparison (premium, volume share, lead/lag) and derivatives (OI, funding, basis). Use for detailed flow questions about BTC, ETH or SOL.',
+    parameters: jsonSchema<{ asset: string }>({
+      type: 'object',
+      properties: {
+        asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'], description: 'Asset to inspect.' },
+      },
+      required: ['asset'],
+    }),
+    execute: async ({ asset }) => {
+      const manager = getOrderFlowManager();
+      const a = (['BTC', 'ETH', 'SOL'] as const).includes(asset as 'BTC') ? (asset as 'BTC' | 'ETH' | 'SOL') : 'BTC';
+      manager.touch(a, 120_000);
+      const state = manager.stateOf(a);
+      if (!state) return { asset: a, note: 'engine starting — retry in a few seconds' };
+      const engine = state.engine;
+      const stats = engine.sessionStats();
+      const levels = state.engine.allMicroEvents().slice(-12);
+      const venues = engine.venueSummary();
+      const deriv = manager.snapshot(a).deriv;
+      return {
+        asset: a,
+        session: {
+          last: +stats.last.toFixed(2),
+          open: +stats.open.toFixed(2),
+          high: +stats.high.toFixed(2),
+          low: +stats.low.toFixed(2),
+          vwap: +stats.vwap.toFixed(2),
+          buyShare: +(stats.volume > 0 ? stats.buyVolume / stats.volume : 0.5).toFixed(3),
+          averagePrint: +stats.averagePrint.toFixed(4),
+          trades: stats.trades,
+        },
+        microstructure: levels.map((m) => ({
+          kind: m.kind,
+          side: m.side,
+          price: +m.price.toFixed(2),
+          volume: +m.volume.toFixed(3),
+          ratio: +m.ratio.toFixed(1),
+          venue: m.venue,
+          minutesAgo: +(((Date.now() - m.time) / 60_000) || 0).toFixed(1),
+        })),
+        venues: venues.stats.map((s) => ({
+          venue: s.venue,
+          last: +s.last.toFixed(2),
+          premiumBps: +s.premiumBps.toFixed(1),
+          share: +(s.share ?? 0).toFixed(2),
+          leadMs: s.leadMs,
+        })),
+        leader: venues.leader?.venue ?? null,
+        derivatives: {
+          openInterest: deriv.aggregate?.openInterest ?? null,
+          fundingRate8h: deriv.aggregate?.fundingRate8h ?? null,
+          basisBps: deriv.aggregate?.basisBps ?? null,
+          regime1m: deriv.windows.w1m?.regime ?? null,
+          regime5m: deriv.windows.w5m?.regime ?? null,
+        },
+      };
+    },
+  }),
+
+  orderflow_liquidations: tool({
+    description:
+      'Recent forced liquidations (Binance, Bybit, OKX, Deribit public feeds): long/short totals over 5m/1h/24h, the largest single liquidation, bucket history and whether a cascade is active. Use when the user asks about liquidations, long/short flushes or squeeze risk.',
+    parameters: jsonSchema<{ asset?: string }>({
+      type: 'object',
+      properties: {
+        asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'], description: 'Optional: one asset. Omit for the whole market.' },
+      },
+    }),
+    execute: async ({ asset }) => {
+      const manager = getOrderFlowManager();
+      manager.touchAll(120_000);
+      const now = Date.now();
+      const targets = asset ? [asset as 'BTC'] : (['BTC', 'ETH', 'SOL'] as const);
+      const out: Record<string, unknown>[] = [];
+      for (const a of targets) {
+        manager.touch(a as 'BTC', 60_000);
+        const state = manager.stateOf(a as 'BTC');
+        if (!state) continue;
+        const liqs = state.liquidations;
+        const recent = manager.liquidationQuery(a as 'BTC', now - 3_600_000, 10);
+        out.push({
+          asset: a,
+          last5m: summarizeLiquidations(liqs, now - 300_000),
+          last1h: summarizeLiquidations(liqs, now - 3_600_000),
+          last24h: summarizeLiquidations(liqs, now - 86_400_000),
+          cascadeActive: liquidationState(bucketLiquidations(liqs, 15_000, 20, now)) === 'cascade',
+          recent: recent.map((l) => ({ side: l.side, price: +l.price.toFixed(1), usd: Math.round(l.quoteVolume), venue: l.venue })),
+        });
+      }
+      return { tsMs: now, assets: out };
+    },
+  }),
+
+  orderflow_print: tool({
+    description:
+      'Forensic detail of ONE executed order/print by id: size vs the displayed size at its level, aggressor side, venue, the price path 1s/5s/15s after, resting liquidity at that price, iceberg candidacy and a verdict. Use when the user asks about a specific print, block trade or suspicious order from the tape.',
+    parameters: jsonSchema<{ id: string }>({
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The print id from the tape or chart bubble.' },
+      },
+      required: ['id'],
+    }),
+    execute: async ({ id }) => {
+      const manager = getOrderFlowManager();
+      for (const a of ['BTC', 'ETH', 'SOL'] as const) manager.touch(a, 30_000);
+      const detail = manager.printDetail(id);
+      if (!detail) return { error: `print ${id} is not in the recent ring` };
+      return {
+        print: {
+          venue: detail.print.venue,
+          side: detail.print.side,
+          price: +detail.print.price.toFixed(2),
+          quantity: +detail.print.quantity.toFixed(4),
+          usd: Math.round(detail.print.quoteVolume),
+          displayedAtLevel: detail.print.bookSize !== undefined ? +detail.print.bookSize.toFixed(4) : null,
+        },
+        restingSizeAtPrice: detail.restingSizeAtPrice !== null ? +detail.restingSizeAtPrice.toFixed(3) : null,
+        flowAfter: detail.flowAfter,
+        iceberg: detail.iceberg,
+        verdict: detail.verdict,
+      };
+    },
+  }),
+};
 export type MarketToolName = keyof typeof marketTools;
