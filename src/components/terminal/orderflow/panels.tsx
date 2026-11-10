@@ -47,7 +47,7 @@ export function KpiStrip({ store }: { store: OrderFlowStore | null }) {
     regime === 'new-longs' ? 'pos' : regime === 'new-shorts' ? 'neg' : regime === 'short-covering' ? 'warn' : regime === 'long-unwind' ? 'neg' : undefined;
   const buyShare = s && s.volume > 0 ? s.buyVolume / s.volume : 0.5;
   return (
-    <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+    <div className="flex flex-wrap gap-1.5">
       <Stat
         label="last"
         value={fmtPrice(s?.last, tick)}

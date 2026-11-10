@@ -281,7 +281,8 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
       }
 
       // ── 3. prior-session levels ───────────────────────────────────────
-      const drawHLine = (price: number, color: string, dash: number[], label: string, labelColor?: string) => {
+      const levelLabels: { y: number; label: string; color: string }[] = [];
+      const drawHLine = (price: number, color: string, dash: number[], label: string) => {
         if (!Number.isFinite(price)) return;
         const y = priceY(price);
         const pinned = y < plotT || y > plotB;
@@ -294,18 +295,12 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
         ctx.moveTo(plotL, yy + 0.5);
         ctx.lineTo(plotR, yy + 0.5);
         ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = labelColor ?? color;
-        ctx.font = '8px ui-monospace, monospace';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'bottom';
-        if (pinned) {
-          // arrow + price pinned at the edge
-          ctx.fillText(`${label} ${price.toFixed(tickDec)} ↕`, plotL + 6, yy - 2);
-        } else {
-          ctx.fillText(label, plotL + 6, yy - 2);
-        }
         ctx.restore();
+        levelLabels.push({
+          y: yy,
+          label: pinned ? `${label} ${price.toFixed(tickDec)} ↕` : label,
+          color,
+        });
       };
       if (st && opts.showLevels && st.levels) {
         const lv = st.levels;
@@ -319,16 +314,27 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
           const d = new Date(n.day);
           drawHLine(n.poc, 'rgba(251,191,36,0.55)', [2, 4], `nPOC ${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`);
         }
-      }
-
-      // ── 4. session VWAP ± 1σ ──────────────────────────────────────────
-      if (st && opts.showLevels && st.session && st.session.vwap > 0) {
-        const { vwap, vwapStd } = st.session;
-        if (vwapStd > 0) {
-          ctx.fillStyle = 'rgba(45,212,191,0.06)';
-          ctx.fillRect(plotL, priceY(vwap + vwapStd), plotW, priceY(vwap - vwapStd) - priceY(vwap + vwapStd));
+        // session VWAP ± 1σ band
+        if (st.session && st.session.vwap > 0) {
+          const { vwap, vwapStd } = st.session;
+          if (vwapStd > 0) {
+            ctx.fillStyle = 'rgba(45,212,191,0.06)';
+            ctx.fillRect(plotL, priceY(vwap + vwapStd), plotW, priceY(vwap - vwapStd) - priceY(vwap + vwapStd));
+          }
+          drawHLine(vwap, C.teal, [6, 4], 'VWAP');
         }
-        drawHLine(vwap, C.teal, [6, 4], 'VWAP');
+      }
+      // level tags along the right edge, nudged apart so they never collide
+      levelLabels.sort((a, b) => a.y - b.y);
+      for (let i = 1; i < levelLabels.length; i++) {
+        if (levelLabels[i].y - levelLabels[i - 1].y < 11) levelLabels[i].y = levelLabels[i - 1].y + 11;
+      }
+      ctx.font = '8px ui-monospace, monospace';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      for (const l of levelLabels) {
+        ctx.fillStyle = l.color;
+        ctx.fillText(l.label, plotR - 6, Math.max(plotT + 8, l.y - 2));
       }
 
       // ── 5. trade bubbles ──────────────────────────────────────────────
