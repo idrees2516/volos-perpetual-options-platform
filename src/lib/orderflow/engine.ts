@@ -17,6 +17,7 @@
 import { AbsorptionDetector, IcebergDetector } from './microstructure';
 import { DepthHistory, type DepthSide } from './depth';
 import { autoTick } from './catalog';
+import { computeAdvanced, type OfAdvancedAnalytics } from './advanced';
 import type { BaseVenueAdapter } from './adapters';
 import type {
   OfAsset,
@@ -73,6 +74,10 @@ export interface OfAnalytics {
   realizedVolAnnPct: number | null;
   depth: OfDepthStats | null;
   obiHistory: { time: number; value: number }[];
+  /** granular desk-grade studies (impact, toxicity, book shape, vol, profile) */
+  advanced: OfAdvancedAnalytics;
+  /** confirmed absorption / iceberg markers over the last 15 m */
+  micro: { absorption15m: number; iceberg15m: number };
 }
 
 export class OrderFlowEngine {
@@ -590,14 +595,36 @@ export class OrderFlowEngine {
       cvd1m = bars[bars.length - 1].cvd - bars[bars.length - k].cvd;
       delta1m = cvd1m;
     }
+    const volZ = this.volumeZ();
+    const rv = this.realizedVolAnnPct();
+    const advanced = computeAdvanced(
+      bars,
+      this.candlesFor(60_000),
+      this.sessionStats(),
+      this.mergedBook(50),
+      this.obiHistory,
+      this._tick,
+      this.volumeZ(300),
+      rv,
+    );
+    const since15m = now - 900_000;
+    let absorption15m = 0;
+    let iceberg15m = 0;
+    for (const e of this.microEvents) {
+      if (e.time < since15m) continue;
+      if (e.kind === 'absorption') absorption15m++;
+      else if (e.kind === 'iceberg') iceberg15m++;
+    }
     return {
       cvd,
       cvd1m,
       delta1m,
-      volumeZ: this.volumeZ(),
-      realizedVolAnnPct: this.realizedVolAnnPct(),
+      volumeZ: volZ,
+      realizedVolAnnPct: rv,
       depth: this.depthStats(),
       obiHistory: this.obiHistory.slice(-240),
+      advanced,
+      micro: { absorption15m, iceberg15m },
     };
   }
 

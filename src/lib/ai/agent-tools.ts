@@ -32,8 +32,13 @@ import {
 } from './market-intel';
 import { getOrderFlowManager } from '@/lib/orderflow/manager';
 import { summarizeLiquidations, liquidationState, bucketLiquidations } from '@/lib/orderflow/derivatives';
+import { OF_ASSETS, isOfAsset } from '@/lib/orderflow/catalog';
+import type { OfAsset } from '@/lib/orderflow/types';
+import { getPositioning, positioningSummary } from '@/lib/orderflow/positioning';
+import { db } from '@/lib/db';
 import { buildForecastPanel } from '@/lib/forecast/panel';
 import { DEFAULT_FC_SPECS, Forecaster } from '@/lib/forecast/forecaster';
+import { buildPortfolioRisk } from '@/lib/forecast/portfolio';
 import type { FcTargetId } from '@/lib/forecast/types';
 
 import {
@@ -1436,17 +1441,17 @@ export const marketTools = {
 
   orderflow_symbol: tool({
     description:
-      'Full order-flow state for one asset: session stats (VWAP, buy share, average print), microstructure markers (absorption bands / iceberg diamonds with prices, ratios and venues), prior-session levels (previous UTC day POC/VAH/VAL/VWAP + naked POCs), cross-venue comparison (premium, volume share, lead/lag) and derivatives (OI, funding, basis). Use for detailed flow questions about BTC, ETH or SOL.',
+      'Full order-flow state for one asset: session stats (VWAP, buy share, average print), microstructure markers (absorption bands / iceberg diamonds with prices, ratios and venues), prior-session levels (previous UTC day POC/VAH/VAL/VWAP + naked POCs), cross-venue comparison (premium, volume share, lead/lag) and derivatives (OI, funding, basis). Use for detailed flow questions about any supported asset (BTC, ETH, SOL, XRP, BNB, DOGE, LINK, AVAX).',
     parameters: jsonSchema<{ asset: string }>({
       type: 'object',
       properties: {
-        asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'], description: 'Asset to inspect.' },
+        asset: { type: 'string', enum: OF_ASSETS, description: 'Asset to inspect.' },
       },
       required: ['asset'],
     }),
     execute: async ({ asset }) => {
       const manager = getOrderFlowManager();
-      const a = (['BTC', 'ETH', 'SOL'] as const).includes(asset as 'BTC') ? (asset as 'BTC' | 'ETH' | 'SOL') : 'BTC';
+      const a: OfAsset = isOfAsset(String(asset)) ? (asset as OfAsset) : 'BTC';
       manager.touch(a, 120_000);
       const state = manager.stateOf(a);
       if (!state) return { asset: a, note: 'engine starting — retry in a few seconds' };
@@ -1501,18 +1506,18 @@ export const marketTools = {
     parameters: jsonSchema<{ asset?: string }>({
       type: 'object',
       properties: {
-        asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'], description: 'Optional: one asset. Omit for the whole market.' },
+        asset: { type: 'string', enum: OF_ASSETS, description: 'Optional: one asset. Omit for the whole market.' },
       },
     }),
     execute: async ({ asset }) => {
       const manager = getOrderFlowManager();
       manager.touchAll(120_000);
       const now = Date.now();
-      const targets = asset ? [asset as 'BTC'] : (['BTC', 'ETH', 'SOL'] as const);
+      const targets: OfAsset[] = asset && isOfAsset(String(asset)) ? [asset as OfAsset] : OF_ASSETS;
       const out: Record<string, unknown>[] = [];
       for (const a of targets) {
-        manager.touch(a as 'BTC', 60_000);
-        const state = manager.stateOf(a as 'BTC');
+        manager.touch(a, 60_000);
+        const state = manager.stateOf(a);
         if (!state) continue;
         const liqs = state.liquidations;
         const recent = manager.liquidationQuery(a as 'BTC', now - 3_600_000, 10);
@@ -1541,7 +1546,7 @@ export const marketTools = {
     }),
     execute: async ({ id }) => {
       const manager = getOrderFlowManager();
-      for (const a of ['BTC', 'ETH', 'SOL'] as const) manager.touch(a, 30_000);
+      for (const a of OF_ASSETS) manager.touch(a, 30_000);
       const detail = manager.printDetail(id);
       if (!detail) return { error: `print ${id} is not in the recent ring` };
       return {
@@ -1576,7 +1581,7 @@ export const marketTools = {
     }>({
       type: 'object',
       properties: {
-        asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'], description: 'Asset to forecast.' },
+        asset: { type: 'string', enum: OF_ASSETS, description: 'Asset to forecast.' },
         target: {
           type: 'string',
           enum: ['close', 'volume', 'delta', 'cvd', 'imbalance', 'trades', 'oi', 'venueVolumeShare', 'venueDelta'],
@@ -1591,7 +1596,7 @@ export const marketTools = {
     }),
     execute: async ({ asset, target, tf, h, levels, nWindows }) => {
       try {
-        const a = (['BTC', 'ETH', 'SOL'] as const).includes(asset as 'BTC') ? (asset as 'BTC') : 'BTC';
+        const a: OfAsset = isOfAsset(String(asset)) ? (asset as OfAsset) : 'BTC';
         const tfMs = tf === '5m' ? 300_000 : tf === '15m' ? 900_000 : tf === '30m' ? 1_800_000 : 60_000;
         const targets = new Set(['close', 'volume', 'delta', 'cvd', 'imbalance', 'trades', 'oi', 'venueVolumeShare', 'venueDelta']);
         const tgt = (target && targets.has(target) ? target : 'close') as FcTargetId;
@@ -1669,7 +1674,7 @@ export const marketTools = {
     }>({
       type: 'object',
       properties: {
-        asset: { type: 'string', enum: ['BTC', 'ETH', 'SOL'], description: 'Asset. Default BTC.' },
+        asset: { type: 'string', enum: OF_ASSETS, description: 'Asset. Default BTC.' },
         target: {
           type: 'string',
           enum: ['close', 'volume', 'delta', 'cvd', 'imbalance', 'trades', 'oi'],
@@ -1683,7 +1688,7 @@ export const marketTools = {
     }),
     execute: async ({ asset, target, tf, h, levels, cvWindows }) => {
       try {
-        const a = (['BTC', 'ETH', 'SOL'] as const).includes(asset as 'BTC') ? (asset as 'BTC') : 'BTC';
+        const a: OfAsset = isOfAsset(String(asset)) ? (asset as OfAsset) : 'BTC';
         const tfMs = tf === '5m' ? 300_000 : tf === '15m' ? 900_000 : tf === '30m' ? 1_800_000 : 60_000;
         const targets = new Set(['close', 'volume', 'delta', 'cvd', 'imbalance', 'trades', 'oi']);
         const tgt = (target && targets.has(target) ? target : 'close') as FcTargetId;
@@ -1720,6 +1725,331 @@ export const marketTools = {
           })),
           note:
             'conformal models recalibrate at every cutoff using only prior data — coverage is honest out-of-sample. clampedAt=80 means the model\'s native quantile knots cap at the 80% band, so its "95%" interval is really an 80% one.',
+        };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+
+  // ── advanced microstructure (desk-grade studies on the live engine) ─────────
+  microstructure_now: tool({
+    description:
+      'Granular microstructure readout for one asset, computed natively from the multi-venue engine: Kyle lambda (price impact in bps per $100k of aggressor flow), VPIN (volume-synchronized informed-trading proxy), Amihud illiquidity (bps per $1M), aggressor-sign autocorrelation, microprice skew, LOB slope per side, OBI, spread, depth within ±10/25 bp, realized vol + ATR + Parkinson with session percentile and regime, session VWAP distance in sigma, in-session POC/VAH/VAL, taker buy share, volume z, CVD slope, and confirmed absorption/iceberg counts. Use for impact cost, toxicity, liquidity-quality or regime questions about any supported asset.',
+    parameters: jsonSchema<{ asset: string }>({
+      type: 'object',
+      properties: {
+        asset: { type: 'string', enum: OF_ASSETS, description: 'Asset to inspect.' },
+      },
+      required: ['asset'],
+    }),
+    execute: async ({ asset }) => {
+      const manager = getOrderFlowManager();
+      const a: OfAsset = isOfAsset(String(asset)) ? (asset as OfAsset) : 'BTC';
+      manager.touch(a, 120_000);
+      const state = manager.stateOf(a);
+      if (!state) return { asset: a, note: 'engine starting — retry in a few seconds' };
+      const engine = state.engine;
+      const an = engine.analytics();
+      const stats = engine.sessionStats();
+      const adv = an.advanced;
+      const f = (v: number | null | undefined, d = 4): number | null =>
+        v === null || v === undefined || !Number.isFinite(v) ? null : +v.toFixed(d);
+      return {
+        asset: a,
+        price: f(stats.last, 2),
+        impact: {
+          kyleLambdaBpsPer100k: f(adv.kyleLambdaBpsPer100k, 3),
+          vpin: f(adv.vpin, 3),
+          amihudBpsPer1m: f(adv.amihudBpsPer1m, 3),
+          tradeSignAutocorr: f(adv.tradeSignAutocorr, 3),
+        },
+        book: {
+          micropriceSkew: f(adv.micropriceSkew, 3),
+          lobSlopeBidPerBp: f(adv.lobSlopeBidPerBp, 3),
+          lobSlopeAskPerBp: f(adv.lobSlopeAskPerBp, 3),
+          obiMean1m: f(adv.obiMean1m, 3),
+          obiNow: an.depth ? f(an.depth.obi10, 3) : null,
+          spreadBps: an.depth ? f(an.depth.spreadBps, 2) : null,
+          depth10BpBase: an.depth ? f(an.depth.bid10 + an.depth.ask10, 2) : null,
+        },
+        volatility: {
+          realizedVolAnnPct: f(an.realizedVolAnnPct, 2),
+          atrPct: f(adv.atrPct, 3),
+          parkinsonAnnPct: f(adv.parkinsonAnnPct, 2),
+          rvSessionPctile: f(adv.rvSessionPctile, 1),
+          regime: adv.volRegime,
+        },
+        profile: {
+          vwapDistSigma: f(adv.vwapDistSigma, 3),
+          poc: f(adv.poc, 2),
+          vah: f(adv.vah, 2),
+          val: f(adv.val, 2),
+          buyShare1m: f(adv.takerBuyShare1m, 3),
+          buyShare5m: f(adv.takerBuyShare5m, 3),
+        },
+        flow: {
+          cvd1m: f(an.cvd1m, 2),
+          cvdSlopePerMin5m: f(adv.cvdSlopePerMin5m, 2),
+          volumeZ5m: f(adv.volumeZ5m, 2),
+          tradesPerSec: f(adv.tradesPerSec, 2),
+          absorption15m: an.micro.absorption15m,
+          iceberg15m: an.micro.iceberg15m,
+        },
+        sessionBars: an.cvd.length,
+        note: 'nulls mean the session is still too young for that estimator — no fabricated numbers.',
+      };
+    },
+  }),
+
+  // ── exchange-native positioning (Binance futures data endpoints) ────────────
+  positioning_leverage: tool({
+    description:
+      'Exchange-native positioning and leverage lens for one asset, pulled from Binance futures data endpoints: top-trader long/short account ratio, global (all-trader) long/short ratio, taker buy/sell volume ratio and open interest history — each with the latest value and its 12-hour range (5-minute granularity). Use for "are traders leaning long", crowding, squeeze fuel or OI build-up questions.',
+    parameters: jsonSchema<{ asset: string }>({
+      type: 'object',
+      properties: {
+        asset: { type: 'string', enum: OF_ASSETS, description: 'Asset to inspect.' },
+      },
+      required: ['asset'],
+    }),
+    execute: async ({ asset }) => {
+      const a: OfAsset = isOfAsset(String(asset)) ? (asset as OfAsset) : 'BTC';
+      try {
+        const data = await getPositioning(a);
+        if (!data.topTraderLs.length && !data.takerLs.length && !data.oiHist.length) {
+          return { asset: a, error: 'binance futures data unavailable right now' };
+        }
+        return positioningSummary(data);
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+
+  // ── forward-looking hedged portfolio (conformal bands → VaR → hedges) ──────
+  portfolio_risk: tool({
+    description:
+      'Forward-looking portfolio risk for the 8 majors (or a subset), built from conformal prediction intervals: per-asset forward sigma implied by the calibrated 80% band, weighted portfolio forward VaR/ES at 95%, each asset\'s beta vs BTC, the BTC perp hedge notional that neutralizes it, residual VaR after the hedge, the cross-asset correlation matrix, and a BTC ±1σ/±2σ scenario grid hedged vs unhedged. Realized (past) volatility is reported next to the forward number. Use for "how do I hedge this book", forward VaR, expected moves for sizing, or correlation questions.',
+    parameters: jsonSchema<{
+      h?: number;
+      tf?: string;
+      notional?: number;
+      weights?: string;
+      assets?: string;
+    }>({
+      type: 'object',
+      properties: {
+        h: { type: 'number', description: 'Horizon steps (default 30, i.e. 30 minutes at 1m).' },
+        tf: { type: 'string', enum: ['1m', '5m', '15m', '30m'], description: 'Bar timeframe. Default 1m.' },
+        notional: { type: 'number', description: 'Portfolio notional in USD (default 100000).' },
+        weights: { type: 'string', description: 'CSV like "BTC:0.5,ETH:0.5" — default equal weights.' },
+        assets: { type: 'string', description: 'CSV subset like "BTC,ETH,SOL" — default all 8 majors.' },
+      },
+    }),
+    execute: async ({ h, tf, notional, weights, assets }) => {
+      try {
+        const tfSec = tf === '5m' ? 300 : tf === '15m' ? 900 : tf === '30m' ? 1800 : 60;
+        const assetList = (assets ?? '')
+          .split(',')
+          .map((s) => s.trim().toUpperCase())
+          .filter((s) => s && isOfAsset(s)) as OfAsset[];
+        const w: Partial<Record<OfAsset, number>> = {};
+        for (const part of (weights ?? '').split(',')) {
+          const [rawA, rawW] = part.split(':');
+          const key = (rawA ?? '').trim().toUpperCase();
+          const v = Number(rawW);
+          if (isOfAsset(key) && Number.isFinite(v) && v > 0) w[key] = v;
+        }
+        const payload = await buildPortfolioRisk({
+          h: Math.max(1, Math.min(120, Number(h) || 30)),
+          tfSec,
+          levels: [80, 95],
+          weights: w,
+          notionalUsd: Math.max(1000, Math.min(100_000_000, Number(notional) || 100_000)),
+          assets: assetList.length ? assetList : undefined,
+        });
+        const f = (v: number | null | undefined, d = 2): number | null =>
+          v === null || v === undefined || !Number.isFinite(v) ? null : +v.toFixed(d);
+        return {
+          h: payload.h,
+          tfSec: payload.tfSec,
+          notionalUsd: payload.notionalUsd,
+          portfolio: {
+            fwdVaR95Usd: f(payload.portfolio.fwdVaR95Usd, 0),
+            fwdEs95Usd: f(payload.portfolio.fwdEs95Usd, 0),
+            fwdVolPct: f(payload.portfolio.fwdVolPct),
+            realizedVolPct: f(payload.portfolio.realizedVolPct),
+            hedgedVaR95Usd: f(payload.portfolio.hedgeFwdVaR95Usd, 0),
+          },
+          assets: payload.assets.map((a) => ({
+            asset: a.asset,
+            weightPct: f(a.weight * 100, 1),
+            expMove80Pct: f(a.expMove80Pct),
+            fwdSigmaPct: f(a.fwdSigmaPct),
+            realizedVolPct: f(a.realizedVolPctHorizon),
+            betaVsBtc: f(a.betaVsBtc),
+            corrBtc: f(a.corrBtc),
+            positionUsd: f(a.positionUsd, 0),
+            hedgeUsd: f(a.hedgeUsd, 0),
+            residualVaR95Usd: f(a.residualVaR95Usd, 0),
+          })),
+          btcScenarios: payload.scenarios.map((s) => ({
+            btc: s.btcMove,
+            btcPct: f(s.btcPct),
+            unhedgedPnlUsd: f(s.unhedgedPnlUsd, 0),
+            hedgedPnlUsd: f(s.hedgedPnlUsd, 0),
+          })),
+          note: 'forward sigma comes from the conformal_error 80% band; hedge = short BTC perp notional = beta × position; scenarios propagate through beta with zero idiosyncratic mean — residual VaR shows what stays.',
+        };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+
+  // ── analytics storage queries ("store now, analyze later") ─────────────────
+  store_query: tool({
+    description:
+      'Query the terminal\'s own SQLite analytics storage: what history has been persisted (stats per asset/table with row counts and time ranges), stored 1-minute multi-venue flow bars (OHLCV + delta + CVD + OI), stored 30-second microstructure snapshots (Kyle lambda, VPIN, Amihud, OBI, vol regime, VWAP distance...), and the realized coverage audit of stored conformal forecasts — every persisted forecast band re-scored against what actually happened using the stored bars. Use for "what do you have stored", historical flow/microstructure questions, or "how calibrated were the stored forecast bands over time".',
+    parameters: jsonSchema<{ table: string; asset?: string; limit?: number; sinceMin?: number; model?: string }>({
+      type: 'object',
+      properties: {
+        table: {
+          type: 'string',
+          enum: ['stats', 'flowbars', 'micro', 'forecastCoverage'],
+          description: 'stats: inventory; flowbars: stored 1m bars; micro: stored microstructure snapshots; forecastCoverage: realized-vs-band audit.',
+        },
+        asset: { type: 'string', description: 'Optional: one asset (BTC default).' },
+        limit: { type: 'number', description: 'Max rows (default 60).' },
+        sinceMin: { type: 'number', description: 'Only rows newer than N minutes.' },
+        model: { type: 'string', description: 'forecastCoverage filter, e.g. "ensemble".' },
+      },
+      required: ['table'],
+    }),
+    execute: async ({ table, asset, limit, sinceMin, model }) => {
+      try {
+        const lim = Math.max(1, Math.min(2000, Number(limit) || 60));
+        const a = (asset ?? 'BTC').toUpperCase();
+        const since = Math.max(0, Math.min(60 * 24 * 30, Number(sinceMin) || 0));
+        if (table === 'stats') {
+          const rows = await db.microSnapshot.groupBy({
+            by: ['asset'],
+            _count: { _all: true },
+            _min: { ts: true },
+            _max: { ts: true },
+          });
+          const fb = await db.flowBar.groupBy({
+            by: ['asset'],
+            _count: { _all: true },
+            _min: { tOpen: true },
+            _max: { tOpen: true },
+          });
+          const fr = await db.forecastRun.groupBy({ by: ['asset'], _count: { _all: true } });
+          const fe = await db.forecastEvalRun.groupBy({ by: ['asset'], _count: { _all: true } });
+          return {
+            flowBars: fb.map((g) => ({ asset: g.asset, rows: g._count._all, from: g._min.tOpen, to: g._max.tOpen })),
+            microSnapshots: rows.map((g) => ({ asset: g.asset, rows: g._count._all, from: g._min.ts, to: g._max.ts })),
+            forecastRuns: fr.map((g) => ({ asset: g.asset, rows: g._count._all })),
+            forecastEvals: fe.map((g) => ({ asset: g.asset, rows: g._count._all })),
+          };
+        }
+        if (table === 'flowbars') {
+          const bars = await db.flowBar.findMany({
+            where: { asset: a, ...(since ? { tOpen: { gte: new Date(Date.now() - since * 60_000) } } : {}) },
+            orderBy: { tOpen: 'desc' },
+            take: lim,
+          });
+          return {
+            asset: a,
+            rows: bars.length,
+            bars: bars
+              .slice(0, 40)
+              .reverse()
+              .map((b) => ({ t: b.tOpen.toISOString(), c: +b.close.toFixed(2), v: +b.volume.toFixed(3), d: +b.delta.toFixed(3), oi: b.oi })),
+            note: `showing the latest ${Math.min(40, bars.length)} of ${bars.length} matched rows`,
+          };
+        }
+        if (table === 'micro') {
+          const snaps = await db.microSnapshot.findMany({
+            where: { asset: a, ...(since ? { ts: { gte: new Date(Date.now() - since * 60_000) } } : {}) },
+            orderBy: { ts: 'desc' },
+            take: lim,
+          });
+          return {
+            asset: a,
+            rows: snaps.length,
+            latest: snaps.slice(0, 5).reverse().map((s) => ({
+              t: s.ts.toISOString(),
+              price: +s.price.toFixed(2),
+              kyle: s.kyleLambda,
+              vpin: s.vpin,
+              amihud: s.amihud,
+              obi: s.obi,
+              rv: s.rvAnnPct,
+              regime: s.volRegime,
+              vwapDist: s.vwapDist,
+              takerShare: s.takerShare,
+              abs15: s.absorption15m,
+              ice15: s.iceberg15m,
+            })),
+          };
+        }
+        // forecastCoverage — realized-vs-band audit against stored bars
+        const runs = await db.forecastRun.findMany({
+          where: { asset: a, target: 'close' },
+          orderBy: { createdAt: 'desc' },
+          take: lim,
+        });
+        if (!runs.length) return { asset: a, note: 'no stored forecast runs yet — trigger /api/forecast first' };
+        const from = Math.min(...runs.map((r) => r.cutoff.getTime())) - 4 * 3600_000;
+        const bars = await db.flowBar.findMany({
+          where: { asset: a, tfSec: 60, tOpen: { gte: new Date(from) } },
+          orderBy: { tOpen: 'asc' },
+        });
+        const closeByT = new Map<number, number>();
+        for (const b of bars) closeByT.set(b.tOpen.getTime(), b.close);
+        const agg = new Map<string, Map<number, { in: number; n: number; width: number }>>();
+        let realized = 0;
+        for (const run of runs) {
+          const targetT = run.cutoff.getTime() + run.h * run.tfSec * 1000;
+          let actual = closeByT.get(targetT);
+          if (actual === undefined) {
+            for (const tol of [60_000, 120_000, 180_000]) {
+              actual = closeByT.get(targetT - tol) ?? closeByT.get(targetT + tol);
+              if (actual !== undefined) break;
+            }
+          }
+          if (actual === undefined) continue;
+          realized++;
+          const band = JSON.parse(run.bandJson) as Record<string, Record<string, [number, number]>>;
+          for (const [modelKey, levels] of Object.entries(band)) {
+            if (model && !modelKey.includes(model)) continue;
+            let m = agg.get(modelKey);
+            if (!m) agg.set(modelKey, (m = new Map()));
+            for (const [lvl, [lo, hi]] of Object.entries(levels)) {
+              const level = Number(lvl);
+              let cell = m.get(level);
+              if (!cell) m.set(level, (cell = { in: 0, n: 0, width: 0 }));
+              cell.n++;
+              cell.width += hi - lo;
+              if (actual >= lo && actual <= hi) cell.in++;
+            }
+          }
+        }
+        return {
+          asset: a,
+          runsScanned: runs.length,
+          runsRealized: realized,
+          coverage: [...agg.entries()]
+            .map(([modelKey, levels]) => ({
+              model: modelKey,
+              levels: [...levels.entries()]
+                .sort((x, y) => x[0] - y[0])
+                .map(([level, c]) => ({ level, coverage: c.n ? +(c.in / c.n).toFixed(3) : null, meanWidth: c.n ? +(c.width / c.n).toFixed(2) : null, n: c.n })),
+            }))
+            .sort((x, y) => (y.levels[0]?.n ?? 0) - (x.levels[0]?.n ?? 0)),
+          note: 'storage-verified walk-forward coverage: stored bands re-scored against stored 1-minute closes — the calibration audit that survives restarts.',
         };
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) };

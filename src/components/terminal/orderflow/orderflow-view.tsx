@@ -35,13 +35,16 @@ import { MarketOverview } from './market-overview';
 import { OrderDrawer } from './order-drawer';
 import type { OfAlertSettings, OfAsset, OfVenueId } from '@/lib/orderflow/types';
 
-const ASSETS: OfAsset[] = ['BTC', 'ETH', 'SOL'];
+const ASSETS: OfAsset[] = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'LINK', 'AVAX'];
 const VENUE_FILTERS: Array<{ id: OfVenueId | 'all'; label: string }> = [
   { id: 'all', label: 'all venues' },
   { id: 'binance', label: 'binance' },
   { id: 'bybit', label: 'bybit' },
   { id: 'okx', label: 'okx' },
+  { id: 'bitget', label: 'bitget' },
+  { id: 'hyperliquid', label: 'hl' },
   { id: 'deribit', label: 'deribit' },
+  { id: 'coinbase', label: 'cb spot' },
 ];
 const TFS: Array<{ tf: number; label: string }> = [
   { tf: 60_000, label: '1m' },

@@ -15,9 +15,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FcTargetId } from '@/lib/forecast/types';
 import { FC_TARGETS } from '@/lib/forecast/types';
+import type { OfAsset } from '@/lib/orderflow/types';
 
 export interface FcConfig {
-  asset: 'BTC' | 'ETH' | 'SOL';
+  asset: OfAsset;
   tf: number;
   target: FcTargetId;
   h: number;

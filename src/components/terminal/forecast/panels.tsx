@@ -14,7 +14,7 @@
 //   ForecastKpiStrip    compact KPI strip above the chart
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useEffect, useReducer, useRef } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import { CheckCircle2, Gauge, RefreshCw, Sigma, TrendingUp } from 'lucide-react';
 import type { FcConfig, FcEvalRowUI, FcFeedState, FcModelUI } from './use-forecast';
 
@@ -568,4 +568,260 @@ function useElapsedTick(ms: number): void {
     const t = setInterval(force, ms);
     return () => clearInterval(t);
   }, [ms, force]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RISK — forward-looking hedged portfolio (conformal bands → VaR → BTC hedges)
+// + the analytics-storage ticker ("store now, analyze later" depth readout).
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface PortfolioAssetUI {
+  asset: string;
+  weight: number;
+  point: number | null;
+  band80: [number, number] | null;
+  band95: [number, number] | null;
+  fwdSigmaPct: number | null;
+  expMove80Pct: number | null;
+  realizedVolPctHorizon: number | null;
+  corrBtc: number | null;
+  betaVsBtc: number | null;
+  positionUsd: number;
+  fwdVaR95Usd: number | null;
+  hedgeUsd: number | null;
+  residualVaR95Usd: number | null;
+}
+
+interface PortfolioUI {
+  h: number;
+  tfSec: number;
+  notionalUsd: number;
+  assets: PortfolioAssetUI[];
+  corr: Array<{ a: string; b: string; rho: number | null }>;
+  portfolio: {
+    fwdVaR95Usd: number | null;
+    fwdEs95Usd: number | null;
+    fwdVolPct: number | null;
+    realizedVolPct: number | null;
+    hedgeFwdVaR95Usd: number | null;
+  };
+  scenarios: Array<{ btcMove: string; btcPct: number; unhedgedPnlUsd: number; hedgedPnlUsd: number }>;
+  tsMs: number;
+}
+
+export function RiskPanel({ h, tfSec }: { h: number; tfSec: number }) {
+  const [data, setData] = useState<PortfolioUI | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [stored, setStored] = useState<{ flowBars: number; forecastRuns: number; micro: number } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const r = await fetch(
+          `/api/forecast/portfolio?h=${h}&tf=${tfSec}&notional=100000`,
+        );
+        const j = (await r.json()) as PortfolioUI | { error: string };
+        if (!alive) return;
+        if ('error' in j) setError(j.error);
+        else {
+          setData(j);
+          setError(null);
+        }
+      } catch {
+        if (alive) setError('portfolio fetch failed');
+      } finally {
+        if (alive) setLoading(false);
+      }
+    };
+    const loadStore = async () => {
+      try {
+        const r = await fetch('/api/store/stats');
+        const j = (await r.json()) as {
+          assets?: Array<{ asset: string; flowBars: number; forecastRuns: number; microSnapshots: number }>;
+        };
+        if (!alive || !j.assets) return;
+        const agg = j.assets.reduce(
+          (a, x) => ({
+            flowBars: a.flowBars + (x.flowBars ?? 0),
+            forecastRuns: a.forecastRuns + (x.forecastRuns ?? 0),
+            micro: a.micro + (x.microSnapshots ?? 0),
+          }),
+          { flowBars: 0, forecastRuns: 0, micro: 0 },
+        );
+        setStored(agg);
+      } catch {
+        /* storage ticker is cosmetic */
+      }
+    };
+    void load();
+    void loadStore();
+    const t = setInterval(load, 60_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [h, tfSec]);
+
+  const fmtUsd = (v: number | null | undefined): string => {
+    if (v === null || v === undefined || !Number.isFinite(v)) return '—';
+    const abs = Math.abs(v);
+    if (abs >= 1000) return `$${(v / 1000).toFixed(1)}k`;
+    return `$${v.toFixed(0)}`;
+  };
+  const fmtPct = (v: number | null | undefined, digits = 2): string =>
+    v === null || v === undefined || !Number.isFinite(v) ? '—' : `${v.toFixed(digits)}%`;
+
+  if (loading && !data) {
+    return (
+      <div className="flex items-center gap-2 px-2 py-4 text-[10px] text-zinc-500">
+        <RefreshCw className="h-3 w-3 animate-spin" /> forecasting conformal bands for 8 majors…
+      </div>
+    );
+  }
+  if (error && !data) return <p className="px-2 py-3 text-[10px] text-rose-400">{error}</p>;
+  if (!data) return null;
+
+  const p = data.portfolio;
+  const hedgeReduction =
+    p.fwdVaR95Usd !== null && p.hedgeFwdVaR95Usd !== null && p.fwdVaR95Usd > 0
+      ? (1 - p.hedgeFwdVaR95Usd / p.fwdVaR95Usd) * 100
+      : null;
+  const assets = data.assets;
+  const symbols = assets.map((a) => a.asset);
+  const rho = (a: string, b: string): number | null =>
+    data.corr.find((c) => c.a === a && c.b === b)?.rho ?? null;
+  const corrColor = (r: number | null): string => {
+    if (r === null) return 'bg-zinc-900';
+    const t = Math.min(1, Math.abs(r));
+    if (r >= 0) return `rgba(45, 212, 191, ${0.08 + t * 0.55})`;
+    return `rgba(244, 63, 94, ${0.08 + t * 0.55})`;
+  };
+
+  return (
+    <div className="space-y-2">
+      <p className="px-1 text-[9px] leading-relaxed text-zinc-600">
+        Forward-looking book: conformal_error bands per asset (h={data.h} × {data.tfSec}s) → forward σ, weighted with the
+        cross-asset correlation from each asset&apos;s own closes. Hedge = short BTC perp notional = β × position.
+        Past σ shown for comparison — the future number is what the calibrated bands actually imply.
+      </p>
+
+      {/* portfolio strip */}
+      <div className="grid grid-cols-2 gap-1.5">
+        <Stat label="fwd VaR 95%" value={fmtUsd(p.fwdVaR95Usd)} sub={`ES ${fmtUsd(p.fwdEs95Usd)}`} ok />
+        <Stat
+          label="hedged VaR 95%"
+          value={fmtUsd(p.hedgeFwdVaR95Usd)}
+          sub={hedgeReduction !== null ? `β-hedge cuts ${hedgeReduction.toFixed(0)}%` : '—'}
+          ok={hedgeReduction === null ? undefined : hedgeReduction > 0}
+        />
+        <Stat label="fwd vol (h)" value={fmtPct(p.fwdVolPct)} sub={`horizon ${(data.h * data.tfSec) / 60} min`} ok />
+        <Stat
+          label="realized vol (h)"
+          value={fmtPct(p.realizedVolPct)}
+          sub={p.fwdVolPct !== null && p.realizedVolPct !== null ? (p.fwdVolPct > p.realizedVolPct ? 'bands wider than past' : 'bands tighter than past') : '—'}
+          ok
+        />
+      </div>
+
+      {/* per-asset rows */}
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900/30">
+        <div className="grid grid-cols-[52px_1fr_auto] items-center gap-1 border-b border-zinc-800/70 px-2 py-1 text-[8px] uppercase tracking-wider text-zinc-600">
+          <span>asset</span>
+          <span>exp move 80 / fwd σ / past σ</span>
+          <span className="text-right">VaR95 · β · hedge · resid</span>
+        </div>
+        {assets.map((a) => (
+          <div key={a.asset} className="grid grid-cols-[52px_1fr_auto] items-center gap-1 px-2 py-1 font-mono text-[9px]">
+            <span className="text-zinc-300">
+              {a.asset}
+              <span className="ml-1 text-zinc-600">{(a.weight * 100).toFixed(0)}%</span>
+            </span>
+            <span className="text-zinc-400">
+              {fmtPct(a.expMove80Pct)}
+              <span className="text-zinc-600"> / </span>
+              {fmtPct(a.fwdSigmaPct)}
+              <span className="text-zinc-600"> / </span>
+              {fmtPct(a.realizedVolPctHorizon)}
+            </span>
+            <span className="text-right text-zinc-400">
+              {fmtUsd(a.fwdVaR95Usd)}
+              <span className="text-zinc-600"> · </span>
+              <span className="text-teal-300">{a.betaVsBtc !== null ? a.betaVsBtc.toFixed(2) : '—'}</span>
+              <span className="text-zinc-600"> · </span>
+              <span className="text-amber-300">{fmtUsd(a.hedgeUsd)}</span>
+              <span className="text-zinc-600"> · </span>
+              {fmtUsd(a.residualVaR95Usd)}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* correlation heat */}
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-2">
+        <p className="mb-1 text-[8px] uppercase tracking-wider text-zinc-600">cross-asset correlation (returns, aligned closes)</p>
+        <div className="flex flex-col items-center">
+          <div className="flex">
+            <div className="w-[52px]" />
+            {symbols.map((s) => (
+              <span key={s} className="w-[19px] text-center text-[7px] text-zinc-500">
+                {s.slice(0, 3)}
+              </span>
+            ))}
+          </div>
+          {symbols.map((rowA) => (
+            <div key={rowA} className="flex items-center">
+              <span className="w-[52px] pr-1 text-right text-[7px] text-zinc-500">{rowA}</span>
+              {symbols.map((colB) => {
+                const r = rho(rowA, colB);
+                return (
+                  <div
+                    key={colB}
+                    className="h-[17px] w-[17px] rounded-[2px]"
+                    style={{ background: corrColor(r), margin: '0.5px' }}
+                    title={rowA === colB ? '1.00' : r !== null ? r.toFixed(2) : 'no data'}
+                  />
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* scenario grid */}
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-2">
+        <p className="mb-1 text-[8px] uppercase tracking-wider text-zinc-600">
+          BTC shock grid — P&amp;L on a $100k book, unhedged vs β-hedged
+        </p>
+        <div className="grid grid-cols-3 gap-1 font-mono text-[9px]">
+          <span className="text-zinc-600">btc move</span>
+          <span className="text-right text-zinc-600">unhedged</span>
+          <span className="text-right text-zinc-600">hedged</span>
+          {data.scenarios.map((s) => (
+            <div key={s.btcMove} className="col-span-3 grid grid-cols-3 gap-1">
+              <span className={s.btcPct > 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                {s.btcMove} ({s.btcPct >= 0 ? '+' : ''}
+                {s.btcPct.toFixed(1)}%)
+              </span>
+              <span className={`text-right ${s.unhedgedPnlUsd >= 0 ? 'text-emerald-300/80' : 'text-rose-300/80'}`}>
+                {fmtUsd(s.unhedgedPnlUsd)}
+              </span>
+              <span className="text-right text-zinc-300">{fmtUsd(s.hedgedPnlUsd)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* storage ticker */}
+      <div className="flex items-center justify-between rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-2 py-1 text-[8px] text-zinc-600">
+        <span>storage: {stored ? `${stored.flowBars} flow bars · ${stored.micro} micro rows · ${stored.forecastRuns} forecast runs` : 'checking…'}</span>
+        <span className="flex items-center gap-1">
+          <CheckCircle2 className="h-3 w-3 text-emerald-700" />
+          {data.tsMs ? `${Math.max(0, Math.round((Date.now() - data.tsMs) / 1000))}s ago` : ''}
+        </span>
+      </div>
+      {error && <p className="px-1 text-[9px] text-amber-500/80">refresh: {error}</p>}
+    </div>
+  );
 }

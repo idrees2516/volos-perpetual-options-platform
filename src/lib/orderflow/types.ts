@@ -9,13 +9,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Perpetual order-flow venues supported natively by the VolOS engine. */
-export type OfVenueId = 'binance' | 'bybit' | 'okx' | 'deribit';
+export type OfVenueId = 'binance' | 'bybit' | 'okx' | 'deribit' | 'bitget' | 'hyperliquid' | 'coinbase';
 export type OfTradeSide = 'buy' | 'sell';
 export type OfLiquidationSide = 'long' | 'short';
 export type OfVenueStatus = 'connecting' | 'live' | 'offline' | 'error' | 'stale';
 
 /** Canonical asset ids (the terminal's underlyings). */
-export type OfAsset = 'BTC' | 'ETH' | 'SOL';
+export type OfAsset = 'BTC' | 'ETH' | 'SOL' | 'XRP' | 'BNB' | 'DOGE' | 'LINK' | 'AVAX';
 
 // ── normalized market events ────────────────────────────────────────────────
 

@@ -414,6 +414,12 @@ export function venueColor(venue: OfVenueId | string): string {
       return '#7cc2ff';
     case 'deribit':
       return '#7bf1a8';
+    case 'bitget':
+      return '#00f2d2';
+    case 'hyperliquid':
+      return '#97fce4';
+    case 'coinbase':
+      return '#3b6eff';
     default:
       return '#a1a1aa';
   }

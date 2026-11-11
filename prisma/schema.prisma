@@ -78,3 +78,95 @@ model OptionTrade {
 
   @@index([symbol, ts])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORDER FLOW / FORECAST — analytics storage ("store now, analyze later").
+//
+// The order-flow engine's own 1-minute flow bars (multi-venue truth), the
+// conformal forecast runs that consumed them, their cross-validated
+// evaluations, and periodic microstructure snapshots: SQLite rows that
+// outlive dev-server restarts, so later analytics (coverage drift, regime
+// studies, backtests against recorded flow) have real time depth.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model FlowBar {
+  id       String   @id @default(cuid())
+  asset    String // BTC | ETH | SOL | XRP | BNB | DOGE | LINK | AVAX
+  tfSec    Int // bar timeframe in seconds (60 = 1 m engine bars)
+  tOpen    DateTime // bar open time
+  open     Float
+  high     Float
+  low      Float
+  close    Float
+  volume   Float // base units traded across all venues
+  buyVol   Float
+  sellVol  Float
+  delta    Float // buyVol - sellVol
+  trades   Int
+  cvd      Float // session cumulative delta at bar close
+  oi       Float? // summed open interest at bar close (base units)
+
+  @@unique([asset, tfSec, tOpen])
+  @@index([asset, tfSec, tOpen])
+}
+
+model ForecastRun {
+  id            String   @id @default(cuid())
+  asset         String
+  tfSec         Int
+  target        String // close | volume | delta | cvd | …
+  h             Int // horizon steps
+  levelsJson    String // [80, 95]
+  nWindows      Int // conformal calibration windows W
+  cutoff        DateTime // last observation the forecast conditioned on
+  anchor        Float // panel close at cutoff
+  expectedMove  Float? // |median(h) - anchor|
+  bandJson      String // compact per-model per-level bounds: model → level → [lo, hi] at h
+  modelsJson    String // per-model summary rows (point path + widths)
+  provenance    String // engineBars | klinesBars | engineOnly
+  createdAt     DateTime @default(now())
+
+  @@index([asset, target, tfSec, createdAt])
+}
+
+model ForecastEvalRun {
+  id          String   @id @default(cuid())
+  asset       String
+  tfSec       Int
+  target      String
+  h           Int
+  levelsJson  String
+  cvWindows   Int
+  rowsJson    String // FcEvaluateRow[] — coverage/width/MASE/sCRPS/clamp per model
+  perStepJson String? // per-step coverage of the primary model
+  createdAt   DateTime @default(now())
+
+  @@index([asset, target, tfSec, createdAt])
+}
+
+model MicroSnapshot {
+  id          String   @id @default(cuid())
+  asset       String
+  ts          DateTime
+  price       Float
+  // advanced microstructure (nullable = too-young session)
+  kyleLambda  Float? // bps price impact per $100k aggressor flow
+  vpin        Float?
+  amihud      Float? // bps per $1M traded
+  signAutocorr Float?
+  microSkew   Float? // microprice skew
+  obi         Float? // mean OBI(±10bp) over the last minute
+  rvAnnPct    Float? // close-to-close realized vol (annualized %)
+  atrPct      Float?
+  volRegime   String? // compressed | normal | elevated | extreme
+  vwapDist    Float? // σ units
+  takerShare  Float? // 1 m aggressor buy share
+  volumeZ     Float?
+  cvd1m       Float?
+  depth10Bp   Float? // resting base units within ±10 bp (bids+asks)
+  spreadBps   Float?
+  absorption15m Int // confirmed markers in the last 15 m
+  iceberg15m  Int
+
+  @@index([asset, ts])
+}

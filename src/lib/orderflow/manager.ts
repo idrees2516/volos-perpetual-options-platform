@@ -68,6 +68,9 @@ interface AssetState {
   pendingTrades: OfTrade[];
   pendingLiqs: OfLiquidation[];
   pendingMicro: OfMicroEvent[];
+  // analytics-storage bookkeeping ("store now, analyze later")
+  lastStoreMicro: number;
+  lastStoreBars: number;
   interestUntil: number;
   lastFlush: number;
   lastVenuesPush: number;
@@ -125,6 +128,8 @@ class OrderFlowManager {
         pendingTrades: [],
         pendingLiqs: [],
         pendingMicro: [],
+        lastStoreMicro: 0,
+        lastStoreBars: 0,
         interestUntil: 0,
         lastFlush: Date.now(),
         lastVenuesPush: 0,
@@ -262,6 +267,20 @@ class OrderFlowManager {
     for (const state of this.states.values()) {
       if (!state.adapters.size) continue;
       state.engine.onClock(now);
+
+      // analytics storage — microstructure every 30 s, flow bars every minute
+      if (now - (state.lastStoreMicro ?? 0) > 30_000) {
+        state.lastStoreMicro = now;
+        void import('@/lib/store/writer').then(({ recordMicroSnapshot }) =>
+          recordMicroSnapshot(state.asset, state.engine),
+        );
+      }
+      if (now - (state.lastStoreBars ?? 0) > 60_000) {
+        state.lastStoreBars = now;
+        void import('@/lib/store/writer').then(({ recordFlowBars }) =>
+          recordFlowBars(state.asset, state.engine),
+        );
+      }
 
       const micro = state.pendingMicro;
       state.pendingMicro = [];

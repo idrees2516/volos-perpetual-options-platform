@@ -18,13 +18,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from 'react';
-import { Activity, Gauge, LineChart, RefreshCw, Sigma } from 'lucide-react';
+import { Activity, Gauge, LineChart, Radar, RefreshCw, Sigma } from 'lucide-react';
 import { useForecast, FORECAST_TARGETS, type FcConfig, type FcTargetId } from './use-forecast';
 import { ForecastChart } from './forecast-chart';
-import { CalibPanel, EvaluatePanel, ForecastKpiStrip, LiveCoveragePanel, ModelsPanel } from './panels';
+import { CalibPanel, EvaluatePanel, ForecastKpiStrip, LiveCoveragePanel, ModelsPanel, RiskPanel } from './panels';
 import type { OfAsset } from '@/lib/orderflow/types';
 
-const ASSETS: OfAsset[] = ['BTC', 'ETH', 'SOL'];
+const ASSETS: OfAsset[] = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'LINK', 'AVAX'];
 const TFS: Array<{ tf: number; label: string }> = [
   { tf: 60_000, label: '1m' },
   { tf: 300_000, label: '5m' },
@@ -43,6 +43,7 @@ const RIGHT_TABS = [
   { id: 'evaluate', label: 'evaluate', icon: <Activity className="h-3 w-3" /> },
   { id: 'calib', label: 'calibration', icon: <Gauge className="h-3 w-3" /> },
   { id: 'live', label: 'live', icon: <LineChart className="h-3 w-3" /> },
+  { id: 'risk', label: 'risk', icon: <Radar className="h-3 w-3" /> },
 ] as const;
 
 function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
@@ -298,6 +299,7 @@ export function ForecastView() {
             {rightTab === 'evaluate' && <EvaluatePanel state={state} config={config} onRefresh={() => reloadEval()} />}
             {rightTab === 'calib' && <CalibPanel state={state} primaryAlias={primaryAlias} />}
             {rightTab === 'live' && <LiveCoveragePanel state={state} />}
+            {rightTab === 'risk' && <RiskPanel h={config.h} tfSec={config.tf / 1000} />}
           </div>
         </div>
       </div>

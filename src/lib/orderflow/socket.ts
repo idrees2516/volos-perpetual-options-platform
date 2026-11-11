@@ -67,9 +67,14 @@ export function openSocket(url: string, handlers: SocketHandlers): SocketHandle 
 }
 
 /** JSON fetch with a timeout; null on any failure (callers poll again). */
-export async function fetchJson<T>(url: string, timeoutMs = 8000): Promise<T | null> {
+export async function fetchJson<T>(
+  url: string,
+  initOrTimeout: RequestInit | number = 8000,
+): Promise<T | null> {
+  const timeout = typeof initOrTimeout === 'number' ? initOrTimeout : 8000;
+  const init = typeof initOrTimeout === 'number' ? {} : initOrTimeout;
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeout) });
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {

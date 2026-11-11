@@ -1,16 +1,17 @@
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
 // ORDER FLOW — instrument catalog & tick ladder
 //
-// Maps the terminal's canonical assets (BTC · ETH · SOL) onto each venue's
-// perpetual symbol, and sizes the contiguous tick ladder (~1 bp) used by the
-// footprint and the resting-liquidity heatmap.
+// Maps the terminal's canonical assets (8 majors) onto each venue's native
+// symbol — 4 perp venues + Bitget perps + Hyperliquid perps + Coinbase spot —
+// and sizes the contiguous tick ladder (~1 bp) used by the footprint and the
+// resting-liquidity heatmap. Venue/asset coverage verified live 2026-11.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { OfAsset, OfVenueId } from './types';
 
-export const OF_ASSETS: OfAsset[] = ['BTC', 'ETH', 'SOL'];
+export const OF_ASSETS: OfAsset[] = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'LINK', 'AVAX'];
 
-export const OF_VENUES: OfVenueId[] = ['binance', 'bybit', 'okx', 'deribit'];
+export const OF_VENUES: OfVenueId[] = ['binance', 'bybit', 'okx', 'bitget', 'hyperliquid', 'deribit', 'coinbase'];
 
 /** Venues with a public liquidation feed. */
 export const LIQ_FEED_VENUES: ReadonlySet<OfVenueId> = new Set<OfVenueId>(['binance', 'bybit', 'okx', 'deribit']);
@@ -48,6 +49,26 @@ export const OF_VENUE_META: Record<OfVenueId, OfVenueMetaEntry> = {
     name: 'Deribit Inverse',
     // Deribit lists BTC and ETH inverse perpetuals only.
     symbol: (a) => (a === 'BTC' || a === 'ETH' ? `${a}-PERPETUAL` : null),
+    quote: 'USD',
+  },
+  bitget: {
+    id: 'bitget',
+    name: 'Bitget USDT-M',
+    symbol: (a) => (OF_ASSETS.includes(a) ? `${a}USDT` : null),
+    quote: 'USDT',
+  },
+  hyperliquid: {
+    id: 'hyperliquid',
+    name: 'Hyperliquid',
+    // Hyperliquid perps trade under the bare coin code; all 8 majors listed.
+    symbol: (a) => a,
+    quote: 'USD',
+  },
+  coinbase: {
+    id: 'coinbase',
+    name: 'Coinbase Spot',
+    // Coinbase spot gives the tape a true spot leg (no funding/OI/liquidations).
+    symbol: (a) => `${a}-USD`,
     quote: 'USD',
   },
 };

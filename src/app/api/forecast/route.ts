@@ -18,11 +18,16 @@ import { buildForecastPanel } from '@/lib/forecast/panel';
 import { DEFAULT_FC_SPECS, Forecaster, resolveSpecs, specsFromModelIds } from '@/lib/forecast/forecaster';
 import { FC_TARGETS, type FcTargetId } from '@/lib/forecast/types';
 import { json, parseAsset, parseTimeframe } from '@/lib/orderflow/wire';
+import { recordForecastRun } from '@/lib/store/writer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const TARGET_IDS = new Set<string>(FC_TARGETS.map((t) => t.id as string));
+
+// write-through throttle: identical configs persist at most one run/minute
+const storeDedupe = new Map<string, number>();
+const STORE_DEDUPE_MS = 60_000;
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -87,6 +92,40 @@ export async function GET(req: Request) {
       };
     });
 
+    // ── storage write-through (deduped per config, one run/minute) ──────────
+    const cutoffPoint = panel.series[0]?.points.at(-1);
+    if (cutoffPoint) {
+      storeRun(
+        `${asset}:${tf}:${target}:${h}:${useLevels.join(',')}`,
+        {
+          asset,
+          tfSec: tf / 1000,
+          target,
+          h,
+          levels: useLevels,
+          nWindows,
+          cutoffMs: cutoffPoint.ds,
+          anchor: cutoffPoint.y,
+          provenance: `engine:${panel.provenance.engineBars}/kline:${panel.provenance.klinesBars}${
+            panel.provenance.klineError ? '/err' : ''
+          }`,
+        },
+        out.primary.map((m) => {
+          const last = m.rows[m.rows.length - 1];
+          const bounds: Record<string, [number, number]> = {};
+          for (const l of last?.levels ?? []) {
+            if (Number.isFinite(l.lo) && Number.isFinite(l.hi)) bounds[String(l.level)] = [l.lo, l.hi];
+          }
+          return {
+            alias: m.alias,
+            method: m.intervals,
+            point: m.rows.map((r) => r.point),
+            bounds: Object.keys(bounds).length ? bounds : undefined,
+          };
+        }),
+      );
+    }
+
     return json({
       asset,
       tf,
@@ -112,4 +151,17 @@ export async function GET(req: Request) {
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : 'forecast failed' }, 500);
   }
+}
+
+/** Storage write-through (deduped) — "store now, analyze later". */
+function storeRun(
+  key: string,
+  params: Parameters<typeof recordForecastRun>[0],
+  models: Parameters<typeof recordForecastRun>[1],
+): void {
+  const now = Date.now();
+  const last = storeDedupe.get(key) ?? 0;
+  if (now - last < STORE_DEDUPE_MS) return;
+  storeDedupe.set(key, now);
+  void recordForecastRun(params, models);
 }

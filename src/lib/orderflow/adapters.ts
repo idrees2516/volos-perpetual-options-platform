@@ -9,6 +9,13 @@
 //   OKX swap        trades · books · open-interest · funding-rate ·
 //                   mark-price · index-tickers · liquidation-orders
 //   Deribit inverse trades (with liquidation flags) · grouped book · ticker
+//   Bitget USDT-M   trade · books (full incremental) · ticker (funding + OI +
+//                   mark + index live-verified 2026-11) — no public liq feed
+//   Hyperliquid     ws trades + activeAssetCtx (hourly funding, OI, mark,
+//                   oracle index) · REST l2Book poll (full aggregated book) —
+//                   no public liq feed
+//   Coinbase spot   matches (side is the MAKER side — inverted to taker) ·
+//                   REST level-2 book poll · no funding/OI/liquidations
 //
 // Adapter patterns adapted from the open-source order-flow-screener by
 // zadescoxp (Apache-2.0); normalized to VolOS types.
@@ -888,6 +895,374 @@ export class DeribitPerpAdapter extends BaseVenueAdapter {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// BITGET USDT-M FUTURES
+// ═══════════════════════════════════════════════════════════════════════════
+
+const BITGET_WS = 'wss://ws.bitget.com/v2/ws/public';
+
+interface BitgetTradeMsg {
+  ts?: string;
+  price?: string;
+  size?: string;
+  side?: 'buy' | 'sell';
+  tradeId?: string;
+}
+
+interface BitgetBookMsg {
+  asks?: [string, string][];
+  bids?: [string, string][];
+}
+
+interface BitgetTickerMsg {
+  lastPr?: string;
+  bidPr?: string;
+  askPr?: string;
+  fundingRate?: string;
+  nextFundingTime?: string;
+  markPrice?: string;
+  indexPrice?: string;
+  /** open interest in base units */
+  holdingAmount?: string;
+  ts?: string;
+}
+
+export class BitgetPerpAdapter extends BaseVenueAdapter {
+  readonly venue: OfVenueId = 'bitget';
+
+  constructor(asset: OfAsset) {
+    super(asset, OF_VENUE_META.bitget.symbol(asset) ?? `${asset}USDT`);
+  }
+
+  protected buildWsUrl(): string {
+    return BITGET_WS;
+  }
+
+  protected subscribe(): void {
+    const instType = 'USDT-FUTURES';
+    const instId = this.nativeSymbol;
+    for (const channel of ['trade', 'books', 'ticker']) {
+      this.socket?.send(JSON.stringify({ op: 'subscribe', args: [{ instType, channel, instId }] }));
+    }
+  }
+
+  protected handleMessage(raw: string): void {
+    if (raw === 'pong') return;
+    const msg = JSON.parse(raw);
+    if (msg.event === 'error') {
+      this.reportError(`bitget ${msg.code}: ${msg.msg}`);
+      return;
+    }
+    if (!msg.arg || !msg.action) return;
+    const channel: string = msg.arg.channel;
+    const data = msg.data as unknown[];
+    if (!Array.isArray(data)) return;
+
+    if (channel === 'trade') {
+      for (const t of data as BitgetTradeMsg[]) {
+        const price = parseFloat(t.price ?? '');
+        const qty = parseFloat(t.size ?? '');
+        this.emitTrade({
+          id: `bg-${t.tradeId}`,
+          venue: this.venue,
+          asset: this.asset,
+          timestamp: num(t.ts) ?? Date.now(),
+          localTimestamp: Date.now(),
+          price,
+          quantity: qty,
+          quoteVolume: price * qty,
+          side: t.side === 'sell' ? 'sell' : 'buy',
+        });
+      }
+    } else if (channel === 'books') {
+      // snapshot = full replace, update = incremental; size 0 removes.
+      if (msg.action === 'snapshot') {
+        this.bids.clear();
+        this.asks.clear();
+      }
+      for (const d of data as BitgetBookMsg[]) {
+        if (d.asks) this.applyLevels(this.asks, d.asks);
+        if (d.bids) this.applyLevels(this.bids, d.bids);
+      }
+      this.bookChanged();
+    } else if (channel === 'ticker') {
+      for (const t of data as BitgetTickerMsg[]) {
+        const next = num(t.nextFundingTime) ?? 0;
+        this.emitDerivatives({
+          openInterest: num(t.holdingAmount),
+          fundingRate: parseFloat(t.fundingRate ?? ''),
+          fundingIntervalHours: 8,
+          nextFundingTime: next > 0 ? next : undefined,
+          markPrice: parseFloat(t.markPrice ?? ''),
+          indexPrice: parseFloat(t.indexPrice ?? ''),
+          timestamp: num(t.ts) || Date.now(),
+        });
+      }
+    }
+  }
+
+  protected sendPing(): void {
+    this.socket?.send('ping');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HYPERLIQUID PERPS
+// ═══════════════════════════════════════════════════════════════════════════
+
+const HYPERLIQUID_WS = 'wss://api.hyperliquid.xyz/ws';
+const HYPERLIQUID_INFO = 'https://api.hyperliquid.xyz/info';
+const HL_BOOK_POLL_MS = 4_000;
+
+interface HlTrade {
+  coin: string;
+  side: 'B' | 'S';
+  px: string;
+  sz: string;
+  time: number;
+  tid: number;
+}
+
+interface HlAssetCtx {
+  funding?: string;
+  openInterest?: string;
+  markPx?: string;
+  oraclePx?: string;
+  prevDayPx?: string;
+  dayNtlVlm?: string;
+  premium?: string;
+}
+
+interface HlBookLevel {
+  px: string;
+  sz: string;
+  n: number;
+}
+
+export class HyperliquidAdapter extends BaseVenueAdapter {
+  readonly venue: OfVenueId = 'hyperliquid';
+  private bookTimer: ReturnType<typeof setInterval> | null = null;
+  private bookLoading = false;
+
+  constructor(asset: OfAsset) {
+    super(asset, OF_VENUE_META.hyperliquid.symbol(asset) ?? asset);
+  }
+
+  protected buildWsUrl(): string {
+    return HYPERLIQUID_WS;
+  }
+
+  protected subscribe(): void {
+    const coin = this.nativeSymbol;
+    this.socket?.send(JSON.stringify({ method: 'subscribe', subscription: { type: 'trades', coin } }));
+    this.socket?.send(
+      JSON.stringify({ method: 'subscribe', subscription: { type: 'activeAssetCtx', coin } }),
+    );
+    this.startBookPoll();
+  }
+
+  private startBookPoll(): void {
+    if (this.bookTimer) return;
+    this.bookTimer = setInterval(() => {
+      if (this.active) void this.pollBook();
+    }, HL_BOOK_POLL_MS);
+    void this.pollBook();
+  }
+
+  private async pollBook(): Promise<void> {
+    if (this.bookLoading) return;
+    this.bookLoading = true;
+    try {
+      const body = await fetchJson<{ levels?: { bids?: HlBookLevel[]; asks?: HlBookLevel[] } }>(
+        HYPERLIQUID_INFO,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'l2Book', coin: this.nativeSymbol }) },
+      );
+      const levels = body?.levels?.[0];
+      if (!levels?.bids?.length || !levels?.asks?.length) return;
+      // Full aggregated book snapshot each poll: replace and emit.
+      this.bids.clear();
+      this.asks.clear();
+      for (const l of levels.bids) {
+        const price = parseFloat(l.px);
+        const size = parseFloat(l.sz);
+        if (price > 0 && size > 0) this.bids.set(price, size);
+      }
+      for (const l of levels.asks) {
+        const price = parseFloat(l.px);
+        const size = parseFloat(l.sz);
+        if (price > 0 && size > 0) this.asks.set(price, size);
+      }
+      this.bookChanged();
+    } catch {
+      // transient poll failure — the next tick retries
+    } finally {
+      this.bookLoading = false;
+    }
+  }
+
+  protected handleMessage(raw: string): void {
+    const msg = JSON.parse(raw);
+    const channel: string | undefined = msg.channel;
+    if (channel === 'trades' && Array.isArray(msg.data)) {
+      for (const t of msg.data as HlTrade[]) {
+        if (t.coin !== this.nativeSymbol) continue;
+        const price = parseFloat(t.px);
+        const qty = parseFloat(t.sz);
+        this.emitTrade({
+          id: `hl-${t.tid}-${t.time}`,
+          venue: this.venue,
+          asset: this.asset,
+          timestamp: t.time,
+          localTimestamp: Date.now(),
+          price,
+          quantity: qty,
+          quoteVolume: price * qty,
+          side: t.side === 'B' ? 'buy' : 'sell',
+        });
+      }
+    } else if (channel === 'activeAssetCtx') {
+      // the push delivers a single {coin, ctx} object (live-verified), but
+      // tolerate an array the same way
+      const entries = (Array.isArray(msg.data) ? msg.data : [msg.data]) as Array<{
+        coin: string;
+        ctx: HlAssetCtx;
+      }>;
+      for (const entry of entries) {
+        if (!entry || entry.coin !== this.nativeSymbol) continue;
+        const ctx = entry.ctx ?? {};
+        this.emitDerivatives({
+          // Hyperliquid publishes an hourly funding rate; keep the native
+          // value and the 1-hour interval so annualization stays honest.
+          fundingRate: parseFloat(ctx.funding ?? ''),
+          fundingIntervalHours: 1,
+          openInterest: parseFloat(ctx.openInterest ?? ''),
+          markPrice: parseFloat(ctx.markPx ?? ''),
+          indexPrice: parseFloat(ctx.oraclePx ?? ''),
+        });
+      }
+    }
+  }
+
+  protected sendPing(): void {
+    this.socket?.send(JSON.stringify({ method: 'ping' }));
+  }
+
+  disconnect(): void {
+    if (this.bookTimer) clearInterval(this.bookTimer);
+    this.bookTimer = null;
+    super.disconnect();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COINBASE SPOT
+// ═══════════════════════════════════════════════════════════════════════════
+
+const COINBASE_WS = 'wss://ws-feed.exchange.coinbase.com';
+const COINBASE_REST = 'https://api.exchange.coinbase.com';
+const CB_BOOK_POLL_MS = 5_000;
+
+interface CbMatch {
+  type: 'match' | 'last_match';
+  trade_id: number;
+  side: 'buy' | 'sell';
+  size: string;
+  price: string;
+  product_id: string;
+  time: string;
+}
+
+export class CoinbaseSpotAdapter extends BaseVenueAdapter {
+  readonly venue: OfVenueId = 'coinbase';
+  private bookTimer: ReturnType<typeof setInterval> | null = null;
+  private bookLoading = false;
+
+  constructor(asset: OfAsset) {
+    super(asset, OF_VENUE_META.coinbase.symbol(asset) ?? `${asset}-USD`);
+  }
+
+  protected buildWsUrl(): string {
+    return COINBASE_WS;
+  }
+
+  protected subscribe(): void {
+    this.socket?.send(
+      JSON.stringify({
+        type: 'subscribe',
+        product_ids: [this.nativeSymbol],
+        channels: ['matches', 'ticker', 'heartbeat'],
+      }),
+    );
+    this.startBookPoll();
+  }
+
+  private startBookPoll(): void {
+    if (this.bookTimer) return;
+    this.bookTimer = setInterval(() => {
+      if (this.active) void this.pollBook();
+    }, CB_BOOK_POLL_MS);
+    void this.pollBook();
+  }
+
+  private async pollBook(): Promise<void> {
+    if (this.bookLoading) return;
+    this.bookLoading = true;
+    try {
+      // level=2: top 50 aggregated levels per side, no auth required.
+      const body = await fetchJson<{ bids?: [string, string, number][]; asks?: [string, string, number][] }>(
+        `${COINBASE_REST}/products/${encodeURIComponent(this.nativeSymbol)}/book?level=2`,
+      );
+      if (!body?.bids?.length || !body?.asks?.length) return;
+      this.bids.clear();
+      this.asks.clear();
+      // REST rows are [price, size, num-orders]; keep the first two.
+      this.applyLevels(this.bids, body.bids.map((l) => [l[0], l[1]] as [string, string]));
+      this.applyLevels(this.asks, body.asks.map((l) => [l[0], l[1]] as [string, string]));
+      this.bookChanged();
+    } catch {
+      // transient poll failure — the next tick retries
+    } finally {
+      this.bookLoading = false;
+    }
+  }
+
+  protected handleMessage(raw: string): void {
+    const msg = JSON.parse(raw);
+    if (msg.type === 'match' || msg.type === 'last_match') {
+      if (msg.product_id !== this.nativeSymbol) return;
+      const price = parseFloat(msg.price);
+      const qty = parseFloat(msg.size);
+      // Coinbase's match.side is the MAKER order side (verified empirically
+      // 2026-11: matches at the ask report side="sell"); invert to taker side.
+      const takerSide: 'buy' | 'sell' = msg.side === 'buy' ? 'sell' : 'buy';
+      this.emitTrade({
+        id: `cb-${msg.trade_id}`,
+        venue: this.venue,
+        asset: this.asset,
+        timestamp: Date.parse(msg.time) || Date.now(),
+        localTimestamp: Date.now(),
+        price,
+        quantity: qty,
+        quoteVolume: price * qty,
+        side: takerSide,
+      });
+    } else if (msg.type === 'ticker') {
+      // keep-alive heartbeat for the lastHeartbeat staleness clock
+      this.lastHeartbeat = Date.now();
+    }
+  }
+
+  protected sendPing(): void {
+    // the heartbeat channel keeps the socket warm; nothing to send
+  }
+
+  disconnect(): void {
+    if (this.bookTimer) clearInterval(this.bookTimer);
+    this.bookTimer = null;
+    super.disconnect();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // FACTORY
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -903,6 +1278,12 @@ export function createAdapter(venue: OfVenueId, asset: OfAsset): BaseVenueAdapte
       return new OkxPerpAdapter(asset);
     case 'deribit':
       return new DeribitPerpAdapter(asset);
+    case 'bitget':
+      return new BitgetPerpAdapter(asset);
+    case 'hyperliquid':
+      return new HyperliquidAdapter(asset);
+    case 'coinbase':
+      return new CoinbaseSpotAdapter(asset);
     default:
       return null;
   }

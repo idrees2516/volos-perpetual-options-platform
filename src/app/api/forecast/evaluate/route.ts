@@ -15,11 +15,16 @@ import { buildForecastPanel } from '@/lib/forecast/panel';
 import { DEFAULT_FC_SPECS, Forecaster, resolveSpecs, specsFromModelIds } from '@/lib/forecast/forecaster';
 import { FC_TARGETS, type FcTargetId } from '@/lib/forecast/types';
 import { json, parseAsset, parseTimeframe } from '@/lib/orderflow/wire';
+import { recordForecastEvalRun } from '@/lib/store/writer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const TARGET_IDS = new Set<string>(FC_TARGETS.map((t) => t.id as string));
+
+// evaluation runs are heavier — one per config per 10 minutes is plenty
+const storeDedupe = new Map<string, number>();
+const STORE_DEDUPE_MS = 600_000;
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -75,6 +80,17 @@ export async function GET(req: Request) {
         .sort((a, b) => a[0] - b[0])
         .map(([step, c]) => ({ step, coverage: c.n > 0 ? c.inN / c.n : NaN, width: c.n > 0 ? c.widthSum / c.n : NaN })),
     }));
+
+    // ── storage write-through (deduped per config, one run/10 min) ────────
+    const key = `${asset}:${tf}:${target}:${h}:${useLevels.join(',')}:${cvWindows}`;
+    if (Date.now() - (storeDedupe.get(key) ?? 0) > STORE_DEDUPE_MS) {
+      storeDedupe.set(key, Date.now());
+      void recordForecastEvalRun(
+        { asset, tfSec: tf / 1000, target, h, levels: useLevels, cvWindows },
+        evalRows,
+        perStep,
+      );
+    }
 
     return json({
       asset,
