@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── unit: vitest on the pure analytics core (no DB, no network) ─────────────
+  unit:
+    name: unit (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - run: bunx vitest run
+
+  # ── typecheck: tsc --noEmit, gated on the analytics core ──────────────────────
+  # (the repo carries legacy-route TS errors; we gate on "no NEW errors" by
+  #  counting them and failing only on growth past the frozen baseline)
+  typecheck:
+    name: typecheck (baseline-gated)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - name: tsc --noEmit with frozen error baseline
+        run: |
+          set -o pipefail
+          bunx tsc --noEmit 2>&1 | tee /tmp/tsc.log | tail -5 || true
+          ERRORS=$(grep -c "error TS" /tmp/tsc.log || true)
+          echo "type errors: $ERRORS (baseline: 260)"
+          if [ "$ERRORS" -gt 260 ]; then
+            echo "::error::type error count grew past the frozen baseline (260) — fix the new errors"
+            exit 1
+          fi
+
+  # ── lint: zero errors on the lines we own (warnings allowed for legacy) ────
+  lint:
+    name: lint (eslint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - name: eslint on the analytics core
+        run: bunx eslint src/lib/forecast src/lib/store src/lib/orderflow src/lib/ai tests --max-warnings 999
+
+  # ── build: the app must compile (standalone output) ──────────────────────────
+  build:
+    name: build (next)
+    runs-on: ubuntu-latest
+    needs: [unit]
+    env:
+      DATABASE_URL: file:/tmp/ci-build.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - run: bunx prisma db push --accept-data-loss
+      - run: bun run build
+
+  # ── e2e: Playwright smoke against the dev server ─────────────────────────────
+  e2e:
+    name: e2e (playwright smoke)
+    runs-on: ubuntu-latest
+    needs: [build]
+    env:
+      DATABASE_URL: file:/tmp/ci-e2e.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - run: bunx prisma db push --accept-data-loss
+      - run: bunx playwright install --with-deps chromium
+      - run: bunx playwright test
