@@ -83,7 +83,7 @@ scripts/openapi-v2.json
 /.persist/
 /scripts/
 # vendored external services (OmniRoute self-host clone, its data/, logs)
-/external/
+/external/*
 # …except the tracked Respan gateway config (no secrets — env refs only)
 !/external/respan/
 /external/respan/*
