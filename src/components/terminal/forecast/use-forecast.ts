@@ -81,6 +81,7 @@ export interface FcEvalRowUI {
   width: Record<string, number>;
   mase: number | null;
   scaledCrps: number | null;
+  pinball: Record<string, number> | null;
   mae: number | null;
   rmse: number | null;
   smape: number | null;
@@ -88,9 +89,17 @@ export interface FcEvalRowUI {
   forecasts: number;
 }
 
+export interface FcCoveragePointUI {
+  cutoff: number;
+  steps: number;
+  covered: Record<string, number>;
+  width: number | null;
+}
+
 export interface FcEvalData {
   evalRows: FcEvalRowUI[];
   perStep: { alias: string; steps: { step: number; coverage: number; width: number }[] }[];
+  coverageTimeline: { alias: string; points: FcCoveragePointUI[] }[] | null;
   cvWindows: number;
 }
 
@@ -102,7 +111,13 @@ export interface FcFeedState {
   lastTickAt: number | null;
   panel: {
     series: { uniqueId: string; label: string; liveTailFrom: number | null; points: FcPanelPoint[] }[];
-    provenance: { klinesBars: number; engineBars: number; engineOnly: boolean; klineError: string | null };
+    provenance: {
+      klinesBars: number;
+      engineBars: number;
+      engineOnly: boolean;
+      klineError: string | null;
+      klineSource?: 'store' | 'store+live' | 'binance' | 'none';
+    };
     seasonLength: number;
     bounds: { lo?: number; hi?: number } | null;
   } | null;
@@ -280,7 +295,12 @@ export class ForecastFeed {
           this.st.evalData = null;
         }
       } else {
-        this.st.evalData = { evalRows: d.evalRows, perStep: d.perStep, cvWindows: d.cvWindows };
+        this.st.evalData = {
+          evalRows: d.evalRows,
+          perStep: d.perStep,
+          coverageTimeline: d.coverageTimeline ?? null,
+          cvWindows: d.cvWindows,
+        };
       }
     } catch {
       /* aborted or network */

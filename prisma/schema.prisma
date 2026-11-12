@@ -170,3 +170,60 @@ model MicroSnapshot {
 
   @@index([asset, ts])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HISTORICAL BACKFILL — venue REST history mirrored into SQLite so analytics
+// survive restarts and never re-hit exchange rate limits ("store now, analyze
+// later" — the backfill worker writes here once; panels read from here first).
+//
+//   KlineBar        exchange klines incl. taker-buy base volume (the same
+//                   aggressor semantics as our engine delta)
+//   DerivativesPoint funding-rate & open-interest history (venue polls are
+//                   depth-limited: funding ~full depth, OI ~30 days)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model KlineBar {
+  id        String   @id @default(cuid())
+  venue     String // binance | bybit | okx | …
+  asset     String // BTC | ETH | SOL | …
+  tfSec     Int // bar timeframe in seconds
+  tOpen     DateTime // bar open time (UTC, venue-aligned)
+  open      Float
+  high      Float
+  low       Float
+  close     Float
+  volume    Float // base units
+  buyVolume Float // taker-buy base units (aggressor buy)
+  trades    Int // print count in the bar
+
+  @@unique([venue, asset, tfSec, tOpen])
+  @@index([asset, tfSec, tOpen])
+}
+
+model DerivativesPoint {
+  id     String   @id @default(cuid())
+  venue  String // binance | bybit | okx | …
+  asset  String
+  kind   String // funding | openInterest
+  ts     DateTime // observation time (UTC)
+  value  Float // funding rate as 8h fraction (0.0001 = 1bp/8h) or OI base units
+
+  @@unique([venue, asset, kind, ts])
+  @@index([asset, kind, ts])
+}
+
+// Backfill worker bookkeeping — one row per finished job chunk so restarts
+// know exactly where history left off (idempotent resume).
+model BackfillJob {
+  id        String   @id @default(cuid())
+  venue     String
+  asset     String
+  kind      String // klines:60 | funding | oi:300 …
+  from      DateTime // chunk start
+  to        DateTime // chunk end
+  rows      Int // rows written (upserted) by the chunk
+  ms        Int // wall time of the chunk fetch+write
+  note      String? // e.g. "418 backoff 61s" on throttled chunks
+
+  @@index([venue, asset, kind, to])
+}

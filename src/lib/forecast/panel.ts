@@ -24,6 +24,7 @@
 // sees look-ahead.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { db } from '@/lib/db';
 import { getOrderFlowManager } from '@/lib/orderflow/manager';
 import type { OfAsset, OfCandle, OfVenueId } from '@/lib/orderflow/types';
 import { OF_VENUES } from '@/lib/orderflow/catalog';
@@ -67,11 +68,77 @@ export interface FcPanel {
     engineBars: number;
     engineOnly: boolean;
     klineError: string | null;
+    /** where the history came from once the backfill store exists */
+    klineSource: 'store' | 'store+live' | 'binance' | 'none';
   };
   builtAt: number;
 }
 
 // ── kline backfill ──────────────────────────────────────────────────────────
+
+// STORED-FIRST: once the backfill worker has mirrored Binance history into
+// KlineBar, panels are served from SQLite and never re-hit the venue (the
+// 418 fix). Live gaps still fetch (and write-through to the store so it
+// self-heals), then the engine tail overrides bucket-for-bucket.
+
+async function fetchStoredKlines(asset: OfAsset, tfSec: number, limit: number): Promise<RawBar[]> {
+  try {
+    const rows = await db.klineBar.findMany({
+      where: { venue: 'binance', asset, tfSec },
+      orderBy: { tOpen: 'desc' },
+      take: limit,
+    });
+    return rows
+      .map((r) => ({
+        ds: r.tOpen.getTime(),
+        open: r.open,
+        high: r.high,
+        low: r.low,
+        close: r.close,
+        volume: r.volume,
+        buyVolume: r.buyVolume,
+        trades: r.trades,
+      }))
+      .reverse();
+  } catch {
+    return []; // store unavailable → fall back to direct fetch
+  }
+}
+
+/** Write-through: persist freshly fetched klines so the store self-heals. */
+async function persistKlines(asset: OfAsset, tfSec: number, bars: RawBar[]): Promise<void> {
+  try {
+    for (const b of bars) {
+      await db.klineBar.upsert({
+        where: { venue_asset_tfSec_tOpen: { venue: 'binance', asset, tfSec, tOpen: new Date(b.ds) } },
+        create: {
+          venue: 'binance',
+          asset,
+          tfSec,
+          tOpen: new Date(b.ds),
+          open: b.open,
+          high: b.high,
+          low: b.low,
+          close: b.close,
+          volume: b.volume,
+          buyVolume: b.buyVolume,
+          trades: b.trades,
+        },
+        update: {
+          open: b.open,
+          high: b.high,
+          low: b.low,
+          close: b.close,
+          volume: b.volume,
+          buyVolume: b.buyVolume,
+          trades: b.trades,
+        },
+      });
+    }
+  } catch {
+    /* best-effort — the panel must never fail because storage is slow */
+  }
+}
 
 async function fetchKlinesOnce(symbol: string, interval: string, limit: number): Promise<RawBar[]> {
   const ctl = new AbortController();
@@ -175,11 +242,46 @@ export async function buildForecastPanel(
 
     let klinesBars: RawBar[] = [];
     let klineError: string | null = null;
+    let klineSource: 'store' | 'store+live' | 'binance' | 'none' = 'none';
     if (interval && target !== 'oi' && target !== 'venueVolumeShare' && target !== 'venueDelta') {
-      try {
-        klinesBars = await fetchKlines(`${asset}USDT`, interval, backfill);
-      } catch (e) {
-        klineError = e instanceof Error ? e.message : 'kline fetch failed';
+      const tfSec = tf / 1000;
+      // 1) stored history (the backfill worker's mirror) — no venue call
+      klinesBars = await fetchStoredKlines(asset, tfSec, backfill);
+      if (klinesBars.length >= Math.min(240, backfill * 0.6)) {
+        klineSource = 'store';
+        // 2) bridge the gap to now with one small live request (write-through)
+        try {
+          const bridge = await fetchKlines(`${asset}USDT`, interval, 30);
+          const known = new Set(klinesBars.map((b) => b.ds));
+          const fresh = bridge.filter((b) => !known.has(b.ds));
+          if (fresh.length) {
+            const cut = bridge[0]?.ds ?? Infinity;
+            klinesBars = [...klinesBars.filter((b) => b.ds < cut), ...bridge]
+              .sort((a, b) => a.ds - b.ds)
+              .slice(-backfill);
+            klineSource = 'store+live';
+          }
+          void persistKlines(asset, tfSec, bridge);
+        } catch {
+          /* live bridge optional — stored history + engine tail still valid */
+        }
+      } else {
+        // store cold: direct fetch (the old 418-risk path, now write-through)
+        klinesBars = [];
+        try {
+          klinesBars = await fetchKlines(`${asset}USDT`, interval, backfill);
+          klineSource = 'binance';
+          void persistKlines(asset, tfSec, klinesBars);
+        } catch (e) {
+          klineError = e instanceof Error ? e.message : 'kline fetch failed';
+          // last resort: whatever the store had (possibly partial)
+          const stored = await fetchStoredKlines(asset, tfSec, backfill);
+          if (stored.length) {
+            klinesBars = stored;
+            klineSource = 'store';
+            klineError = `${klineError} (served from partial store)`;
+          }
+        }
       }
     }
 
@@ -327,6 +429,7 @@ export async function buildForecastPanel(
         engineBars: engineCount,
         engineOnly,
         klineError,
+        klineSource,
       },
       builtAt: now,
     };

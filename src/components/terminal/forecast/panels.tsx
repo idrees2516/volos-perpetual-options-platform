@@ -210,6 +210,11 @@ export function EvaluatePanel({
                   ))}
                   <th className="px-1 py-1 text-right font-medium">mase</th>
                   <th className="px-1 py-1 text-right font-medium">s.crps</th>
+                  {levelKeys.map((k) => (
+                    <th key={`p${k}`} className="px-1 py-1 text-right font-medium">
+                      pin {k}
+                    </th>
+                  ))}
                   <th className="px-1 py-1 text-center font-medium">clamp</th>
                 </tr>
               </thead>
@@ -223,8 +228,15 @@ export function EvaluatePanel({
                             ? 'text-sky-300'
                             : r.intervals === 'conformal_error'
                               ? 'text-violet-300'
-                              : 'text-zinc-300'
+                              : r.intervals === 'enbpi'
+                                ? 'text-emerald-300'
+                                : r.intervals === 'aci'
+                                  ? 'text-orange-300'
+                                  : r.intervals === 'native_full'
+                                    ? 'text-rose-300'
+                                    : 'text-zinc-300'
                         }`}
+                        title={r.intervals}
                       >
                         {r.alias}
                       </span>
@@ -241,6 +253,11 @@ export function EvaluatePanel({
                     ))}
                     <td className="px-1 py-1 text-right font-mono text-zinc-400">{fmt(r.mase)}</td>
                     <td className="px-1 py-1 text-right font-mono text-zinc-400">{fmt(r.scaledCrps)}</td>
+                    {levelKeys.map((k) => (
+                      <td key={`p${k}`} className="px-1 py-1 text-right font-mono text-zinc-400">
+                        {r.pinball?.[k] != null ? fmt(r.pinball[k]) : '–'}
+                      </td>
+                    ))}
                     <td className="px-1 py-1 text-center">
                       {r.clampedAt ? (
                         <span
@@ -259,13 +276,76 @@ export function EvaluatePanel({
             </table>
           </div>
           <PerStepCoverage perStep={d.perStep} levels={config.levels} />
+          <CoverageTimelineChart timeline={d.coverageTimeline ?? []} levels={config.levels} />
           <p className="px-1 text-[8px] leading-relaxed text-zinc-700">
             mase = mean absolute scaled error (seasonality-aware point accuracy; lower is better) · s.crps =
-            scaled continuous ranked probability score from the interval bounds + median · clamp = widest level
-            equals the narrowest band → the model&apos;s &quot;95%&quot; is really its 80%.
+            scaled continuous ranked probability score from the interval bounds + median · pin = mean pinball
+            loss at the band knots (calibration fidelity; lower is better) · clamp = widest level equals the
+            narrowest band → the model&apos;s &quot;95%&quot; is really its 80%. Colors: conformal-dist sky ·
+            conformal-error violet · EnbPI emerald · ACI orange · native-full rose.
           </p>
         </>
       )}
+    </div>
+  );
+}
+
+/** Coverage-over-time chart: per-cutoff band-hit ratio at the widest level.
+ *  The drift detector — flat-on-nominal means calibration holds across the
+ *  whole CV window; a dive flags a regime change the intervals missed. */
+function CoverageTimelineChart({
+  timeline,
+  levels,
+}: {
+  timeline: { alias: string; points: { cutoff: number; steps: number; covered: Record<string, number>; width: number | null }[] }[];
+  levels: number[];
+}) {
+  const widest = levels[levels.length - 1];
+  const key = String(widest);
+  const seriesWith = timeline.filter((t) => t.points.length >= 2);
+  if (!seriesWith.length) return null;
+  const W = 250;
+  const H = 130;
+  const PADL = 2;
+  const PADB = 14;
+  const TOP = 6;
+  const nominalY = H - PADB - (widest / 100) * (H - PADB - TOP);
+  const t0 = Math.min(...seriesWith.map((s) => s.points[0].cutoff));
+  const t1 = Math.max(...seriesWith.map((s) => s.points[s.points.length - 1].cutoff));
+  const span = Math.max(1, t1 - t0);
+  const x = (t: number) => PADL + ((t - t0) / span) * (W - PADL - 4);
+  const y = (c: number) => (Number.isFinite(c) ? H - PADB - Math.max(0, Math.min(1, c)) * (H - PADB - TOP) : H - PADB);
+  const stroke = (alias: string) =>
+    alias.includes('EnbPI') ? '#34d399' : alias.includes('ACI') ? '#fb923c' : alias.includes('error') ? '#a78bfa' : alias.includes('distribution') ? '#38bdf8' : '#525a68';
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
+      <p className="mb-1 text-[9px] text-zinc-500">
+        coverage over time <span className="text-zinc-700">(per CV cutoff · widest level {widest}% · teal dashes = nominal)</span>
+      </p>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+        <line x1={0} x2={W} y1={H - PADB} y2={H - PADB} stroke="#3f4a5a" strokeWidth={1} />
+        <line x1={0} x2={W} y1={nominalY} y2={nominalY} stroke="#2dd4bf" strokeOpacity={0.45} strokeDasharray="3 3" />
+        <text x={W - 58} y={nominalY - 3} fill="#2dd4bf" fillOpacity={0.7} fontSize={7}>
+          nominal {widest}%
+        </text>
+        {seriesWith.map((s) => (
+          <polyline
+            key={s.alias}
+            fill="none"
+            stroke={stroke(s.alias)}
+            strokeWidth={s.alias.includes('FlowX') ? 1.6 : 1}
+            strokeOpacity={s.alias.includes('FlowX') || s.alias.includes('Ensemble') ? 0.95 : 0.55}
+            points={s.points
+              .filter((p) => Number.isFinite(p.covered?.[key]))
+              .map((p) => `${x(p.cutoff).toFixed(1)},${y(p.covered[key]).toFixed(1)}`)
+              .join(' ')}
+          />
+        ))}
+      </svg>
+      <p className="text-[8px] text-zinc-700">
+        {seriesWith.length} models × {seriesWith[0].points.length} cutoffs — a line diving under the dashed
+        nominal is under-coverage (band too narrow for that window).
+      </p>
     </div>
   );
 }

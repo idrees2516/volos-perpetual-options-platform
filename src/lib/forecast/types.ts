@@ -33,7 +33,13 @@ export interface FcSeries {
 }
 
 /** Interval construction methods (aliases match foundationforecast). */
-export type FcIntervalMethod = 'native' | 'conformal_distribution' | 'conformal_error';
+export type FcIntervalMethod =
+  | 'native'
+  | 'native_full' // unclamped z-scores — the honest 95% native baseline
+  | 'conformal_distribution'
+  | 'conformal_error'
+  | 'enbpi' // jackknife+ ensemble batch prediction intervals
+  | 'aci'; // adaptive conformal inference (online α)
 
 /** Point-forecast model ids implemented natively on flow bars. */
 export type FcModelId =
@@ -107,12 +113,26 @@ export interface FcEvalRow {
   mase: number | null;
   /** scaled continuous ranked probability score from the interval bounds */
   scaledCrps: number | null;
+  /** mean pinball loss per level (lo/hi knots), the calibration-fidelity score */
+  pinball: Record<number, number>;
   mae: number | null;
   rmse: number | null;
   smape: number | null;
   /** true when the widest level is clamped to a narrower native knot */
   clampedAt: number | null;
   forecasts: number;
+}
+
+/** One point of the coverage-over-time series (per evaluation cutoff). */
+export interface FcCoveragePoint {
+  /** forecast origin (ms) */
+  cutoff: number;
+  /** horizon steps scored in this bucket */
+  steps: number;
+  /** share of actuals inside the band, per level (keyed as percent) */
+  covered: Record<number, number>;
+  /** mean band width at the widest level (target-scale units) */
+  width: number | null;
 }
 
 /** Calibration diagnostics for one conformal model. */

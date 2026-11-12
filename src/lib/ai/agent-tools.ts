@@ -1570,7 +1570,7 @@ export const marketTools = {
 
   forecast_now: tool({
     description:
-      'Conformal prediction-interval forecast on the order-flow engine\'s flow bars (the TimeCopilot foundationforecast method, built natively on our live data): point forecast + calibrated level bands per horizon step for price, volume, delta, CVD, buy share, prints, open interest or per-venue panels. Returns every model (FlowX/Ensemble native vs conformal_distribution/conformal_error), expected-move readout for price targets, calibration diagnostics and provenance. Use for "where will price be in N minutes", expected move, volume/delta/OI outlook, or any forward-looking band question.',
+      'Conformal prediction-interval forecast on the order-flow engine\'s flow bars (the TimeCopilot foundationforecast method, built natively on our live data): point forecast + calibrated level bands per horizon step for price, volume, delta, CVD, buy share, prints, open interest or per-venue panels. Returns every model — FlowX/Ensemble native (fixed knots, 95% clamps to 80%), native_full (unclamped z-scores), conformal_distribution / conformal_error (split conformal), EnbPI (jackknife+ ensemble) and ACI (adaptive α) — with expected-move readout for price targets, calibration diagnostics and provenance. Use for "where will price be in N minutes", expected move, volume/delta/OI outlook, or any forward-looking band question.',
     parameters: jsonSchema<{
       asset: string;
       target?: string;
@@ -1663,7 +1663,7 @@ export const marketTools = {
 
   forecast_evaluate: tool({
     description:
-      'Cross-validated evaluation of the conformal forecast models on flow bars: rolling-cutoff coverage per level (empirical hit-rate vs nominal), mean interval width, MASE, scaled CRPS and native clamp detection — the honest way to compare native quantile intervals vs conformal_distribution vs conformal_error before trusting a model\'s bands. Use when asked "which forecast model is best", "are these intervals reliable", or to sanity-check coverage.',
+      'Cross-validated evaluation of the conformal forecast models on flow bars: rolling-cutoff coverage per level (empirical hit-rate vs nominal), mean interval width, MASE, scaled CRPS, mean pinball loss per level (calibration fidelity), and native clamp detection — the honest way to compare native (clamped knots) vs native_full (unclamped z) vs conformal_distribution vs conformal_error vs EnbPI (jackknife+ ensemble) vs ACI (adaptive α) before trusting a model\'s bands. Use when asked "which forecast model is best", "are these intervals reliable", or to sanity-check coverage.',
     parameters: jsonSchema<{
       asset?: string;
       target?: string;
@@ -1720,6 +1720,7 @@ export const marketTools = {
             width: Object.fromEntries(Object.entries(r.width).map(([k, v]) => [k, Number.isFinite(v) ? +v.toFixed(2) : null])),
             mase: r.mase !== null ? +r.mase.toFixed(3) : null,
             scaledCrps: r.scaledCrps !== null ? +r.scaledCrps.toFixed(3) : null,
+            pinball: Object.fromEntries(Object.entries(r.pinball ?? {}).map(([k, v]) => [k, Number.isFinite(v) ? +v.toFixed(3) : null])),
             clampedAt: r.clampedAt,
             forecasts: r.forecasts,
           })),
@@ -1909,25 +1910,242 @@ export const marketTools = {
   }),
 
   // ── analytics storage queries ("store now, analyze later") ─────────────────
+  // ── morning briefing (the desk's pre-market aggregation) ────────────────────
+  market_brief: tool({
+    description:
+      'The desk morning briefing / current market pulse, aggregated in one call: whole-market order-flow state (8 majors: price, 1m change, CVD, OI regime, funding, liquidation totals, absorption/iceberg counts, leading venue), the conformal 30-minute expected move with calibrated bands for BTC and ETH, the strongest microstructure flags (who is absorbing, who is toxic), storage depth (how much history is persisted), and the current backfill worker state. Use when the user asks for a briefing, "what\'s happening", "give me the state of the market", or at session open — and combine with web research for a full narrative.',
+    parameters: jsonSchema<Record<string, never>>({
+      type: 'object',
+      properties: {},
+    }),
+    execute: async () => {
+      try {
+        const manager = getOrderFlowManager();
+        manager.touchAll(300_000);
+        const ov = manager.overview();
+        // conformal expected move for BTC + ETH (30 min, 1m bars)
+        const em: Record<string, unknown> = {};
+        for (const a of ['BTC', 'ETH'] as OfAsset[]) {
+          try {
+            const panel = await buildForecastPanel(a, 60_000, 'close', { backfill: 720 });
+            if (panel.series.length) {
+              const specs = DEFAULT_FC_SPECS.map((s) => ({ ...s, nWindows: s.nWindows ?? 10 }));
+              const out = new Forecaster(specs).forecast(panel, { h: 30, levels: [80, 95], nWindows: 10 });
+              const emm = out.primary.find((m) => m.intervals === 'conformal_error') ?? out.primary[0];
+              const last = emm?.rows[emm.rows.length - 1];
+              const li95 = last?.levels.find((l) => l.level === 95);
+              const li80 = last?.levels.find((l) => l.level === 80);
+              const anchor = panel.series[0]?.points.at(-1)?.y ?? null;
+              if (last && li95 && li80 && Number.isFinite(li95.lo) && anchor) {
+                em[a] = {
+                  point30m: +last.point.toFixed(1),
+                  anchor,
+                  band80: [+li80.lo.toFixed(1), +li80.hi.toFixed(1)],
+                  band95: [+li95.lo.toFixed(1), +li95.hi.toFixed(1)],
+                  expectedMovePct: +(((Math.abs(last.point - anchor) / anchor) * 100).toFixed(2)),
+                  horizonMin: 30,
+                };
+              }
+            }
+          } catch {
+            /* per-asset forecast is best-effort in the brief */
+          }
+        }
+        // strongest microstructure flags across majors
+        const flags: Record<string, unknown>[] = [];
+        for (const a of ov.assets) {
+          const state = manager.stateOf(a.asset);
+          if (!state) continue;
+          const an = state.engine.analytics();
+          if (an.micro.absorption15m >= 2 || an.micro.iceberg15m >= 2) {
+            flags.push({
+              asset: a.asset,
+              absorption15m: an.micro.absorption15m,
+              iceberg15m: an.micro.iceberg15m,
+              vpin: an.advanced.vpin != null ? +an.advanced.vpin.toFixed(3) : null,
+              kyleLambda: an.advanced.kyleLambdaBpsPer100k != null ? +an.advanced.kyleLambdaBpsPer100k.toFixed(2) : null,
+            });
+          }
+        }
+        // storage depth + backfill state
+        let storage: Record<string, unknown> | null = null;
+        try {
+          const { backfillStatus, backfillCoverage } = await import('@/lib/store/backfill');
+          const status = backfillStatus();
+          storage = {
+            coverage: (await backfillCoverage()).slice(0, 12),
+            worker: { phase: status.phase, done: status.done, total: status.total, rowsWritten: status.rowsWritten, running: status.running },
+          };
+        } catch {
+          /* store may be cold */
+        }
+        return {
+          tsMs: ov.tsMs,
+          market: ov.assets.map((a) => {
+            const last = a.last;
+            const ok = last !== undefined && Number.isFinite(last) && last > 0;
+            return {
+              asset: a.asset,
+              connected: a.connected,
+              last: ok ? +last.toFixed(2) : null,
+              change1mPct: ok && a.change1mPct !== undefined ? +a.change1mPct.toFixed(3) : null,
+              cvd1m: ok && a.cvd1m !== undefined ? +a.cvd1m.toFixed(1) : null,
+              oiRegime: a.oiRegime,
+              funding8h: a.funding8h != null ? +a.funding8h.toFixed(6) : null,
+              liquidations1hUsd:
+                a.liquidations?.last1h != null
+                  ? Math.round((a.liquidations.last1h.longNotional ?? 0) + (a.liquidations.last1h.shortNotional ?? 0))
+                  : null,
+              cascade: a.liquidations?.cascadeActive ?? false,
+              leaderVenue: a.leaderVenue,
+            };
+          }),
+          forecast30m: em,
+          microstructureFlags: flags.slice(0, 4),
+          storage,
+          guidance:
+            'orderflow_overview/orderflow_symbol go deeper per asset; forecast_now for other horizons/targets; portfolio_risk for hedging; research_web for the macro narrative. Quote numbers with their units (bps, USD, %).',
+        };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+
+  // ── natural-language tape queries ("ask the tape") ────────────────────────────
+  tape_scan: tool({
+    description:
+      'Scan the live multi-venue trade tape with filters: side (buys/sells/all), venue, minimum notional USD (whale hunting), price range, and a time window in minutes. Returns match count, total base/USD volume, aggressor delta, VWAP of matched prints, the largest individual prints, per-venue and per-minute breakdowns. Use for "show me big buys in BTC", "who is lifting asks on Bybit", "whale prints last 10 minutes", "sell pressure since open" — any granular what-actually-traded question.',
+    parameters: jsonSchema<{
+      asset: string;
+      side?: string;
+      venue?: string;
+      minNotionalUsd?: number;
+      priceMin?: number;
+      priceMax?: number;
+      minutes?: number;
+      limit?: number;
+    }>({
+      type: 'object',
+      properties: {
+        asset: { type: 'string', enum: OF_ASSETS, description: 'Asset whose tape to scan.' },
+        side: { type: 'string', enum: ['buy', 'sell', 'all'], description: 'Aggressor side. Default all.' },
+        venue: { type: 'string', enum: ['binance', 'bybit', 'okx', 'bitget', 'hyperliquid', 'deribit', 'coinbase'], description: 'Restrict to one venue.' },
+        minNotionalUsd: { type: 'number', description: 'Minimum print size in USD (e.g. 100000 = whales).' },
+        priceMin: { type: 'number', description: 'Lower price bound.' },
+        priceMax: { type: 'number', description: 'Upper price bound.' },
+        minutes: { type: 'number', description: 'Look-back window in minutes (default 30, max session).' },
+        limit: { type: 'number', description: 'Max individual prints returned (default 12).' },
+      },
+      required: ['asset'],
+    }),
+    execute: async ({ asset, side, venue, minNotionalUsd, priceMin, priceMax, minutes, limit }) => {
+      try {
+        const manager = getOrderFlowManager();
+        const a: OfAsset = isOfAsset(String(asset)) ? (asset as OfAsset) : 'BTC';
+        manager.touch(a, 120_000);
+        const state = manager.stateOf(a);
+        if (!state) return { asset: a, note: 'engine starting — retry in a few seconds' };
+        const wantSide = side === 'buy' ? 'buy' : side === 'sell' ? 'sell' : null;
+        const minUsd = Number(minNotionalUsd) > 0 ? Number(minNotionalUsd) : 0;
+        const winMs = Math.max(1, Math.min(1440, Number(minutes) || 30)) * 60_000;
+        const since = Date.now() - winMs;
+        const matches = state.tape.filter((p) => {
+          const notionalUsd = p.price * p.quantity;
+          if (p.timestamp < since) return false;
+          if (wantSide && p.side !== wantSide) return false;
+          if (venue && p.venue !== venue) return false;
+          if (minUsd > 0 && notionalUsd < minUsd) return false;
+          if (Number.isFinite(Number(priceMin)) && p.price < Number(priceMin)) return false;
+          if (Number.isFinite(Number(priceMax)) && p.price > Number(priceMax)) return false;
+          return true;
+        });
+        if (!matches.length) {
+          return {
+            asset: a,
+            filters: { side: wantSide, venue: venue ?? null, minNotionalUsd: minUsd, minutes: winMs / 60_000 },
+            note: 'no prints match — try widening the window or lowering the notional filter',
+            tapeSize: state.tape.length,
+          };
+        }
+        let volBase = 0;
+        let volUsd = 0;
+        let delta = 0;
+        let pv = 0; // Σ price·qty for VWAP
+        const byVenue = new Map<string, { n: number; base: number; usd: number; delta: number }>();
+        const byMinute = new Map<number, { n: number; base: number; usd: number; delta: number }>();
+        for (const p of matches) {
+          const qty = p.quantity;
+          const usd = p.price * qty;
+          volBase += qty;
+          volUsd += usd;
+          const signed = p.side === 'buy' ? qty : -qty;
+          delta += signed;
+          pv += p.price * qty;
+          const v = byVenue.get(p.venue) ?? { n: 0, base: 0, usd: 0, delta: 0 };
+          v.n++; v.base += qty; v.usd += usd; v.delta += signed;
+          byVenue.set(p.venue, v);
+          const m = Math.floor(p.timestamp / 60_000) * 60_000;
+          const b = byMinute.get(m) ?? { n: 0, base: 0, usd: 0, delta: 0 };
+          b.n++; b.base += qty; b.usd += usd; b.delta += signed;
+          byMinute.set(m, b);
+        }
+        const lim = Math.max(1, Math.min(40, Number(limit) || 12));
+        const largest = [...matches]
+          .sort((x, y) => y.price * y.quantity - x.price * x.quantity)
+          .slice(0, lim)
+          .map((p) => ({
+            t: new Date(p.timestamp).toISOString().slice(11, 19),
+            venue: p.venue,
+            side: p.side,
+            price: +p.price.toFixed(2),
+            qty: +p.quantity.toFixed(4),
+            notionalUsd: Math.round(p.price * p.quantity),
+          }));
+        return {
+          asset: a,
+          filters: { side: wantSide, venue: venue ?? null, minNotionalUsd: minUsd, minutes: winMs / 60_000 },
+          summary: {
+            prints: matches.length,
+            volumeBase: +volBase.toFixed(3),
+            volumeUsd: Math.round(volUsd),
+            aggressorDelta: +delta.toFixed(3),
+            vwap: volBase > 0 ? +(pv / volBase).toFixed(2) : null,
+            lastPrice: +matches[matches.length - 1].price.toFixed(2),
+          },
+          byVenue: [...byVenue.entries()].map(([v, s]) => ({ venue: v, prints: s.n, baseUsd: Math.round(s.usd), delta: +s.delta.toFixed(2) })).sort((x, y) => y.baseUsd - x.baseUsd),
+          byMinute: [...byMinute.entries()]
+            .sort((x, y) => x[0] - y[0])
+            .slice(-15)
+            .map(([m, s]) => ({ minute: new Date(m).toISOString().slice(11, 16), prints: s.n, usd: Math.round(s.usd), delta: +s.delta.toFixed(2) })),
+          largestPrints: largest,
+        };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+
   store_query: tool({
     description:
-      'Query the terminal\'s own SQLite analytics storage: what history has been persisted (stats per asset/table with row counts and time ranges), stored 1-minute multi-venue flow bars (OHLCV + delta + CVD + OI), stored 30-second microstructure snapshots (Kyle lambda, VPIN, Amihud, OBI, vol regime, VWAP distance...), and the realized coverage audit of stored conformal forecasts — every persisted forecast band re-scored against what actually happened using the stored bars. Use for "what do you have stored", historical flow/microstructure questions, or "how calibrated were the stored forecast bands over time".',
-    parameters: jsonSchema<{ table: string; asset?: string; limit?: number; sinceMin?: number; model?: string }>({
+      'Query the terminal\'s own SQLite analytics storage: what history has been persisted (stats per asset/table with row counts and time ranges), stored 1-minute multi-venue flow bars (OHLCV + delta + CVD + OI), stored 30-second microstructure snapshots (Kyle lambda, VPIN, Amihud, OBI, vol regime, VWAP distance...), the realized coverage audit of stored conformal forecasts (every persisted forecast band re-scored against what actually happened using the stored bars), backfilled exchange kline history (Binance 1m/5m/30m OHLCV + taker-buy volume = aggressor delta), and backfilled funding-rate / open-interest history. Use for "what do you have stored", historical flow/microstructure/kline/funding/OI questions, or "how calibrated were the stored forecast bands over time".',
+    parameters: jsonSchema<{ table: string; asset?: string; limit?: number; sinceMin?: number; model?: string; tfSec?: number }>({
       type: 'object',
       properties: {
         table: {
           type: 'string',
-          enum: ['stats', 'flowbars', 'micro', 'forecastCoverage'],
-          description: 'stats: inventory; flowbars: stored 1m bars; micro: stored microstructure snapshots; forecastCoverage: realized-vs-band audit.',
+          enum: ['stats', 'flowbars', 'micro', 'forecastCoverage', 'klines', 'derivatives'],
+          description: 'stats: inventory; flowbars: stored 1m bars; micro: stored microstructure snapshots; forecastCoverage: realized-vs-band audit; klines: backfilled exchange klines; derivatives: backfilled funding/OI history.',
         },
         asset: { type: 'string', description: 'Optional: one asset (BTC default).' },
         limit: { type: 'number', description: 'Max rows (default 60).' },
         sinceMin: { type: 'number', description: 'Only rows newer than N minutes.' },
         model: { type: 'string', description: 'forecastCoverage filter, e.g. "ensemble".' },
+        tfSec: { type: 'number', description: 'klines timeframe in seconds (60/300/1800, default 60).' },
       },
       required: ['table'],
     }),
-    execute: async ({ table, asset, limit, sinceMin, model }) => {
+    execute: async ({ table, asset, limit, sinceMin, model, tfSec }) => {
       try {
         const lim = Math.max(1, Math.min(2000, Number(limit) || 60));
         const a = (asset ?? 'BTC').toUpperCase();
@@ -1947,11 +2165,86 @@ export const marketTools = {
           });
           const fr = await db.forecastRun.groupBy({ by: ['asset'], _count: { _all: true } });
           const fe = await db.forecastEvalRun.groupBy({ by: ['asset'], _count: { _all: true } });
+          const kl = await db.klineBar.groupBy({
+            by: ['asset', 'tfSec'],
+            _count: { _all: true },
+            _min: { tOpen: true },
+            _max: { tOpen: true },
+          });
+          const dv = await db.derivativesPoint.groupBy({
+            by: ['asset', 'kind'],
+            _count: { _all: true },
+            _min: { ts: true },
+            _max: { ts: true },
+          });
           return {
             flowBars: fb.map((g) => ({ asset: g.asset, rows: g._count._all, from: g._min.tOpen, to: g._max.tOpen })),
             microSnapshots: rows.map((g) => ({ asset: g.asset, rows: g._count._all, from: g._min.ts, to: g._max.ts })),
             forecastRuns: fr.map((g) => ({ asset: g.asset, rows: g._count._all })),
             forecastEvals: fe.map((g) => ({ asset: g.asset, rows: g._count._all })),
+            klines: kl.map((g) => ({ asset: g.asset, tfSec: g.tfSec, rows: g._count._all, from: g._min.tOpen, to: g._max.tOpen })),
+            derivatives: dv.map((g) => ({ asset: g.asset, kind: g.kind, rows: g._count._all, from: g._min.ts, to: g._max.ts })),
+          };
+        }
+        if (table === 'klines') {
+          const tfs = Math.max(60, Math.min(3600, Number(tfSec) || 60));
+          const bars = await db.klineBar.findMany({
+            where: {
+              venue: 'binance',
+              asset: a,
+              tfSec: tfs,
+              ...(since ? { tOpen: { gte: new Date(Date.now() - since * 60_000) } } : {}),
+            },
+            orderBy: { tOpen: 'desc' },
+            take: lim,
+          });
+          return {
+            asset: a,
+            tfSec: tfs,
+            rows: bars.length,
+            bars: bars
+              .slice(0, 40)
+              .reverse()
+              .map((b) => ({
+                t: b.tOpen.toISOString().slice(0, 16),
+                o: b.open,
+                h: b.high,
+                l: b.low,
+                c: +b.close.toFixed(2),
+                v: +b.volume.toFixed(3),
+                buyV: +b.buyVolume.toFixed(3),
+                delta: +(2 * b.buyVolume - b.volume).toFixed(3),
+                n: b.trades,
+              })),
+            note: `latest ${Math.min(40, bars.length)} of ${bars.length} rows (backfilled Binance history; delta = 2·takerBuy − volume)`,
+          };
+        }
+        if (table === 'derivatives') {
+          const pts = await db.derivativesPoint.findMany({
+            where: {
+              asset: a,
+              ...(since ? { ts: { gte: new Date(Date.now() - since * 60_000) } } : {}),
+            },
+            orderBy: { ts: 'desc' },
+            take: lim,
+          });
+          const funding = pts.filter((p) => p.kind === 'funding').reverse();
+          const oi = pts.filter((p) => p.kind === 'openInterest').reverse();
+          return {
+            asset: a,
+            funding: {
+              rows: funding.length,
+              from: funding[0]?.ts ?? null,
+              to: funding[funding.length - 1]?.ts ?? null,
+              latest: funding.slice(-6).map((p) => ({ t: p.ts.toISOString().slice(0, 16), rate: p.value })),
+            },
+            openInterest: {
+              rows: oi.length,
+              from: oi[0]?.ts ?? null,
+              to: oi[oi.length - 1]?.ts ?? null,
+              latest: oi.slice(-6).map((p) => ({ t: p.ts.toISOString().slice(0, 16), oi: +p.value.toFixed(1) })),
+            },
+            note: 'backfilled Binance history (funding = 8h rate; OI = 5m period, ~30 days depth)',
           };
         }
         if (table === 'flowbars') {
