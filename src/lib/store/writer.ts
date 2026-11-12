@@ -20,6 +20,13 @@ import type { OfAsset } from '@/lib/orderflow/types';
 
 const RETENTION_DAYS = 30;
 const PRUNE_INTERVAL_MS = 3600_000;
+// per-table retention for the backfill mirror (long-lived by design: this IS
+// the analysis substrate — only OI history expires fast because the venue
+// itself only serves ~30 days and stale 5m OI rows have no analytic value)
+const KLINE_RETENTION_DAYS = 365 * 2;
+const FUNDING_RETENTION_DAYS = 365 * 3;
+const OI_RETENTION_DAYS = 45;
+const BACKFILL_JOB_RETENTION_DAYS = 30;
 
 let lastPrune = 0;
 
@@ -32,6 +39,14 @@ async function prune(): Promise<void> {
     await db.microSnapshot.deleteMany({ where: { ts: { lt: cutoff } } });
     await db.forecastRun.deleteMany({ where: { createdAt: { lt: cutoff } } });
     await db.forecastEvalRun.deleteMany({ where: { createdAt: { lt: cutoff } } });
+    const kCut = new Date(Date.now() - KLINE_RETENTION_DAYS * 86_400_000);
+    await db.klineBar.deleteMany({ where: { tOpen: { lt: kCut } } });
+    const fCut = new Date(Date.now() - FUNDING_RETENTION_DAYS * 86_400_000);
+    await db.derivativesPoint.deleteMany({ where: { kind: 'funding', ts: { lt: fCut } } });
+    const oCut = new Date(Date.now() - OI_RETENTION_DAYS * 86_400_000);
+    await db.derivativesPoint.deleteMany({ where: { kind: 'openInterest', ts: { lt: oCut } } });
+    const jCut = new Date(Date.now() - BACKFILL_JOB_RETENTION_DAYS * 86_400_000);
+    await db.backfillJob.deleteMany({ where: { to: { lt: jCut } } });
   } catch {
     /* storage is best-effort */
   }

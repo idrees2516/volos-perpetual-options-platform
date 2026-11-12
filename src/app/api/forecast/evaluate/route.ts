@@ -8,8 +8,9 @@
 // Conformal models recalibrate at every cutoff on only the windows before it,
 // so the evaluation never sees the data it is scored on (reference guarantee).
 // Metrics per alias: coverage_level{L}, mean width, MASE, scaled CRPS (from
-// the interval bounds), MAE/RMSE/sMAPE, and clamping detection for native
-// fixed-knot models.
+// the interval bounds), mean pinball per level, MAE/RMSE/sMAPE, clamping
+// detection for native fixed-knot models, and the coverage-over-time series
+// (per cutoff) that drives the Evaluate tab's drift chart.
 
 import { buildForecastPanel } from '@/lib/forecast/panel';
 import { DEFAULT_FC_SPECS, Forecaster, resolveSpecs, specsFromModelIds } from '@/lib/forecast/forecaster';
@@ -57,6 +58,11 @@ export async function GET(req: Request) {
       cvWindows,
     });
     const evalRows = forecaster.evaluate(cvRows, panel, useLevels);
+    // coverage-over-time per alias (drift chart)
+    const coverageTimeline = evalRows.map((r) => ({
+      alias: r.alias,
+      points: forecaster.coverageTimeline(r.alias),
+    }));
 
     // per-step coverage/width for the horizon-error chart
     const byAliasStep = new Map<string, Map<number, { inN: number; n: number; widthSum: number }>>();
@@ -108,6 +114,7 @@ export async function GET(req: Request) {
         seasonLength: panel.seasonLength,
       },
       evalRows,
+      coverageTimeline,
       perStep,
       cvRows: includeCv ? cvRows : undefined,
     });

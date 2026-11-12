@@ -25,6 +25,9 @@
 import {
   ConformalIntervals,
   nativeKnotIntervals,
+  nativeFullIntervals,
+  enbpiIntervals,
+  aciIntervals,
   type ConformalCalibration,
 } from './conformal';
 import { FC_POINT_MODELS, modelResiduals, type FcModelContext } from './models';
@@ -32,6 +35,7 @@ import { seasonalNaiveMae, pinballLoss } from './stats';
 import {
   FC_MODEL_LABELS,
   FC_NATIVE_KNOT_MODELS,
+  type FcCoveragePoint,
   type FcEvalRow,
   type FcForecastRow,
   type FcCvRow,
@@ -101,7 +105,8 @@ function seriesContext(
   return { y, h, seasonLength: panel.seasonLength, features: feats };
 }
 
-/** level intervals for one model spec on one (context, point forecast). */
+/** level intervals for one model spec on one (context, point forecast).
+ *  EnbPI overrides the point with its ensemble (member-mean) path. */
 function buildIntervals(
   spec: FcModelSpec,
   ctx: FcModelContext,
@@ -109,8 +114,27 @@ function buildIntervals(
   levels: number[],
   bounds: { lo?: number; hi?: number } | null,
   fitted: number[],
-): { perStep: FcLevelInterval[][]; calibration: ConformalCalibration | null; note: string } {
+): { perStep: FcLevelInterval[][]; calibration: ConformalCalibration | null; note: string; pointOverride?: number[] } {
   const modelFn = FC_POINT_MODELS[spec.model];
+  if (spec.intervals === 'enbpi') {
+    const res = enbpiIntervals(ctx, modelFn, ctx.h, levels, {
+      nWindows: spec.nWindows ?? 10,
+      stepSize: spec.stepSize ?? null,
+    }, bounds ?? undefined);
+    const note = res.ok
+      ? `EnbPI · jackknife W=${res.nWindows} members · pooled residual quantile`
+      : `EnbPI short history (${res.nWindows} members)`;
+    return { perStep: res.intervals, calibration: null, note, pointOverride: res.ok ? res.point : undefined };
+  }
+  if (spec.intervals === 'aci') {
+    const conformal = new ConformalIntervals(spec.nWindows ?? 10, 'conformal_error', spec.stepSize ?? null);
+    const calibration = conformal.calibrate(ctx, modelFn, ctx.h, {});
+    const perStep = aciIntervals(point, calibration, levels, bounds ?? undefined);
+    const note = calibration.ok
+      ? `ACI · online α walk over W=${calibration.nWindows} windows · γ=0.05`
+      : `ACI calibration short (${calibration.available}/${calibration.required} obs)`;
+    return { perStep, calibration, note };
+  }
   if (spec.intervals === 'conformal_distribution' || spec.intervals === 'conformal_error') {
     const conformal = new ConformalIntervals(
       spec.nWindows ?? 10,
@@ -124,11 +148,18 @@ function buildIntervals(
       : `calibration short (${calibration.available}/${calibration.required} obs)`;
     return { perStep, calibration, note };
   }
-  // native fixed-knot path
+  // native residual paths (clamped knots and the unclamped full variant)
   const residuals = modelResiduals(ctx.y, fitted).map(Math.abs);
-  const perStep = nativeKnotIntervals(point, residuals, levels, bounds ?? undefined);
   const isKnotModel = FC_NATIVE_KNOT_MODELS.has(spec.model);
   const widest = Math.max(...levels);
+  if (spec.intervals === 'native_full') {
+    const perStep = nativeFullIntervals(point, residuals, levels, bounds ?? undefined);
+    const note = isKnotModel
+      ? 'native full σ residuals — real Φ⁻¹((1+level)/2) z-scores, no knot clamp'
+      : 'native residual intervals (full)';
+    return { perStep, calibration: null, note };
+  }
+  const perStep = nativeKnotIntervals(point, residuals, levels, bounds ?? undefined);
   const note = isKnotModel && widest > 80
     ? `native knots {0.1, 0.5, 0.9} — levels > 80% clamp to the 80% band`
     : 'native residual intervals';
@@ -157,10 +188,11 @@ export class Forecaster {
       const cutoff = series.points[Math.max(0, histEnd)]?.ds ?? Date.now();
       for (const spec of this.specs) {
         const modelFn = FC_POINT_MODELS[spec.model];
-        const { forecast: point, fitted } = modelFn(ctx);
-        const { perStep, calibration, note } = buildIntervals(
-          spec, ctx, point, levels, panel.bounds, fitted,
+        const { forecast: rawPoint, fitted } = modelFn(ctx);
+        const { perStep, calibration, note, pointOverride } = buildIntervals(
+          spec, ctx, rawPoint, levels, panel.bounds, fitted,
         );
+        const point = pointOverride ?? rawPoint;
         const rows: FcForecastRow[] = [];
         for (let j = 0; j < opts.h; j++) {
           rows.push({
@@ -210,8 +242,9 @@ export class Forecaster {
         const ctx = seriesContext(panel, series, si, opts.h, cutoffIdx);
         for (const spec of this.specs) {
           const modelFn = FC_POINT_MODELS[spec.model];
-          const { forecast: point, fitted } = modelFn(ctx);
-          const { perStep } = buildIntervals(spec, ctx, point, levels, panel.bounds, fitted);
+          const { forecast: rawPoint, fitted } = modelFn(ctx);
+          const { perStep, pointOverride } = buildIntervals(spec, ctx, rawPoint, levels, panel.bounds, fitted);
+          const point = pointOverride ?? rawPoint;
           for (let j = 0; j < opts.h; j++) {
             const actualIdx = cutoffIdx + 1 + j;
             const actual = actualIdx <= T ? series.points[actualIdx].y : null;
@@ -234,9 +267,10 @@ export class Forecaster {
 
   /**
    * The docs' evaluation: coverage per level (share of actuals inside the
-   * interval), mean width, MASE, scaled CRPS from the interval bounds, plus
-   * clamping detection (native 95% == native 80%). Rows aggregate across
-   * series per alias.
+   * interval), mean width, MASE, scaled CRPS from the interval bounds, mean
+   * pinball per level, the coverage-over-time series, plus clamping
+   * detection (native 95% == native 80%). Rows aggregate across series per
+   * alias.
    */
   evaluate(cvRows: FcCvRow[], panel: FcPanel, levels: number[]): FcEvalRow[] {
     const sorted = [...levels].sort((a, b) => a - b);
@@ -259,20 +293,61 @@ export class Forecaster {
       const spec = specByAlias.get(alias);
       const coverage: Record<number, number> = {};
       const width: Record<number, number> = {};
+      const pinball: Record<number, number> = {};
       for (const level of sorted) {
         let inCount = 0;
         let widthSum = 0;
         let widthN = 0;
+        let pbSum = 0;
+        let pbN = 0;
         for (const r of rows) {
           const li = r.levels.find((l) => l.level === level);
           if (!li || !Number.isFinite(li.lo) || !Number.isFinite(li.hi)) continue;
           if (r.y !== null && r.y >= li.lo && r.y <= li.hi) inCount++;
           widthSum += li.hi - li.lo;
           widthN++;
+          // pinball at the two knots: under-quantile α/2 at lo, over-quantile
+          // 1−α/2 at hi — the calibration-fidelity score (0 = perfect)
+          const alpha = 1 - level / 100;
+          if (r.y !== null && Number.isFinite(r.y)) {
+            pbSum += pinballLoss(r.y, li.lo, alpha / 2) + pinballLoss(r.y, li.hi, 1 - alpha / 2);
+            pbN++;
+          }
         }
         coverage[level] = widthN > 0 ? inCount / rows.length : NaN;
         width[level] = widthN > 0 ? widthSum / widthN : NaN;
+        pinball[level] = pbN > 0 ? pbSum / pbN : NaN;
       }
+      // coverage-over-time: per evaluation cutoff bucket, all levels
+      const byCutoff = new Map<number, FcCvRow[]>();
+      for (const r of rows) {
+        const list = byCutoff.get(r.cutoff) ?? [];
+        list.push(r);
+        byCutoff.set(r.cutoff, list);
+      }
+      const coverageTimeline: FcCoveragePoint[] = [...byCutoff.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([cutoff, rs]) => {
+          const covered: Record<number, number> = {};
+          let widthSum = 0;
+          let widthN = 0;
+          for (const level of sorted) {
+            let inC = 0;
+            let n = 0;
+            for (const r of rs) {
+              const li = r.levels.find((l) => l.level === level);
+              if (!li || !Number.isFinite(li.lo) || !Number.isFinite(li.hi)) continue;
+              n++;
+              if (r.y !== null && r.y >= li.lo && r.y <= li.hi) inC++;
+              if (level === sorted[sorted.length - 1]) {
+                widthSum += li.hi - li.lo;
+                widthN++;
+              }
+            }
+            covered[level] = n > 0 ? inC / n : NaN;
+          }
+          return { cutoff, steps: rs.length, covered, width: widthN > 0 ? widthSum / widthN : null };
+        });
       // point metrics
       let aeSum = 0;
       let seSum = 0;
@@ -331,15 +406,24 @@ export class Forecaster {
         width,
         mase: n > 0 ? maseSum / n : null,
         scaledCrps: n > 0 ? crpsSum / n : null,
+        pinball,
         mae: n > 0 ? aeSum / n : null,
         rmse: n > 0 ? Math.sqrt(seSum / n) : null,
         smape: n > 0 ? smapeSum / n : null,
         clampedAt,
         forecasts: rows.length,
       });
+      this.coverageTimelineByAlias.set(alias, coverageTimeline);
     }
     return out;
   }
+
+  /** Coverage-over-time series per alias from the last evaluate() call. */
+  coverageTimeline(alias: string): FcCoveragePoint[] {
+    return this.coverageTimelineByAlias.get(alias) ?? [];
+  }
+
+  private coverageTimelineByAlias = new Map<string, FcCoveragePoint[]>();
 }
 
 // ── default model panel (mirrors the docs' 3-way comparison) ─────────────────
@@ -348,15 +432,22 @@ export class Forecaster {
  * The reference example runs Tafsut and Chronos-Bolt three times each
  * (native / conformal_distribution / conformal_error). Our flow-native
  * equivalents: FlowX (flow-conditioned AR — the flagship) and Ensemble, each
- * three ways, plus AR and Theta native for reference.
+ * three ways, plus the v2 upgrades — unclamped native (full z-scores), EnbPI
+ * (jackknife+ ensemble) and ACI (adaptive α) — and AR/Theta native for the
+ * knot-clamping teaching point.
  */
 export const DEFAULT_FC_SPECS: FcModelSpec[] = [
   { alias: 'FlowX', model: 'flowx' },
+  { alias: 'FlowX-full', model: 'flowx', intervals: 'native_full' },
   { alias: 'FlowX-distribution', model: 'flowx', intervals: 'conformal_distribution', nWindows: 10 },
   { alias: 'FlowX-error', model: 'flowx', intervals: 'conformal_error', nWindows: 10 },
+  { alias: 'FlowX-EnbPI', model: 'flowx', intervals: 'enbpi', nWindows: 10 },
+  { alias: 'FlowX-ACI', model: 'flowx', intervals: 'aci', nWindows: 10 },
   { alias: 'Ensemble', model: 'ensemble' },
   { alias: 'Ensemble-distribution', model: 'ensemble', intervals: 'conformal_distribution', nWindows: 10 },
   { alias: 'Ensemble-error', model: 'ensemble', intervals: 'conformal_error', nWindows: 10 },
+  { alias: 'Ensemble-EnbPI', model: 'ensemble', intervals: 'enbpi', nWindows: 10 },
+  { alias: 'Ensemble-ACI', model: 'ensemble', intervals: 'aci', nWindows: 10 },
   { alias: 'AR', model: 'ar' },
   { alias: 'Theta', model: 'theta' },
 ];
@@ -370,7 +461,7 @@ export function resolveSpecs(raw: string | null, available: FcModelSpec[] = DEFA
   return matched.length ? matched : available;
 }
 
-/** Build a full spec list from a model-id CSV (auto-aliases each 3 ways). */
+/** Build a full spec list from a model-id CSV (auto-aliases each 6 ways). */
 export function specsFromModelIds(raw: string | null): FcModelSpec[] | null {
   if (!raw) return null;
   const ids = raw.split(',').map((s) => s.trim()).filter(Boolean);
@@ -380,8 +471,11 @@ export function specsFromModelIds(raw: string | null): FcModelSpec[] | null {
     if (!(id in FC_POINT_MODELS)) continue;
     specs.push(
       { alias: id, model: id as FcModelId },
+      { alias: `${id}-full`, model: id as FcModelId, intervals: 'native_full' },
       { alias: `${id}-distribution`, model: id as FcModelId, intervals: 'conformal_distribution', nWindows: 10 },
       { alias: `${id}-error`, model: id as FcModelId, intervals: 'conformal_error', nWindows: 10 },
+      { alias: `${id}-enbpi`, model: id as FcModelId, intervals: 'enbpi', nWindows: 10 },
+      { alias: `${id}-aci`, model: id as FcModelId, intervals: 'aci', nWindows: 10 },
     );
   }
   return specs.length ? specs : null;

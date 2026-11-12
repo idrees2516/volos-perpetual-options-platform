@@ -243,9 +243,227 @@ export function nativeKnotIntervals(
   return out;
 }
 
-/** Standard-normal quantile (cached Acklam approximation). */
-function phiInverse(p: number): number {
-  return normQuantileImpl(p);
+/**
+ * NATIVE-FULL intervals: the honest native baseline WITHOUT the fixed-knot
+ * clamp — z-scores read straight from the requested level (95% gets the real
+ * Φ⁻¹(0.975)). Kept side-by-side with the clamped knots so the evaluation
+ * table shows exactly what conformal fixes (and what "unclamped native" buys).
+ * Width scales with √step like the knot variant.
+ */
+export function nativeFullIntervals(
+  point: number[],
+  residuals: number[],
+  levels: number[],
+  bounds?: { lo?: number; hi?: number },
+): FcLevelInterval[][] {
+  const h = point.length;
+  const sigma1 = residuals.length >= 8 ? Math.sqrt(residuals.reduce((a, r) => a + r * r, 0) / residuals.length) : NaN;
+  const out: FcLevelInterval[][] = [];
+  for (let j = 0; j < h; j++) {
+    const sigmaJ = sigma1 * Math.sqrt(j + 1);
+    const stepLevels: FcLevelInterval[] = [];
+    for (const level of levels) {
+      const z = normQuantile(0.5 + level / 200); // Φ⁻¹((1+level)/2) — no clamp
+      let lo = point[j] - z * sigmaJ;
+      let hi = point[j] + z * sigmaJ;
+      if (bounds) {
+        if (bounds.lo !== undefined && Number.isFinite(bounds.lo)) lo = Math.max(lo, bounds.lo);
+        if (bounds.hi !== undefined && Number.isFinite(bounds.hi)) hi = Math.min(hi, bounds.hi);
+        if (hi < lo) {
+          const mid = (lo + hi) / 2;
+          lo = mid;
+          hi = mid;
+        }
+      }
+      stepLevels.push({ level, lo, hi });
+    }
+    out.push(stepLevels);
+  }
+  return out;
+}
+
+// ── EnbPI (Ensemble Batch Prediction Intervals) ─────────────────────────────
+//
+// Jackknife-plus style: W calibration windows, each held out in turn. Member
+// w is the point model trained WITHOUT window w's observations (we approximate
+// the retrain by the same history-minus-window slice conformal uses), and its
+// held-out residual r_w,j = |y_w,j − f_{-w}(x_w,j)| is exactly what conformal
+// computes. EnbPI pools these jackknife residuals and centers the interval on
+// the ENSEMBLE point (mean across member forecasts at the horizon). The
+// distinction vs conformal_error: the center comes from bagged members (less
+// variance) while the width comes from held-out residuals quantiled at 1−α.
+// For W < 2 it degenerates to the plain conformal_error quantile.
+
+export interface EnbPISpec {
+  nWindows: number;
+  stepSize: number | null;
+  /** member aggregation: mean (EnbPI default) */
+  agg?: 'mean' | 'median';
+}
+
+export interface EnbPIResult {
+  /** ensemble point forecast per horizon step (member-mean) */
+  point: number[];
+  /** intervals per step per level */
+  intervals: FcLevelInterval[][];
+  /** jackknife residuals r[w][j] — same shape as ConformalCalibration.errors */
+  errors: number[][];
+  nWindows: number;
+  ok: boolean;
+}
+
+export function enbpiIntervals(
+  ctx: FcModelContext,
+  model: FcPointModelFn,
+  h: number,
+  levels: number[],
+  spec: EnbPISpec,
+  bounds?: { lo?: number; hi?: number },
+): EnbPIResult {
+  const y = ctx.y;
+  const n = y.length;
+  const stepSize = spec.stepSize ?? h;
+  const requested = Math.max(2, spec.nWindows);
+  const required = h + (requested - 1) * stepSize + 1;
+  let W = requested;
+  if (n < required) {
+    W = ConformalIntervals.fitWindows(n, h, stepSize, requested);
+    if (W < 2) {
+      return {
+        point: [],
+        intervals: [],
+        errors: [],
+        nWindows: 0,
+        ok: false,
+      };
+    }
+  }
+  // member forecasts: leave-one-window-out histories, forecast from T
+  const memberPoints: number[][] = [];
+  const errors: number[][] = [];
+  for (let w = 1; w <= W; w++) {
+    const cutoff = n - 1 - h - (W - w) * stepSize;
+    if (cutoff < 4) continue;
+    // jackknife history: drop the calibration window [cutoff+1, cutoff+h]
+    const windowStart = cutoff + 1;
+    const windowEnd = Math.min(cutoff + h, n - 1);
+    const dropped = y.slice(0, windowStart).concat(y.slice(windowEnd + 1));
+    if (dropped.length < 8) continue;
+    const memberCtx: FcModelContext = {
+      y: dropped,
+      h,
+      seasonLength: ctx.seasonLength,
+      features: undefined, // features are index-aligned to the FULL history;
+      // dropping a window invalidates alignment, so members run unconditioned
+    };
+    const { forecast } = model(memberCtx);
+    memberPoints.push(forecast.slice(0, h));
+    // held-out residual: member forecast vs the actual window values
+    const row: number[] = [];
+    for (let j = 0; j < h; j++) {
+      const actual = y[windowStart + j];
+      row.push(Number.isFinite(actual) ? Math.abs(actual - (forecast[j] ?? NaN)) : NaN);
+    }
+    errors.push(row);
+  }
+  const M = memberPoints.length;
+  if (M < 2) {
+    return { point: [], intervals: [], errors, nWindows: M, ok: false };
+  }
+  const aggFn = spec.agg === 'median'
+    ? (xs: number[]) => quantile(xs, 0.5)
+    : (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const point: number[] = [];
+  for (let j = 0; j < h; j++) {
+    point.push(aggFn(memberPoints.map((m) => m[j]).filter(Number.isFinite)));
+  }
+  const intervals: FcLevelInterval[][] = [];
+  for (let j = 0; j < h; j++) {
+    const eAt: number[] = [];
+    for (const row of errors) {
+      if (Number.isFinite(row[j])) eAt.push(row[j]);
+    }
+    const stepLevels: FcLevelInterval[] = [];
+    for (const level of levels) {
+      const alpha = 1 - level / 100;
+      const q = quantile(eAt, 1 - alpha);
+      let lo = point[j] - q;
+      let hi = point[j] + q;
+      if (bounds) {
+        if (bounds.lo !== undefined && Number.isFinite(bounds.lo)) lo = Math.max(lo, bounds.lo);
+        if (bounds.hi !== undefined && Number.isFinite(bounds.hi)) hi = Math.min(hi, bounds.hi);
+        if (hi < lo) {
+          const mid = (lo + hi) / 2;
+          lo = mid;
+          hi = mid;
+        }
+      }
+      stepLevels.push({ level, lo, hi });
+    }
+    intervals.push(stepLevels);
+  }
+  return { point, intervals, errors, nWindows: M, ok: true };
+}
+
+// ── ACI (Adaptive Conformal Inference, Gibbs & Candès 2021) ─────────────────
+//
+// Online α adaptation: walk the calibration residuals in TIME ORDER and
+// update α after each:  α_{t+1} = α_t + γ(α_target − err_t),
+// err_t = 1{e_t > q_t} where q_t is the CURRENT adaptive width (the quantile
+// of the residuals observed BEFORE t). Under-covering (err=1) pushes α DOWN
+// (wider intervals); over-covering pushes α UP (narrower). The final α yields
+// intervals that self-correct toward the nominal coverage — the "adaptive"
+// upgrade of split conformal, and the only method here that reacts to drift.
+
+/** ACI-wrapped conformal_error intervals: adapt α per horizon step. */
+export function aciIntervals(
+  point: number[],
+  calibration: ConformalCalibration,
+  levels: number[],
+  bounds?: { lo?: number; hi?: number },
+  gamma = 0.05,
+): FcLevelInterval[][] {
+  const h = point.length;
+  const out: FcLevelInterval[][] = [];
+  if (!calibration.ok || calibration.errors.length < 2) {
+    for (let j = 0; j < h; j++) out.push(levels.map((level) => ({ level, lo: NaN, hi: NaN })));
+    return out;
+  }
+  for (let j = 0; j < h; j++) {
+    // this step's residuals in TIME ORDER (calibration windows are ascending)
+    const eAt: number[] = [];
+    for (const row of calibration.errors) {
+      if (Number.isFinite(row[j])) eAt.push(row[j]);
+    }
+    const stepLevels: FcLevelInterval[] = [];
+    for (const level of levels) {
+      const alphaTarget = 1 - level / 100;
+      // faithful online walk: residual e_t is a MISS only when it exceeds the
+      // current adaptive width q_t (computed from the residuals BEFORE t)
+      let a = alphaTarget;
+      for (let t = 1; t < eAt.length; t++) {
+        const prior = eAt.slice(0, t);
+        const q = quantile(prior, 1 - a);
+        const err = eAt[t] > q ? 1 : 0;
+        a = Math.max(0.005, Math.min(0.6, a + gamma * (alphaTarget - err)));
+      }
+      const q = quantile(eAt, 1 - a);
+      let lo = point[j] - q;
+      let hi = point[j] + q;
+      if (bounds) {
+        if (bounds.lo !== undefined && Number.isFinite(bounds.lo)) lo = Math.max(lo, bounds.lo);
+        if (bounds.hi !== undefined && Number.isFinite(bounds.hi)) hi = Math.min(hi, bounds.hi);
+        if (hi < lo) {
+          const mid = (lo + hi) / 2;
+          lo = mid;
+          hi = mid;
+        }
+      }
+      stepLevels.push({ level, lo, hi });
+    }
+    out.push(stepLevels);
+  }
+  return out;
 }
 
 let normCache = new Map<number, number>();
