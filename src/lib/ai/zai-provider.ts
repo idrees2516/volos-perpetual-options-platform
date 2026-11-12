@@ -77,14 +77,14 @@ async function createWithRetry(body: Record<string, unknown>, maxAttempts = 4): 
 
 // --- types -------------------------------------------------------------------
 
-interface OpenAIToolCall {
+export interface OpenAIToolCall {
   id?: string;
   index?: number;
   type: string;
   function: { name: string; arguments?: string };
 }
 
-interface OpenAIChatResponse {
+export interface OpenAIChatResponse {
   choices?: {
     finish_reason?: string;
     message?: {
@@ -105,7 +105,7 @@ function contentToText(content: Array<{ type: string; text?: string }>): string 
     .join('\n');
 }
 
-function toOpenAIMessages(prompt: LanguageModelV1Prompt): Array<Record<string, unknown>> {
+export function toOpenAIMessages(prompt: LanguageModelV1Prompt): Array<Record<string, unknown>> {
   const messages: Array<Record<string, unknown>> = [];
   for (const msg of prompt) {
     switch (msg.role) {
@@ -179,7 +179,7 @@ function toOpenAIMessages(prompt: LanguageModelV1Prompt): Array<Record<string, u
  *   4. give up → '{}' (tools treat missing fields as defaults and the
  *      orchestrator recovers on the next step)
  */
-function sanitizeToolArgs(raw: string): string {
+export function sanitizeToolArgs(raw: string): string {
   const s = raw.trim();
   if (s.length === 0) return '{}';
   try {
@@ -262,7 +262,7 @@ function closeTruncated(s: string): string | null {
   }
 }
 
-function mapToolChoice(choice: LanguageModelV1CallOptions['toolChoice']): string | undefined {
+export function mapToolChoice(choice: LanguageModelV1CallOptions['toolChoice']): string | undefined {
   if (!choice) return undefined;
   switch (choice.type) {
     case 'auto':
@@ -278,7 +278,7 @@ function mapToolChoice(choice: LanguageModelV1CallOptions['toolChoice']): string
   }
 }
 
-function mapFinishReason(reason: string | undefined): LanguageModelV1FinishReason {
+export function mapFinishReason(reason: string | undefined): LanguageModelV1FinishReason {
   switch (reason) {
     case 'stop':
       return 'stop';
@@ -295,7 +295,7 @@ function mapFinishReason(reason: string | undefined): LanguageModelV1FinishReaso
   }
 }
 
-function estimateTokens(messages: Array<Record<string, unknown>>): number {
+export function estimateTokens(messages: Array<Record<string, unknown>>): number {
   const text = JSON.stringify(messages);
   return Math.ceil(text.length / 3.6);
 }
@@ -307,7 +307,7 @@ interface ChatChunkDeltaToolCall {
   function?: { name?: string; arguments?: string };
 }
 
-interface StreamChunk {
+export interface StreamChunk {
   choices?: Array<{
     delta?: { content?: string | null; tool_calls?: ChatChunkDeltaToolCall[] };
     finish_reason?: string | null;
@@ -316,7 +316,7 @@ interface StreamChunk {
 }
 
 /** Parse an SSE byte stream into parsed `data:` payload objects. */
-async function* sseEvents(reader: ReadableStreamDefaultReader<Uint8Array>) {
+export async function* sseEvents(reader: ReadableStreamDefaultReader<Uint8Array>) {
   const decoder = new TextDecoder();
   let buffer = '';
   try {

@@ -23,7 +23,7 @@
 
 import { streamText, convertToCoreMessages } from 'ai';
 import {
-  zaiModel,
+  deskModel,
   runSpecialistAgent,
   AGENTS,
   type AgentId,
@@ -38,6 +38,7 @@ import {
 } from '@/lib/ai/market-intel';
 import { resolveStrategyLegs } from '@/lib/strategies';
 import { STRATEGIES } from '@/lib/strategies';
+import { saveResearchReport } from '@/lib/ai/memory/store';
 
 export const runtime = 'nodejs';
 export const maxDuration = 600;
@@ -347,13 +348,18 @@ ${quant.report.slice(0, 3000)}${extendedDigest ? `\n\n${extendedDigest.slice(0, 
 ### Strategy Architect
 ${architect.report.slice(0, 3000)}`;
 
+        // research dossiers become long-term memory too: later copilot
+        // turns can recall what deep research concluded about an asset
+        const memorySessionId = `rs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        let dossier = '';
         try {
           const result = streamText({
-            model: zaiModel,
+            model: deskModel,
             messages: convertToCoreMessages([{ role: 'user', content: dossierPrompt }]),
             temperature: 0.35,
           });
           for await (const delta of result.textStream) {
+            dossier += delta;
             send({ type: 'dossier-delta', text: delta });
           }
           send({ type: 'stage', stage: 4, agent: 'director', name: 'Research Director', title: 'Synthesis', status: 'done' });
@@ -368,7 +374,18 @@ ${architect.report.slice(0, 3000)}`;
             error: err instanceof Error ? err.message : String(err),
           });
           // fall back to architect report as the dossier body
-          send({ type: 'dossier-delta', text: architect.report });
+          dossier = architect.report;
+          send({ type: 'dossier-delta', text: dossier });
+        }
+
+        // persist the dossier into the conversation memory (fire-and-forget)
+        if (dossier.trim().length > 0) {
+          void saveResearchReport({
+            sessionId: memorySessionId,
+            asset,
+            focus: focus || `${horizon}-day ${risk} research`,
+            report: dossier,
+          });
         }
 
         send({ type: 'done', asset, spot, elapsedS: Math.round((Date.now() - startedAt) / 1000) });

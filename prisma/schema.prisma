@@ -251,3 +251,36 @@ model ResearchRun {
 
   @@index([asset, tfSec, horizonBars, createdAt])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONVERSATION MEMORY (RAG substrate).
+// Every copilot/deep-research turn is persisted: the user asks, the desk
+// answers. Messages are embedded (hashing vectorizer, optionally remote)
+// so later turns can retrieve relevant past exchanges and the copilot
+// REMEMBERS prior conclusions across sessions and reloads.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ConversationSession {
+  id        String   @id @default(cuid())
+  title     String? // first user message, truncated
+  kind      String   @default("chat") // chat | research
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  messages  ConversationMessage[]
+
+  @@index([updatedAt])
+}
+
+model ConversationMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   ConversationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      String // user | assistant | research
+  content   String
+  embedding String? // base64-packed Float32 hashing-vector embedding
+  tokens    Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+  @@index([createdAt])
+}

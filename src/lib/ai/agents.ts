@@ -10,11 +10,16 @@
 
 import { generateText, tool, jsonSchema } from 'ai';
 import type { CoreMessage } from 'ai';
-import { createZaiModel } from './zai-provider';
+import { getDeskModel } from './model-router';
 import { marketTools } from './agent-tools';
 import { ASSET_IDS, type AssetId } from './market-intel';
 
-export const zaiModel = createZaiModel('glm-4-plus');
+/** The desk model: OmniRoute (or any OpenAI-compatible gateway) with GLM
+ *  fallback when configured, the in-sandbox GLM backend otherwise. */
+export const deskModel = getDeskModel();
+
+/** Backwards-compatible alias — every pipeline used to import this. */
+export const zaiModel = deskModel;
 
 // --- agent registry ------------------------------------------------------------
 

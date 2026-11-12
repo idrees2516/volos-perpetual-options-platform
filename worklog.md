@@ -105,3 +105,22 @@ Work Log:
 Stage Summary:
 - All six requested items delivered and browser-verified; pushed as VolOS v2.0
 - Known environment note: Lighter's mainnet.zklighter.cc does not resolve from this sandbox (connector degrades gracefully — shows live wherever DNS resolves); Rust engine binary is gitignored so the UI runs on its identical client mirror in fresh clones
+
+---
+Task ID: 6
+Agent: main (Z.ai)
+Task: OmniRoute AI-provider integration + RAG conversation memory — the copilot should answer through the OmniRoute gateway (any OpenAI-compatible provider) with resilient fallback, and every conversation should be stored so the AI remembers past exchanges and history.
+
+Work Log:
+- Model router (`src/lib/ai/model-router.ts`): env-driven backend selection (AI_PROVIDER=auto|omniroute|zai), OmniRoute via OMNIROUTE_API_KEY/BASE_URL/MODEL (default https://omniroute.online/v1 + model 'auto'), generic OpenAI-compatible escape hatch (OPENAI_COMPAT_*), failover wrapper (gateway error before first token → transparent rerun on the GLM backend) + circuit breaker (3 consecutive failures → 5-min cooldown, half-open retry)
+- `src/lib/ai/openai-compat.ts`: LanguageModelV1 provider for any OpenAI-compatible HTTP endpoint — fetch-first doGenerate/doStream (failover-safe), 429/5xx retry with capped backoff, SSE + non-SSE replies, shared prompt conversion/tool-arg repair exported from zai-provider
+- `agents.ts`: zaiModel → deskModel (router) with backwards-compatible alias; copilot + research routes migrated
+- RAG memory (`src/lib/ai/memory/`): Prisma ConversationSession/ConversationMessage (SQLite, schema pushed); deterministic 384-dim hashing-vectorizer embeddings (unigrams+bigrams, thousands-separator collapse, base64 codec); hybrid retriever (55% cosine + 45% BM25 + recency tiebreak, 0.12 noise floor, pure + unit-tested); store with saveTurn/saveResearchReport/recall/sessionHistory/memoryStats (2y retention, all error-swallowing)
+- Copilot route: memory recall on the latest question (excludes current session), session-restore block when the browser state is cold (reload-safe threads), memory_search + memory_stats tools, turn persisted in onFinish; research dossiers persisted as memorable units
+- `/api/ai/providers`: active backend, model, failover/circuit state, gateway /v1/models reachability probe (2.5s), memory counters — no key leakage
+- UI: copilot header subtitle shows live backend + remembered-message count; chat bar adds provider badge, memory chip and New chat (rotates the persisted session id; past conversations stay retrievable); sessionId persisted in localStorage and shipped with every request
+- Tests: 27 new vitest cases (embeddings determinism/codec/ranking, retrieval hybrid scoring + threshold + recency, router env matrix, failover + circuit breaker with fake timers); full suite 94 passed; eslint clean on all changed lib files; typecheck: zero new errors (263 pre-existing legacy errors, down from 269)
+- Live verification: /api/ai/providers 200; e2e turn persisted (1 session/2 messages); cross-session recall answered "Earlier today, I defined a bull put spread as…" from a different session (memory=2 hits); same-session restore after cold state (restored=2 turns); OmniRoute path verified via unit-tested failover (no live key in sandbox — activates automatically when .env.local carries OMNIROUTE_API_KEY)
+
+Stage Summary:
+- OmniRoute integrated as first-class AI provider with automatic GLM failover; conversation memory + RAG live end-to-end (persist → recall → restore); README documents all env vars

@@ -442,10 +442,17 @@ GET  /api/v1/fees                              fee schedule + equilibrium notes
 ```
 POST /api/ai/copilot                           Research Director chat — multi-step
                                                agentic loop, agent dispatch, strategy
-                                               loading, paper trading; AI SDK data stream
+                                               loading, paper trading; AI SDK data stream.
+                                               MEMORY-GROUNDED: persists every turn
+                                               (RAG) and auto-recalls past exchanges;
+                                               restores the thread after reloads
 POST /api/ai/research                          Deep Research pipeline — NDJSON events:
                                                stages, agent reports, strategy
-                                               payloads, streaming dossier
+                                               payloads, streaming dossier (dossiers
+                                               are persisted into memory too)
+GET  /api/ai/providers                         Which AI backend answers (omniroute /
+                                               glm), failover + circuit state,
+                                               gateway reachability, memory size
 GET  /api/paper                                Paper account: equity, positions with
                                                live marks, P&L, resting orders, fills
 POST /api/paper                                Paper actions: order | close | cancel |
@@ -455,6 +462,49 @@ GET  /api/chain?asset=BTC&venue=paradex        Live options chain per venue (aut
 GET  /api/venues?asset=BTC                     Venue health, latency, instruments,
                                                spot, ATM IV
 ```
+
+### AI providers — OmniRoute gateway + GLM fallback
+
+The desk answers through a **model router** (`src/lib/ai/model-router.ts`):
+any OpenAI-compatible gateway with automatic failover to the built-in GLM
+backend — the copilot never goes dark because of a dead key, an exhausted
+quota, or a downed gateway.
+
+[OmniRoute](https://github.com/cheaper-inference/OmniRoute) is a free AI
+gateway aggregating 375+ providers (150+ with free tiers) behind one
+OpenAI-compatible `/v1` endpoint with quota-aware auto-fallback. Configure it
+by dropping your key into `.env.local` (git-ignored):
+
+```
+OMNIROUTE_API_KEY=your-omniroute-key
+OMNIROUTE_BASE_URL=https://omniroute.online/v1   # or your self-host: http://localhost:20128/v1
+OMNIROUTE_MODEL=auto                              # 'auto', 'auto/cheap', 'openai/gpt-…', 'glm/glm-…'
+AI_PROVIDER=auto                                 # auto | omniroute | zai (force GLM)
+```
+
+Any other OpenAI-compatible gateway (OpenRouter, LiteLLM, vLLM, Ollama) via
+the generic escape hatch: `OPENAI_COMPAT_BASE_URL` + `OPENAI_COMPAT_API_KEY`
++ `OPENAI_COMPAT_MODEL`.
+
+Resilience: the gateway call happens **before** any token is streamed, so on
+failure the request transparently reruns on GLM; a circuit breaker (3
+consecutive failures → 5-minute cooldown) stops paying the timeout on every
+request while a gateway is down. `/api/ai/providers` and the copilot header
+badge expose the active backend and gateway health.
+
+### Conversation memory (RAG) — the copilot remembers
+
+Every copilot turn and every deep-research dossier is persisted to SQLite
+(`ConversationSession` / `ConversationMessage`) with a deterministic local
+embedding (hashing vectorizer, 384-dim, `src/lib/ai/memory/`). On each request
+the latest question is embedded and the **hybrid retriever** (55% embedding
+cosine + 45% BM25 + recency tiebreak) pulls the most relevant past exchanges
+across ALL sessions into the system prompt as `## Conversation memory`. The
+current thread also survives reloads (restored from its persisted tail), and
+the model can dig deeper on demand through the `memory_search` tool (plus
+`memory_stats`). The chat bar shows the active backend and how many messages
+the desk remembers; **New chat** starts a fresh thread — past conversations
+stay retrievable. Recall window: 180 days; retention: 2 years.
 
 ## Project structure
 
