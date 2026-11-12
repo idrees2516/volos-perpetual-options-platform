@@ -166,6 +166,29 @@ export async function historicalVolatility(currency: string, maxAgeMs = 30 * 60_
   );
 }
 
+/** DVOL volatility index (BTC/ETH): current + hourly series (2 days). */
+export async function dvolSnapshot(currency: string, maxAgeMs = 60_000): Promise<{ currentPct: number; changePct: number | null; series: { ts: number; v: number }[] } | null> {
+  const key = `dvol:${currency}`;
+  const hit = cache.get(key) as CacheEntry<{ currentPct: number; changePct: number | null; series: { ts: number; v: number }[] }> | undefined;
+  if (hit && Date.now() - hit.ts < maxAgeMs) return hit.v;
+  const end = Date.now();
+  const start = end - 2 * 864e5;
+  const r = await deribitGet<{ data: [number, number, number, number, number][] } | null>(
+    '/public/get_volatility_index_data',
+    { currency, start_timestamp: start, end_timestamp: end, resolution: 3600 },
+  ).catch(() => null);
+  if (!r?.data?.length) return null;
+  // rows: [ts(ms), open, high, low, close] — take closes
+  const series = r.data.filter((d) => Number.isFinite(d[4])).map((d) => ({ ts: d[0], v: d[4] }));
+  if (!series.length) return null;
+  const current = series[series.length - 1].v;
+  const dayAgo = series.find((p) => p.ts >= end - 864e5) ?? series[0];
+  const changePct = dayAgo.v > 0 ? ((current - dayAgo.v) / dayAgo.v) * 100 : null;
+  const out = { currentPct: current, changePct, series };
+  cache.set(key, { v: out, ts: Date.now() });
+  return out;
+}
+
 export interface InstrumentMeta {
   instrument_name: string;
   expiration_timestamp: number;

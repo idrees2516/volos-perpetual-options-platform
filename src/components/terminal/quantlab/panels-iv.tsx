@@ -9,9 +9,11 @@ import React, { useState } from 'react';
 import { fmtUsd, fmtNum } from '@/lib/format';
 import { useQuant } from './use-quant';
 import { ChartLegend, DataTable, EmptyNote, ErrNote, HeatMatrix, LineChart, Panel, Pill, Segmented, StatGrid } from './quant-viz';
+import { Surface3D } from './viz-deep';
 
 export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: boolean }) {
   const [view, setView] = useState<'term' | 'skew' | 'smile' | 'vrp' | 'em' | 'surface'>('term');
+  const [surfaceMode, setSurfaceMode] = useState<'3d' | 'grid'>('3d');
   if (!hasOptions) return <EmptyNote>{symbol} has no options chain — IV analytics need the Deribit chain (BTC/ETH).</EmptyNote>;
   const term = useQuant<{ termStructure: { dte: number; expiry: string; atmIvPct: number; oiUsd: number }[]; cm30Pct: number; vrp: { iv30Pct: number; rv30Pct: number; vrpPct: number; rvSource: string } }>('/iv', { symbol, view: 'term' }, { pollMs: 10000 });
   const skew = useQuant<{ byExpiry: { expiry: string; dte: number; atmIvPct: number; rr25: number; fly25: number; rr10: number }[] }>('/iv', { symbol, view: 'skew' }, { pollMs: 15000 });
@@ -159,19 +161,57 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
       )}
 
       {view === 'surface' && (
-        <Panel title="IV Surface · strike × expiry" sub="OTM composite IV grid (% annualized)">
+        <Panel
+          title="IV Surface · strike × expiry"
+          sub="OTM composite IV (% annualized) · drag the 3D surface to orbit, hover any cell to probe — the spot row is outlined"
+          right={
+            <Segmented
+              value={surfaceMode}
+              onChange={setSurfaceMode}
+              options={[
+                { id: '3d', label: '3D' },
+                { id: 'grid', label: 'Grid' },
+              ]}
+            />
+          }
+        >
           <ErrNote error={surface.error} />
           {surface.data?.strikes?.length ? (
-            <HeatMatrix
-              rows={surface.data.strikes.slice(0, 22).map((s) => fmtNum(s, 0))}
-              cols={surface.data.expiries.slice(0, 12).map((e) => e.slice(5))}
-              values={surface.data.ivPct.slice(0, 12).map((row) => row.slice(0, 22))}
-              format={(v) => (Number.isFinite(v) ? v.toFixed(0) : '·')}
-              colorFn={(v) => {
-                const t = Math.min(Math.max((v - 25) / 60, 0), 1);
-                return `rgba(45, 212, 191, ${(0.08 + t * 0.72).toFixed(3)})`;
-              }}
-            />
+            surfaceMode === '3d' ? (
+              <Surface3D
+                xLabels={surface.data.expiries.slice(0, 12).map((e) => e.slice(5))}
+                yLabels={surface.data.strikes.slice(0, 26).map((s) => fmtNum(s, 0))}
+                values={surface.data.ivPct.slice(0, 12).map((row) => row.slice(0, 26))}
+                height={320}
+                diverging={false}
+                zLabel="iv %"
+                formatValue={(v) => `${v.toFixed(1)}%`}
+                yHighlight={(() => {
+                  const sts = surface.data!.strikes.slice(0, 26);
+                  let best = -1;
+                  let bd = Infinity;
+                  sts.forEach((s, i) => {
+                    const d = Math.abs(s - (surface.data!.spot ?? 0));
+                    if (d < bd) {
+                      bd = d;
+                      best = i;
+                    }
+                  });
+                  return best >= 0 ? best : null;
+                })()}
+              />
+            ) : (
+              <HeatMatrix
+                rows={surface.data.strikes.slice(0, 22).map((s) => fmtNum(s, 0))}
+                cols={surface.data.expiries.slice(0, 12).map((e) => e.slice(5))}
+                values={surface.data.ivPct.slice(0, 12).map((row) => row.slice(0, 22))}
+                format={(v) => (Number.isFinite(v) ? v.toFixed(0) : '·')}
+                colorFn={(v) => {
+                  const t = Math.min(Math.max((v - 25) / 60, 0), 1);
+                  return `rgba(45, 212, 191, ${(0.08 + t * 0.72).toFixed(3)})`;
+                }}
+              />
+            )
           ) : (
             <EmptyNote>{surface.loading ? 'loading…' : '—'}</EmptyNote>
           )}

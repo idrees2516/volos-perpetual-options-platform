@@ -10,6 +10,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { fmtUsd, fmtNum } from '@/lib/format';
 import { useQuant } from './use-quant';
 import { DataTable, EmptyNote, ErrNote, Panel, Pill, Segmented, StatGrid } from './quant-viz';
+import type { InspectTarget } from './trade-drawer';
 
 interface Print {
   id: string;
@@ -39,7 +40,7 @@ interface Agg {
   byExpiry: { expiry: string; premiumUsd: number; prints: number }[];
 }
 
-export function TapePanel({ symbol, hasOptions }: { symbol: string; hasOptions: boolean }) {
+export function TapePanel({ symbol, hasOptions, onInspect }: { symbol: string; hasOptions: boolean; onInspect?: (t: InspectTarget) => void }) {
   if (!hasOptions) return <EmptyNote>{symbol} has no options tape — Deribit lists BTC/ETH options.</EmptyNote>;
   const [hours, setHours] = useState<'6' | '12' | '24' | '48'>('24');
   const [minPremium, setMinPremium] = useState<string>('');
@@ -133,6 +134,9 @@ export function TapePanel({ symbol, hasOptions }: { symbol: string; hasOptions: 
         </Panel>
       )}
 
+      {/* hint */}
+      <p className="text-center text-[8px] text-zinc-600">click any print for the full order anatomy — quote, greeks, IV context, one-click paper execution</p>
+
       <div className="grid gap-2 xl:grid-cols-2">
         <Panel title="Live Prints" sub="pushed via SSE within seconds of the venue match" right={<Pill>{prints.length} shown</Pill>}>
           <div className="max-h-[420px] overflow-y-auto">
@@ -149,7 +153,27 @@ export function TapePanel({ symbol, hasOptions }: { symbol: string; hasOptions: 
                 </thead>
                 <tbody>
                   {prints.map((p) => (
-                    <tr key={p.id} className={`border-b border-zinc-900/60 hover:bg-zinc-900/40 ${p.premiumUsd >= whaleUsd ? 'bg-amber-950/20' : ''}`}>
+                    <tr
+                      key={p.id}
+                      onClick={() => {
+                        const m = /^(\w+)-(\d{1,2}[A-Z]{3}\d{2})-(\d+(?:\.\d+)?)-([CP])$/.exec(p.instrument);
+                        if (m && onInspect) {
+                          const months: Record<string, number> = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
+                          const label = m[2]; // e.g. 7NOV26 or 27NOV26
+                          const day = label.slice(0, label.length - 5);
+                          const mon = label.slice(day.length, day.length + 3);
+                          onInspect({
+                            instrument: p.instrument,
+                            symbol,
+                            expiry: `${2000 + parseInt(label.slice(-2), 10)}-${String(months[mon] + 1).padStart(2, '0')}-${day.padStart(2, '0')}`,
+                            strike: parseFloat(m[3]),
+                            kind: m[4] === 'C' ? 'call' : 'put',
+                            from: { kind: 'tape', side: p.side, premiumUsd: p.premiumUsd, amount: p.amount, ivPct: p.ivPct, ts: p.ts },
+                          });
+                        }
+                      }}
+                      className={`cursor-pointer border-b border-zinc-900/60 hover:bg-zinc-900/40 ${p.premiumUsd >= whaleUsd ? 'bg-amber-950/20' : ''}`}
+                    >
                       <td className="px-1 py-0.5 text-right font-mono text-zinc-500">{new Date(p.ts).toLocaleTimeString(undefined, { hour12: false })}</td>
                       <td className="px-1 py-0.5 text-left font-mono">
                         <span className={p.isCall ? 'text-emerald-300' : 'text-rose-300'}>{p.instrument.replace(`${symbol}-`, '')}</span>
@@ -180,7 +204,36 @@ export function TapePanel({ symbol, hasOptions }: { symbol: string; hasOptions: 
                 rowKey={(w) => w.id}
                 columns={[
                   { key: 'time', label: 'time', render: (w) => new Date(w.ts).toLocaleTimeString(undefined, { hour12: false }) },
-                  { key: 'inst', label: 'instrument', align: 'l', render: (w) => <span className={w.isCall ? 'text-emerald-300' : 'text-rose-300'}>{w.instrument.replace(`${symbol}-`, '')}</span> },
+                  {
+                    key: 'inst',
+                    label: 'instrument',
+                    align: 'l',
+                    render: (w) => (
+                      <button
+                        className={`text-left hover:underline ${w.isCall ? 'text-emerald-300' : 'text-rose-300'}`}
+                        title="open the order anatomy drawer"
+                        onClick={() => {
+                          const m = /^(\w+)-(\d{1,2}[A-Z]{3}\d{2})-(\d+(?:\.\d+)?)-([CP])$/.exec(w.instrument);
+                          if (m && onInspect) {
+                            const months: Record<string, number> = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
+                            const label = m[2];
+                            const day = label.slice(0, label.length - 5);
+                            const mon = label.slice(day.length, day.length + 3);
+                            onInspect({
+                              instrument: w.instrument,
+                              symbol,
+                              expiry: `${2000 + parseInt(label.slice(-2), 10)}-${String(months[mon] + 1).padStart(2, '0')}-${day.padStart(2, '0')}`,
+                              strike: parseFloat(m[3]),
+                              kind: m[4] === 'C' ? 'call' : 'put',
+                              from: { kind: 'tape', side: w.side, premiumUsd: w.premiumUsd, amount: w.amount, ivPct: w.ivPct, ts: w.ts },
+                            });
+                          }
+                        }}
+                      >
+                        {w.instrument.replace(`${symbol}-`, '')}
+                      </button>
+                    ),
+                  },
                   { key: 'side', label: 'side', render: (w) => <span className={w.side === 'buy' ? 'text-emerald-400' : 'text-rose-400'}>{w.side}</span> },
                   { key: 'prem', label: 'prem $', render: (w) => fmtUsd(w.premiumUsd, { compact: true }) },
                   { key: 'iv', label: 'iv', render: (w) => (w.ivPct != null ? `${w.ivPct.toFixed(0)}%` : '—') },

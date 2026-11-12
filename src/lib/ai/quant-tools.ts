@@ -15,6 +15,10 @@ import { flowByStrike, tapeAggregates, tapePrints } from '@/lib/quant/tape';
 import { getPerpBundle, liquidationHeatmap } from '@/lib/quant/perps';
 import { dealerFlow, history } from '@/lib/quant/history';
 import { cot, etfFlows, form4, holders13f } from '@/lib/quant/macro';
+import { decisionBrief } from '@/lib/quant/signals';
+import { marketScreener } from '@/lib/quant/screener';
+import { volRegime } from '@/lib/quant/volatility';
+import { portfolioRisk, whatIf } from '@/lib/quant/risk';
 import { ENDPOINTS, ENDPOINT_COUNT } from '@/lib/quant/registry';
 
 const SYMBOL_DESC = 'Underlying symbol: BTC, ETH or SOL (options analytics: BTC/ETH)';
@@ -435,6 +439,125 @@ export const quantTools = {
     },
   ),
 
+  // ── decision support (the depth layer) ─────────────────────────────────────
+  vq_signals: vqTool(
+    'vq_signals',
+    { symbol: { type: 'string', description: SYMBOL_DESC } },
+    [],
+    'DECISION BRIEF from the native engine: composite regime score (−100..+100) with top drivers, the live signal battery (gamma regime, HVL distance, pin risk, call wall/put support, IV rank, VRP, skew, term shape, funding percentile, OI momentum, CVD divergence, liquidation magnets, tape imbalance, PCR), a ranked STRATEGY PLAYBOOK with concrete strikes (condors, calendars, risk reversals, carry) and the watchlist of levels that matter. Use for "what should I do", "is this a good time to sell vol", "what is the market telling me", or when the user wants an actual decision rather than raw data.',
+    async (a) => {
+      const d = await decisionBrief(normalizeSymbol(String(a.symbol ?? 'BTC')));
+      return {
+        regime: { score: d.regimeScore, label: d.regimeLabel, volBias: d.volBias },
+        signals: d.signals.map((s) => ({ group: s.group, title: s.title, state: s.state, strength: s.strength, headline: s.headline, action: s.action })),
+        playbook: d.playbook,
+        watchlist: d.watchlist,
+        context: d.context,
+      };
+    },
+  ),
+  vq_screener: vqTool(
+    'vq_screener',
+    {},
+    [],
+    'WHOLE-MARKET SCANNER: every symbol the desk covers (BTC/ETH with full options analytics, SOL perps) side-by-side — momentum, funding percentile, IV/VRP, gamma regime, HVL distance, tape aggression, liquidation magnets, regime score — with cross-symbol z-scores and leaderboards (cheapest vol, most crowded funding, longest/shortest gamma). Use for "which coin", "where is the edge", "compare BTC vs ETH vs SOL".',
+    async () => {
+      const r = await marketScreener();
+      return {
+        rankings: r.rankings,
+        rows: r.rows.map((row) => ({
+          symbol: row.symbol,
+          spot: row.spot,
+          chg24hPct: row.chg24hPct,
+          fundingAprPct: row.fundingApr * 100,
+          fundingPctile: row.fundingPctile,
+          iv30Pct: row.iv30Pct,
+          ivRank: row.ivRank,
+          vrpPct: row.vrpPct,
+          pcrOi: row.pcrOi,
+          gexRegime: row.gexRegime,
+          hvlDistPct: row.hvlDistPct,
+          em1sPct: row.em1sPct,
+          tapeImbalance: row.tapeImbalance,
+          liqAbovePct: row.liqAbovePct,
+          liqBelowPct: row.liqBelowPct,
+          regime: { score: row.regimeScore, label: row.regimeLabel },
+          z: row.z,
+        })),
+      };
+    },
+  ),
+  vq_vol_regime: vqTool(
+    'vq_vol_regime',
+    { symbol: { type: 'string', description: 'BTC or ETH' } },
+    [],
+    'VOL-CYCLE BRIEF: is vol cheap or rich, expanding or compressing? IV percentile/rank vs our own persisted history, the realized-vol cone (each window vs its own distribution), the DVOL index vs our independently-computed CM30, and the IV-vs-RV triangle. Use for "is vol cheap", "should I buy or sell vol", "where are we in the vol cycle".',
+    async (a) => {
+      const symbol = ['BTC', 'ETH'].includes(String(a.symbol).toUpperCase()) ? String(a.symbol).toUpperCase() : 'BTC';
+      const v = await volRegime(symbol);
+      return {
+        verdict: v.verdict,
+        ivStats: v.ivStats ? { currentPct: v.ivStats.currentPct, rank: v.ivStats.rank, p25Pct: v.ivStats.p25Pct, p50Pct: v.ivStats.p50Pct, p75Pct: v.ivStats.p75Pct, points: v.ivStats.points } : null,
+        cone: v.cone,
+        dvol: v.dvol ? { currentPct: v.dvol.currentPct, changePct: v.dvol.changePct } : null,
+        triangle: v.triangle,
+        term: { frontPct: v.termFrontPct, cm30Pct: v.termCm30Pct },
+      };
+    },
+  ),
+  vq_portfolio_risk: vqTool(
+    'vq_portfolio_risk',
+    {},
+    [],
+    'PORTFOLIO RISK on the user\'s live paper account: per-position greeks (delta $, gamma $/1%, vega $/pt, theta $/day), portfolio totals, the full spot×vol scenario P&L matrix (every leg repriced with Black-76), break-evens, P(finish ITM), working-order fill odds and concentration. Use for "how is my book positioned", "what happens if spot drops 10%", "my greeks", "are my limit orders likely to fill".',
+    async () => {
+      const r = await portfolioRisk();
+      return {
+        equity: r.equity,
+        totals: r.totals,
+        legs: r.legs.map((l) => ({
+          instrument: l.instrument,
+          side: l.side,
+          qty: l.qty,
+          unrealizedUsd: l.unrealizedUsd,
+          greeks: { deltaUsd: l.deltaUsd, gammaUsd1pct: l.gammaUsd1pct, vegaUsdPt: l.vegaUsdPt, thetaUsdDay: l.thetaUsdDay },
+          probItm: l.probItm,
+          breakEven: l.breakEven,
+          dte: l.dte,
+        })),
+        scenarios: r.scenarios.map((s) => ({ symbol: s.symbol, spot: s.spot, spotStepsPct: s.spotSteps, volStepsPts: s.volSteps, worstPnlUsd: Math.min(...s.pnlUsd.flat().filter(Number.isFinite)), bestPnlUsd: Math.max(...s.pnlUsd.flat().filter(Number.isFinite)) })),
+        openOrders: r.openOrders.map((o) => ({ instrument: o.instrument, side: o.side, qty: o.qty, limitPrice: o.limitPrice, mark: o.mark, fillOddsPct: o.fillOddsPct })),
+        concentration: r.concentration,
+      };
+    },
+  ),
+  vq_whatif: vqTool(
+    'vq_whatif',
+    {
+      symbol: { type: 'string', description: 'BTC or ETH' },
+      expiry: { type: 'string', description: 'ISO expiry e.g. 2026-11-27 (get valid ones from vq_list_expiries)' },
+      strike: { type: 'number', description: 'strike price' },
+      kind: { type: 'string', description: 'call | put' },
+      side: { type: 'string', description: 'buy | sell' },
+      qty: { type: 'number', description: 'contracts (underlying units)' },
+    },
+    ['expiry', 'strike', 'kind', 'side', 'qty'],
+    'WHAT-IF structure analysis: price a hypothetical option leg (or ask the user to confirm multiple) from the LIVE chain — instant greeks, net premium, payoff at expiry and break-evens. Use when the user proposes a trade ("what if I buy the 80k call", "sell a straddle") to show exact exposure BEFORE they paper-trade it.',
+    async (a) => {
+      const symbol = ['BTC', 'ETH'].includes(String(a.symbol).toUpperCase()) ? String(a.symbol).toUpperCase() : 'BTC';
+      return whatIf([
+        {
+          symbol,
+          expiry: String(a.expiry ?? ''),
+          strike: Number(a.strike),
+          kind: String(a.kind) === 'put' ? 'put' : 'call',
+          side: String(a.side) === 'sell' ? 'sell' : 'buy',
+          qty: Math.max(0.1, Number(a.qty) || 1),
+        },
+      ]);
+    },
+  ),
+
   // ── discovery ──────────────────────────────────────────────────────────────
   vq_list_symbols: vqTool(
     'vq_list_symbols',
@@ -476,6 +599,9 @@ export function quantSystemPrompt(): string {
     'You have VOLQUANT tools — institutional crypto-options analytics computed LIVE by VolOS\'s own engine from Deribit (options chain, tape, futures), Binance/Bybit/OKX (perps) and CFTC/SEC/Farside (macro). No external data vendor, no demo mode: every number is real and timestamped. They answer: where dealer gamma is (walls, HVL, max pain, pin zones), what aggressors traded (options tape, whales, flow by strike), the vol surface (skew, smiles, term structure, VRP, expected move, risk-neutral odds), perp positioning (OI, funding, CVD, liquidation estimates), spot-ETF flows, COT and SEC filings.',
   );
   lines.push('- Start open market questions with vq_brief (one call: price vs gamma levels + IV/VRP + expected move + perps + tape + front expiry).');
+  lines.push('- DECISIONS: vq_signals (regime score + signal battery + strategy playbook with concrete strikes) is the tool for "what should I do" — prefer it over dumping raw data. vq_screener for cross-asset "which coin" questions.');
+  lines.push('- Vol cycle: vq_vol_regime (IV rank, vol cone, DVOL) answers "is vol cheap or rich".');
+  lines.push('- The user\'s book: vq_portfolio_risk (live greeks, scenario matrix, fill odds); vq_whatif prices any hypothetical structure before they take it.');
   lines.push('- Positioning: vq_gex_levels / vq_gex_strike_profile / vq_greek / vq_max_pain / vq_compare_symbols.');
   lines.push('- Flow: vq_tape (prints + aggregates), vq_flow_by_strike ("is anyone buying calls at 80k"), vq_dealer_flow.');
   lines.push('- Vol: vq_iv (any cut), vq_expected_move, vq_probability (odds of a level), vq_basis.');

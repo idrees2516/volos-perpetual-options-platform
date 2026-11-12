@@ -10,6 +10,7 @@ import { fmtUsd, fmtNum } from '@/lib/format';
 import { useQuant } from './use-quant';
 import { DataTable, EmptyNote, ErrNote, LineChart, Panel, Pill, Segmented, StatGrid } from './quant-viz';
 import { FlowPanel } from './panels-tape';
+import { isoToDeribitLabel, type InspectTarget } from './trade-drawer';
 
 interface ExpiryRow {
   expiry: string;
@@ -59,7 +60,7 @@ interface ChainData {
   rows: { strike: number; forward: number; call: Side | null; put: Side | null }[];
 }
 
-export function ChainPanel({ symbol, hasOptions }: { symbol: string; hasOptions: boolean }) {
+export function ChainPanel({ symbol, hasOptions, onInspect }: { symbol: string; hasOptions: boolean; onInspect?: (t: InspectTarget) => void }) {
   if (!hasOptions) return <EmptyNote>{symbol} has no options chain on free venues (Deribit lists BTC/ETH).</EmptyNote>;
   const summary = useQuant<SummaryData>('/chain', { symbol, view: 'summary' }, { pollMs: 10000 });
   const [expiry, setExpiry] = useState<string>('');
@@ -112,7 +113,7 @@ export function ChainPanel({ symbol, hasOptions }: { symbol: string; hasOptions:
 
       <Panel
         title={`Option Chain · ${activeExpiry || '—'}`}
-        sub="premiums in underlying units · greeks computed natively (Black-76 on venue forwards/IV)"
+        sub="premiums in underlying units · greeks computed natively (Black-76 on venue forwards/IV) · click any mid price to open the order anatomy drawer"
         right={
           <>
             <Segmented value={chainMode} onChange={setChainMode} options={[{ id: 'both', label: 'Both' }, { id: 'call', label: 'Calls' }, { id: 'put', label: 'Puts' }]} />
@@ -134,13 +135,32 @@ export function ChainPanel({ symbol, hasOptions }: { symbol: string; hasOptions:
               <tbody>
                 {rows.map((r) => {
                   const atm = Math.abs(r.strike / spot - 1) < 0.012;
+                  const openDrawer = (isCall: boolean) => {
+                    if (!onInspect || !activeExpiry) return;
+                    onInspect({
+                      instrument: `${symbol}-${isoToDeribitLabel(activeExpiry)}-${r.strike}-${isCall ? 'C' : 'P'}`,
+                      symbol,
+                      expiry: activeExpiry,
+                      strike: r.strike,
+                      kind: isCall ? 'call' : 'put',
+                      from: { kind: 'chain' },
+                    });
+                  };
                   return (
                     <tr key={r.strike} className={`border-b border-zinc-900/60 hover:bg-zinc-900/40 ${atm ? 'bg-teal-950/20' : ''}`}>
                       {chainMode !== 'put' && (
                         <>
                           <td className="px-1 py-0.5 text-right font-mono text-emerald-300/90">{r.call ? r.call.bid.toFixed(4) : '—'}</td>
                           <td className="px-1 py-0.5 text-right font-mono text-emerald-300/90">{r.call ? r.call.ask.toFixed(4) : '—'}</td>
-                          <td className="px-1 py-0.5 text-right font-mono text-zinc-300">{r.call ? r.call.mid.toFixed(4) : '—'}</td>
+                          <td className="px-1 py-0.5 text-right font-mono">
+                            {r.call ? (
+                              <button onClick={() => openDrawer(true)} className="font-mono text-zinc-200 underline decoration-zinc-700 decoration-dotted underline-offset-2 hover:text-teal-300 hover:decoration-teal-500" title="open order anatomy">
+                                {r.call.mid.toFixed(4)}
+                              </button>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
                           <td className="px-1 py-0.5 text-right font-mono text-zinc-400">{r.call ? r.call.ivPct.toFixed(1) : '—'}</td>
                           <td className="px-1 py-0.5 text-right font-mono text-zinc-400">{r.call ? r.call.oi.toFixed(0) : '—'}</td>
                           <td className="px-1 py-0.5 text-right font-mono text-zinc-500">{r.call ? r.call.delta.toFixed(2) : '—'}</td>
@@ -153,7 +173,15 @@ export function ChainPanel({ symbol, hasOptions }: { symbol: string; hasOptions:
                         <>
                           <td className="px-1 py-0.5 text-right font-mono text-rose-300/90">{r.put ? r.put.bid.toFixed(4) : '—'}</td>
                           <td className="px-1 py-0.5 text-right font-mono text-rose-300/90">{r.put ? r.put.ask.toFixed(4) : '—'}</td>
-                          <td className="px-1 py-0.5 text-right font-mono text-zinc-300">{r.put ? r.put.mid.toFixed(4) : '—'}</td>
+                          <td className="px-1 py-0.5 text-right font-mono">
+                            {r.put ? (
+                              <button onClick={() => openDrawer(false)} className="font-mono text-zinc-200 underline decoration-zinc-700 decoration-dotted underline-offset-2 hover:text-teal-300 hover:decoration-teal-500" title="open order anatomy">
+                                {r.put.mid.toFixed(4)}
+                              </button>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
                           <td className="px-1 py-0.5 text-right font-mono text-zinc-400">{r.put ? r.put.ivPct.toFixed(1) : '—'}</td>
                           <td className="px-1 py-0.5 text-right font-mono text-zinc-400">{r.put ? r.put.oi.toFixed(0) : '—'}</td>
                           <td className="px-1 py-0.5 text-right font-mono text-zinc-500">{r.put ? r.put.delta.toFixed(2) : '—'}</td>
