@@ -463,24 +463,49 @@ GET  /api/venues?asset=BTC                     Venue health, latency, instrument
                                                spot, ATM IV
 ```
 
-### AI providers — OmniRoute gateway + GLM fallback
+### AI providers — OmniRoute / Respan gateways + GLM fallback
 
 The desk answers through a **model router** (`src/lib/ai/model-router.ts`):
 any OpenAI-compatible gateway with automatic failover to the built-in GLM
 backend — the copilot never goes dark because of a dead key, an exhausted
-quota, or a downed gateway.
+quota, or a downed gateway. Selection order: OmniRoute → Respan → generic
+OpenAI-compatible → GLM (or force one with `AI_PROVIDER`).
 
 [OmniRoute](https://github.com/cheaper-inference/OmniRoute) is a free AI
 gateway aggregating 375+ providers (150+ with free tiers) behind one
-OpenAI-compatible `/v1` endpoint with quota-aware auto-fallback. Configure it
-by dropping your key into `.env.local` (git-ignored):
+OpenAI-compatible `/v1` endpoint with quota-aware auto-fallback.
+[Respan](https://github.com/respanai/respan-gateway) is an open-source Rust
+AI gateway — one endpoint, client keys, routing/failover, `/ui/` dashboard.
+Configure either by dropping keys into `.env.local` (git-ignored):
 
 ```
 OMNIROUTE_API_KEY=your-omniroute-key
-OMNIROUTE_BASE_URL=https://omniroute.online/v1   # or your self-host: http://localhost:20128/v1
+OMNIROUTE_BASE_URL=https://omniroute.online/v1   # or self-host: http://localhost:20128/v1
 OMNIROUTE_MODEL=auto                              # 'auto', 'auto/cheap', 'openai/gpt-…', 'glm/glm-…'
-AI_PROVIDER=auto                                 # auto | omniroute | zai (force GLM)
+RESPAN_API_KEY=your-respan-client-key
+RESPAN_BASE_URL=http://localhost:8080/v1           # self-hosted Respan
+RESPAN_MODEL=glm-4-plus
+AI_PROVIDER=auto                                   # auto | omniroute | respan | zai (force GLM)
 ```
+
+**Local gateway stack** — `bash run-local.sh --gateways` starts the whole AI
+gateway layer in the background alongside the UI (each piece is skipped
+with a warning if its binary/config is missing; GLM failover keeps the
+copilot alive regardless):
+
+- `mini-services/zai-shim.mjs` (:20130) — a tiny OpenAI-compatible front for
+  the in-sandbox GLM endpoint. It re-reads `/etc/.z-ai-config` on every
+  request, so the live session headers (`X-Chat-Id` / `X-User-Id` /
+  `X-Token`) are always fresh. OmniRoute and Respan use it as their GLM
+  upstream (`glm-*` models).
+- **OmniRoute self-host** (:20128 — dashboard + `/v1`) — the published
+  `omniroute` npm package, serving from `external/omniroute-data` (its env
+  file with `JWT_SECRET` / `API_KEY_SECRET` / `INITIAL_PASSWORD` lives there,
+  git-ignored). Providers are added from the dashboard or the CLI
+  (`omniroute providers add …`); desk keys are minted via `omniroute
+  api-keys post-api-keys` and land in `.env.local`.
+- **Respan** (:8080 — `/v1` + `/ui/`) — `external/respan/gateway.toml`
+  routes `glm-*` to the shim behind a desk client key (`RESPAN_API_KEY`).
 
 Any other OpenAI-compatible gateway (OpenRouter, LiteLLM, vLLM, Ollama) via
 the generic escape hatch: `OPENAI_COMPAT_BASE_URL` + `OPENAI_COMPAT_API_KEY`
@@ -491,6 +516,11 @@ failure the request transparently reruns on GLM; a circuit breaker (3
 consecutive failures → 5-minute cooldown) stops paying the timeout on every
 request while a gateway is down. `/api/ai/providers` and the copilot header
 badge expose the active backend and gateway health.
+
+**InstaBox (optional):** `INSTABOX_API_KEY` in `.env.local` +
+`bash scripts/instabox.sh` lists the account's cloud machines — the escape
+hatch for hosting the gateway stack persistently outside the recycled
+sandbox.
 
 ### Conversation memory (RAG) — the copilot remembers
 

@@ -82,3 +82,13 @@ scripts/openapi-v2.json
 # local research/ops artifacts (not part of the app)
 /.persist/
 /scripts/
+# vendored external services (OmniRoute self-host clone, its data/, logs)
+/external/
+# …except the tracked Respan gateway config (no secrets — env refs only)
+!/external/respan/
+/external/respan/*
+!/external/respan/gateway.toml
+# …and the tracked zai-shim mini-service (the gateways' GLM upstream)
+!/mini-services/
+/mini-services/*
+!/mini-services/zai-shim.mjs

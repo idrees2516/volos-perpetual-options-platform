@@ -56,6 +56,52 @@ describe('resolveProviderConfig', () => {
     expect(r.label).toBe('zai');
   });
 
+  it('activates Respan from RESPAN_API_KEY with local defaults', () => {
+    const r = resolveProviderConfig({ RESPAN_API_KEY: 'rk' });
+    expect(r.label).toBe('respan');
+    expect(r.primary?.baseUrl).toBe('http://localhost:8080/v1');
+    expect(r.primary?.model).toBe('glm-4-plus');
+    expect(r.primary?.apiKey).toBe('rk');
+  });
+
+  it('honours custom Respan base URL and model', () => {
+    const r = resolveProviderConfig({
+      RESPAN_API_KEY: 'rk',
+      RESPAN_BASE_URL: 'https://respan.example/v1',
+      RESPAN_MODEL: 'glm-4.6',
+    });
+    expect(r.primary?.baseUrl).toBe('https://respan.example/v1');
+    expect(r.primary?.model).toBe('glm-4.6');
+  });
+
+  it('OmniRoute outranks Respan when both keys are present', () => {
+    const r = resolveProviderConfig({ OMNIROUTE_API_KEY: 'k', RESPAN_API_KEY: 'rk' });
+    expect(r.label).toBe('omniroute');
+  });
+
+  it('Respan outranks the generic OpenAI-compatible escape hatch', () => {
+    const r = resolveProviderConfig({
+      RESPAN_API_KEY: 'rk',
+      OPENAI_COMPAT_API_KEY: 'k2',
+      OPENAI_COMPAT_BASE_URL: 'https://relay.example/v1',
+    });
+    expect(r.label).toBe('respan');
+  });
+
+  it('AI_PROVIDER=respan forces Respan even with an OmniRoute key present', () => {
+    const r = resolveProviderConfig({ AI_PROVIDER: 'respan', OMNIROUTE_API_KEY: 'k', RESPAN_API_KEY: 'rk' });
+    expect(r.label).toBe('respan');
+  });
+
+  it('warns (not throws) when Respan is forced but unconfigured', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = resolveProviderConfig({ AI_PROVIDER: 'respan' });
+    expect(r.primary).toBeNull();
+    expect(r.label).toBe('zai');
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it('warns (not throws) when a remote is forced but unconfigured', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const r = resolveProviderConfig({ AI_PROVIDER: 'omniroute' });
