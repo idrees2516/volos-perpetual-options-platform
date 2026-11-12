@@ -9,7 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Perpetual order-flow venues supported natively by the VolOS engine. */
-export type OfVenueId = 'binance' | 'bybit' | 'okx' | 'deribit' | 'bitget' | 'hyperliquid' | 'coinbase';
+export type OfVenueId = 'binance' | 'bybit' | 'okx' | 'deribit' | 'bitget' | 'hyperliquid' | 'coinbase' | 'kraken';
 export type OfTradeSide = 'buy' | 'sell';
 export type OfLiquidationSide = 'long' | 'short';
 export type OfVenueStatus = 'connecting' | 'live' | 'offline' | 'error' | 'stale';

@@ -2,7 +2,7 @@
 // ORDER FLOW — instrument catalog & tick ladder
 //
 // Maps the terminal's canonical assets (8 majors) onto each venue's native
-// symbol — 4 perp venues + Bitget perps + Hyperliquid perps + Coinbase spot —
+// symbol — 5 perp venues + Hyperliquid perps + Coinbase & Kraken spot —
 // and sizes the contiguous tick ladder (~1 bp) used by the footprint and the
 // resting-liquidity heatmap. Venue/asset coverage verified live 2026-11.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -11,7 +11,7 @@ import type { OfAsset, OfVenueId } from './types';
 
 export const OF_ASSETS: OfAsset[] = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'LINK', 'AVAX'];
 
-export const OF_VENUES: OfVenueId[] = ['binance', 'bybit', 'okx', 'bitget', 'hyperliquid', 'deribit', 'coinbase'];
+export const OF_VENUES: OfVenueId[] = ['binance', 'bybit', 'okx', 'bitget', 'hyperliquid', 'deribit', 'coinbase', 'kraken'];
 
 /** Venues with a public liquidation feed. */
 export const LIQ_FEED_VENUES: ReadonlySet<OfVenueId> = new Set<OfVenueId>(['binance', 'bybit', 'okx', 'deribit']);
@@ -69,6 +69,14 @@ export const OF_VENUE_META: Record<OfVenueId, OfVenueMetaEntry> = {
     name: 'Coinbase Spot',
     // Coinbase spot gives the tape a true spot leg (no funding/OI/liquidations).
     symbol: (a) => `${a}-USD`,
+    quote: 'USD',
+  },
+  kraken: {
+    id: 'kraken',
+    name: 'Kraken Spot',
+    // Kraken WS v2 normalizes to plain "BASE/USD" symbols (even BTC, not XBT;
+    // all 8 majors subscribe-verified live). True spot leg — no funding/OI/liq.
+    symbol: (a) => (OF_ASSETS.includes(a) ? `${a}/USD` : null),
     quote: 'USD',
   },
 };

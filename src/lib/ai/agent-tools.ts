@@ -40,6 +40,8 @@ import { buildForecastPanel } from '@/lib/forecast/panel';
 import { DEFAULT_FC_SPECS, Forecaster } from '@/lib/forecast/forecaster';
 import { buildPortfolioRisk } from '@/lib/forecast/portfolio';
 import type { FcTargetId } from '@/lib/forecast/types';
+import { getChainSnapshot } from '@/lib/quant/engine';
+import { runResearch, recentResearchRuns, latestResearchReport, RESEARCH_FACTORS } from '@/lib/research/harness';
 
 import {
   VENUE_IDS,
@@ -1395,11 +1397,10 @@ export const marketTools = {
       }
     },
   }),
-  // ── order flow (native order-flow engine: Binance · Bybit · OKX · Deribit) ──
-
+  // ── order flow (native engine: Binance · Bybit · OKX · Bitget · Hyperliquid · Deribit · Coinbase · Kraken) ──
   orderflow_overview: tool({
     description:
-      'Whole-market order-flow state for BTC/ETH/SOL across Binance, Bybit, OKX and Deribit: last price, 1-minute change, CVD, open interest + 5m regime, funding, basis, liquidation totals, absorption/iceberg counts, leading venue. Use for any question about aggregate flow, positioning or which venue moves first.',
+      'Whole-market order-flow state for BTC/ETH/SOL across Binance, Bybit, OKX, Bitget, Hyperliquid, Deribit, Coinbase and Kraken (perps + spot legs): last price, 1-minute change, CVD, open interest + 5m regime, funding, basis, liquidation totals, absorption/iceberg counts, leading venue. Use for any question about aggregate flow, positioning or which venue moves first.',
     parameters: jsonSchema<Record<string, never>>({
       type: 'object',
       properties: {},
@@ -1909,11 +1910,10 @@ export const marketTools = {
     },
   }),
 
-  // ── analytics storage queries ("store now, analyze later") ─────────────────
   // ── morning briefing (the desk's pre-market aggregation) ────────────────────
   market_brief: tool({
     description:
-      'The desk morning briefing / current market pulse, aggregated in one call: whole-market order-flow state (8 majors: price, 1m change, CVD, OI regime, funding, liquidation totals, absorption/iceberg counts, leading venue), the conformal 30-minute expected move with calibrated bands for BTC and ETH, the strongest microstructure flags (who is absorbing, who is toxic), storage depth (how much history is persisted), and the current backfill worker state. Use when the user asks for a briefing, "what\'s happening", "give me the state of the market", or at session open — and combine with web research for a full narrative.',
+      'The desk morning briefing / current market pulse, aggregated in one call: whole-market order-flow state (8 majors, 8 venues: price, 1m change, CVD, OI regime, funding, liquidation totals, absorption/iceberg counts, leading venue), the conformal 30-minute expected move with calibrated bands for BTC and ETH, the strongest microstructure flags (who is absorbing, who is toxic), the Deribit options surface headline for BTC/ETH (ATM IV + rank, VRP, skew, net GEX regime + gamma walls), the latest measured research evidence (top factors by IC from the stored-history backtest), storage depth (how much history is persisted), and the current backfill worker state. Use when the user asks for a briefing, "what\'s happening", "give me the state of the market", or at session open — and combine with web research for a full narrative.',
     parameters: jsonSchema<Record<string, never>>({
       type: 'object',
       properties: {},
@@ -1979,6 +1979,59 @@ export const marketTools = {
         } catch {
           /* store may be cold */
         }
+        // Deribit options surface headline (BTC + ETH)
+        const optionsHeadline: Record<string, unknown> = {};
+        for (const sym of ['BTC', 'ETH'] as const) {
+          try {
+            const snap = await getChainSnapshot(sym);
+            let ivRank: number | null = null;
+            try {
+              const rows = await db.quantSnapshot.findMany({
+                where: { symbol: sym, ts: { gte: new Date(Date.now() - 30 * 864e5) }, atmIv30: { not: null } },
+                orderBy: { ts: 'asc' },
+                take: 8000,
+                select: { atmIv30: true },
+              });
+              const ivs = rows.map((r) => r.atmIv30 as number).filter(Number.isFinite);
+              if (ivs.length >= 24) ivRank = +((ivs.filter((v) => v <= snap.atmIv30).length / ivs.length) * 100).toFixed(0);
+            } catch {
+              /* cold snapshots */
+            }
+            const anchor = snap.expiries.find((e) => e.isAnchor) ?? snap.expiries[0];
+            optionsHeadline[sym] = {
+              spot: +snap.spot.toFixed(0),
+              atmIv30Pct: +(snap.atmIv30 * 100).toFixed(1),
+              ivRank30d: ivRank,
+              vrpPct: snap.iv30vsRv30 ? +snap.iv30vsRv30.vrpPct.toFixed(1) : null,
+              rr25Pct: anchor ? +anchor.rr25.toFixed(1) : null,
+              netGexUsd1pct: Math.round(snap.levels.totalGexUsd1pct),
+              gammaRegime: snap.levels.regime,
+              hvl: snap.levels.hvl ? +snap.levels.hvl.toFixed(0) : null,
+              callWall: snap.levels.callWall ? +snap.levels.callWall.toFixed(0) : null,
+              putSupport: snap.levels.putSupport ? +snap.levels.putSupport.toFixed(0) : null,
+            };
+          } catch {
+            /* options headline is best-effort in the brief */
+          }
+        }
+        // latest measured research evidence (persisted runs only — cheap)
+        const research: Record<string, unknown> = {};
+        try {
+          for (const a of ['BTC', 'ETH'] as const) {
+            const got = await latestResearchReport(a);
+            if (got) {
+              research[a] = {
+                runAt: got.row.createdAt,
+                horizonBars: got.row.horizonBars,
+                tfSec: got.row.tfSec,
+                compositeIc: got.row.compositeIc,
+                top: got.row.topFactors,
+              };
+            }
+          }
+        } catch {
+          /* research may be cold */
+        }
         return {
           tsMs: ov.tsMs,
           market: ov.assets.map((a) => {
@@ -2002,9 +2055,11 @@ export const marketTools = {
           }),
           forecast30m: em,
           microstructureFlags: flags.slice(0, 4),
+          options: optionsHeadline,
+          research,
           storage,
           guidance:
-            'orderflow_overview/orderflow_symbol go deeper per asset; forecast_now for other horizons/targets; portfolio_risk for hedging; research_web for the macro narrative. Quote numbers with their units (bps, USD, %).',
+            'orderflow_overview/orderflow_symbol go deeper per asset; options_surface for the full Greeks/GEX/skew story; research_backtest for the measured edge of any signal before acting on it; forecast_now for other horizons/targets; portfolio_risk for hedging; research_web for the macro narrative. Quote numbers with their units (bps, USD, %).',
         };
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) };
@@ -2030,7 +2085,7 @@ export const marketTools = {
       properties: {
         asset: { type: 'string', enum: OF_ASSETS, description: 'Asset whose tape to scan.' },
         side: { type: 'string', enum: ['buy', 'sell', 'all'], description: 'Aggressor side. Default all.' },
-        venue: { type: 'string', enum: ['binance', 'bybit', 'okx', 'bitget', 'hyperliquid', 'deribit', 'coinbase'], description: 'Restrict to one venue.' },
+        venue: { type: 'string', enum: ['binance', 'bybit', 'okx', 'bitget', 'hyperliquid', 'deribit', 'coinbase', 'kraken'], description: 'Restrict to one venue.' },
         minNotionalUsd: { type: 'number', description: 'Minimum print size in USD (e.g. 100000 = whales).' },
         priceMin: { type: 'number', description: 'Lower price bound.' },
         priceMax: { type: 'number', description: 'Upper price bound.' },
@@ -2126,6 +2181,259 @@ export const marketTools = {
     },
   }),
 
+  // ── Deribit options surface — real Greeks/IV/skew/GEX for decisions ─────
+  options_surface: tool({
+    description:
+      'The Deribit options surface with REAL Black-76 Greeks and OI: spot/forward, constant-maturity ATM IV (with 30-day IV rank from stored snapshots and IV vs realized vol / VRP), the IV term structure, 25Δ/10Δ risk reversal and fly (skew) on the front anchor expiry, net dealer gamma exposure (GEX) with regime (long/short gamma), gamma-flip (HVL), call wall / put support / max pain levels, top GEX strikes with OI, expected moves per expiry, put/call OI ratio, and 0DTE state. Use for any options-informed decision: "where are the gamma walls", "is vol rich or cheap", "what does the dealer positioning imply", "skew vs direction", or when planning option trades / hedging.',
+    parameters: jsonSchema<{ symbol: string; focus?: string }>({
+      type: 'object',
+      properties: {
+        symbol: { type: 'string', enum: ['BTC', 'ETH'], description: 'Options underlyings available on free public venues.' },
+        focus: {
+          type: 'string',
+          enum: ['all', 'gex', 'vol', 'skew', 'term'],
+          description: 'all (default) returns everything; gex/vol/skew/return return that slice with more rows (e.g. more strikes/expiries).',
+        },
+      },
+      required: ['symbol'],
+    }),
+    execute: async ({ symbol, focus }) => {
+      try {
+        const sym = symbol === 'ETH' ? 'ETH' : 'BTC';
+        const snap = await getChainSnapshot(sym);
+        const f = focus ?? 'all';
+        // IV rank over stored snapshots (30d window — our own recorded history)
+        let ivRank: number | null = null;
+        try {
+          const rows = await db.quantSnapshot.findMany({
+            where: { symbol: sym, ts: { gte: new Date(Date.now() - 30 * 864e5) }, atmIv30: { not: null } },
+            orderBy: { ts: 'asc' },
+            take: 8000,
+            select: { atmIv30: true },
+          });
+          const ivs = rows.map((r) => r.atmIv30 as number).filter(Number.isFinite);
+          if (ivs.length >= 24) {
+            const below = ivs.filter((v) => v <= snap.atmIv30).length;
+            ivRank = +((below / ivs.length) * 100).toFixed(1);
+          }
+        } catch {
+          /* iv rank degrades to null when snapshots are cold */
+        }
+        const anchor = snap.expiries.find((e) => e.isAnchor) ?? snap.expiries[0];
+        const base = {
+          symbol: sym,
+          asOf: new Date(snap.asOf).toISOString(),
+          spot: +snap.spot.toFixed(1),
+          forwardFront: +snap.forwardFront.toFixed(1),
+          perpMark: +snap.perpMark.toFixed(1),
+          gex: {
+            regime: snap.levels.regime,
+            netGexUsd1pct: Math.round(snap.levels.totalGexUsd1pct),
+            callGexUsd1pct: Math.round(snap.levels.callGexUsd1pct),
+            putGexUsd1pct: Math.round(snap.levels.putGexUsd1pct),
+            hvl: snap.levels.hvl ? +snap.levels.hvl.toFixed(0) : null,
+            callWall: snap.levels.callWall ? +snap.levels.callWall.toFixed(0) : null,
+            putSupport: snap.levels.putSupport ? +snap.levels.putSupport.toFixed(0) : null,
+            maxPain: snap.levels.maxPain ? +snap.levels.maxPain.toFixed(0) : null,
+            zeroDte: snap.levels0dte
+              ? {
+                  netGexUsd1pct: Math.round(snap.levels0dte.totalGexUsd1pct),
+                  callWall: snap.levels0dte.callWall ? +snap.levels0dte.callWall.toFixed(0) : null,
+                  putSupport: snap.levels0dte.putSupport ? +snap.levels0dte.putSupport.toFixed(0) : null,
+                }
+              : null,
+            topStrikes: snap.strikes
+              .slice()
+              .sort((a, b) => Math.abs(b.netGex) - Math.abs(a.netGex))
+              .slice(0, 8)
+              .map((s) => ({
+                strike: s.strike,
+                netGexUsd1pct: Math.round(s.netGex),
+                callOi: Math.round(s.callOi),
+                putOi: Math.round(s.putOi),
+                distancePct: +(((s.strike - snap.spot) / snap.spot) * 100).toFixed(2),
+              })),
+          },
+          vol: {
+            atmIv30Pct: +(snap.atmIv30 * 100).toFixed(2),
+            ivRank30d: ivRank,
+            vrpPct: snap.iv30vsRv30 ? +snap.iv30vsRv30.vrpPct.toFixed(2) : null,
+            iv30Pct: snap.iv30vsRv30 ? +snap.iv30vsRv30.iv30Pct.toFixed(2) : null,
+            rv30Pct: snap.iv30vsRv30 ? +snap.iv30vsRv30.rv30Pct.toFixed(2) : null,
+            putCallRatioOi: +snap.putCallRatioOi.toFixed(3),
+            totalOiUsd: Math.round(snap.totalOiUsd),
+            volume24hUsd: Math.round(snap.totalVolumeUsd24h),
+          },
+          skew: anchor
+            ? {
+                expiry: anchor.expiry,
+                dte: +anchor.dte.toFixed(1),
+                atmIvPct: +anchor.atmIvPct.toFixed(2),
+                rr25Pct: +anchor.rr25.toFixed(2),
+                fly25Pct: +anchor.fly25.toFixed(2),
+                rr10Pct: +anchor.rr10.toFixed(2),
+                smile: anchor.smile.slice(0, 7).map((p) => ({ strike: p.strike, delta: +p.delta.toFixed(2), ivPct: +p.ivPct.toFixed(2) })),
+              }
+            : null,
+          termStructure:
+            f === 'term' || f === 'all'
+              ? snap.termStructure.slice(0, 10).map((t) => ({ dte: +t.dte.toFixed(1), expiry: t.expiry, atmIvPct: +t.atmIvPct.toFixed(2), oiUsd: Math.round(t.oiUsd) }))
+              : undefined,
+          expectedMoves:
+            f === 'vol' || f === 'all'
+              ? snap.expectedMoves.slice(0, 6).map((e) => ({
+                  expiry: e.expiry,
+                  dte: +e.dte.toFixed(1),
+                  straddleUsd: +e.straddleUsd.toFixed(0),
+                  oneSigmaPct: +e.oneSigmaPct.toFixed(2),
+                  rangeLow: +e.rangeLow.toFixed(0),
+                  rangeHigh: +e.rangeHigh.toFixed(0),
+                }))
+              : undefined,
+          expiries:
+            f === 'gex' || f === 'term'
+              ? snap.expiries.slice(0, 12).map((e) => ({
+                  expiry: e.expiry,
+                  dte: +e.dte.toFixed(1),
+                  type: e.type,
+                  netGexUsd1pct: Math.round(e.netGexUsd1pct ?? 0),
+                  atmIvPct: +e.atmIvPct.toFixed(2),
+                  straddleUsd: +e.straddleUsd.toFixed(0),
+                  oiUsd: Math.round(e.oiUsd ?? 0),
+                }))
+              : undefined,
+          sources: snap.sources,
+          guidance:
+            'Positive netGex = dealer long gamma (spot gets absorbed at the walls, mean-reverting between HVL and call wall); negative = dealer short gamma (moves get amplified, expect trend/chop). IV rank <20 with negative VRP = vol is cheap vs realized; skew rr25 >0 = put wing bid (hedge demand). Combine with forecast_now/tape_scan for timing.',
+        };
+        return base;
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+
+  // ── Track B — signal research harness on the stored history ─────────────
+  research_backtest: tool({
+    description:
+      'Backtest the signal/factor battery on the STORED history (SQLite klines with taker aggressor delta, funding, OI, microstructure) and quote the evidence before a decision: daily-block Spearman IC (mean, t-stat, positive-day share), quintile forward-return profile Q1→Q5, Q5−Q1 spread in bps with Welch t, top-quintile hit rate, and an IC-directed composite. mode=run executes a fresh run (defaults BTC, 5m bars, 12-bar=1h horizon, 120 days); mode=latest returns the newest persisted run for an asset; mode=list returns the recent run ledger. Use to answer "does this signal actually work", "which factors have edge right now", "is CVD/funding/OI predictive at this horizon" — and ALWAYS check it before recommending a flow/momentum/perps-based tactic.',
+    parameters: jsonSchema<{
+      mode?: string;
+      asset?: string;
+      tfSec?: number;
+      horizonBars?: number;
+      lookbackDays?: number;
+      factorIds?: string[];
+      limit?: number;
+    }>({
+      type: 'object',
+      properties: {
+        mode: { type: 'string', enum: ['run', 'latest', 'list'], description: 'run (default) executes now; latest reads the newest persisted run; list returns the ledger.' },
+        asset: { type: 'string', enum: OF_ASSETS, description: 'Asset to research (default BTC).' },
+        tfSec: { type: 'number', enum: [60, 300, 1800], description: 'Bar timeframe seconds: 60=1m, 300=5m, 1800=30m (default 300).' },
+        horizonBars: { type: 'number', description: 'Forward horizon in bars (default 12 → 1h on 5m bars).' },
+        lookbackDays: { type: 'number', description: 'History window (default 120 days on 5m).' },
+        factorIds: {
+          type: 'array',
+          items: { type: 'string', enum: RESEARCH_FACTORS.map((f) => f.id) },
+          description: 'Restrict to specific factors (delta_z, cvd_mom, flow_divergence, momentum, mean_reversion, volume_burst, range_squeeze, oi_accel, oi_price_confirm, funding_contrarian, micro_vpin, micro_kyle).',
+        },
+        limit: { type: 'number', description: 'mode=list: max runs (default 10).' },
+      },
+    }),
+    execute: async ({ mode, asset, tfSec, horizonBars, lookbackDays, factorIds, limit }) => {
+      try {
+        const m = mode === 'list' ? 'list' : mode === 'latest' ? 'latest' : 'run';
+        if (m === 'list') {
+          const runs = await recentResearchRuns(Math.max(1, Math.min(50, Number(limit) || 10)), asset && isOfAsset(asset) ? asset : undefined);
+          return {
+            runs,
+            note: runs.length ? `${runs.length} persisted runs — full detail via mode=latest per asset` : 'no persisted runs yet — call mode=run first',
+          };
+        }
+        if (m === 'latest') {
+          const a = isOfAsset(String(asset ?? 'BTC')) ? (asset as string) : 'BTC';
+          const got = await latestResearchReport(a);
+          if (!got) {
+            return { asset: a, note: 'no persisted run yet — execute mode=run first' };
+          }
+          const { row, report } = got;
+          return {
+            asset: row.asset,
+            tfSec: row.tfSec,
+            horizonBars: row.horizonBars,
+            bars: row.bars,
+            runAt: row.createdAt,
+            factors: report.factors
+              .slice(0, 10)
+              .map((r) => ({
+                id: r.id,
+                family: r.family,
+                ic: r.ic ? +r.ic.mean.toFixed(4) : null,
+                icT: r.ic ? +r.ic.tStat.toFixed(2) : null,
+                spreadBps: r.spreadBps != null ? +r.spreadBps.toFixed(2) : null,
+                hitRateQ5: r.hitRateQ5 != null ? +r.hitRateQ5.toFixed(3) : null,
+                verdict: r.verdict,
+              })),
+            composite: report.composite
+              ? { ic: report.composite.ic ? +report.composite.ic.mean.toFixed(4) : null, members: report.composite.members, verdict: report.composite.verdict }
+              : null,
+            note: 'persisted run — fresh evidence requires mode=run',
+          };
+        }
+        // mode = run (fresh, persisted)
+        const rep = await runResearch({
+          asset: asset && isOfAsset(asset) ? asset : 'BTC',
+          tfSec: Number(tfSec) || undefined,
+          horizonBars: Number(horizonBars) || undefined,
+          lookbackDays: Number(lookbackDays) || undefined,
+          factorIds,
+        });
+        if (!rep.factors.length) {
+          return { asset: rep.asset, bars: rep.bars, notes: rep.notes, note: 'insufficient stored history — start the backfill worker (store_query / market_brief shows its state)' };
+        }
+        return {
+          asset: rep.asset,
+          tfSec: rep.tfSec,
+          horizonBars: rep.horizonBars,
+          horizon: `${((rep.horizonBars * rep.tfSec) / 3600).toFixed(1)}h`,
+          bars: rep.bars,
+          window: `${rep.from?.slice(0, 10)} → ${rep.to?.slice(0, 10)}`,
+          coverage: rep.coverage,
+          factors: rep.factors.map((r) => ({
+            id: r.id,
+            family: r.family,
+            n: r.n,
+            ic: r.ic ? +r.ic.mean.toFixed(4) : null,
+            icT: r.ic ? +r.ic.tStat.toFixed(2) : null,
+            posDayShare: r.ic ? +r.ic.posDayShare.toFixed(2) : null,
+            quintileMeanBps: r.quintileMeanBps.map((q) => (Number.isFinite(q) ? +q.toFixed(2) : null)),
+            spreadBps: r.spreadBps != null ? +r.spreadBps.toFixed(2) : null,
+            spreadT: r.spreadT != null ? +r.spreadT.toFixed(2) : null,
+            hitRateQ5: r.hitRateQ5 != null ? +r.hitRateQ5.toFixed(3) : null,
+            verdict: r.verdict,
+          })),
+          composite: rep.composite
+            ? {
+                members: rep.composite.members,
+                ic: rep.composite.ic ? +rep.composite.ic.mean.toFixed(4) : null,
+                icT: rep.composite.ic ? +rep.composite.ic.tStat.toFixed(2) : null,
+                spreadBps: rep.composite.spreadBps != null ? +rep.composite.spreadBps.toFixed(2) : null,
+                hitRateQ5: rep.composite.hitRateQ5 != null ? +rep.composite.hitRateQ5.toFixed(3) : null,
+                verdict: rep.composite.verdict,
+              }
+            : null,
+          notes: rep.notes,
+          guidance:
+            'IC>0: higher score → higher forward return (negative = inverse — flip it or fade it). A factor is only decision-grade at |icT|≥2 with a Q5−Q1 spread of the same sign. Quintile means are bps of log forward return. Verdicts: strong / inverse (informative opposite) / weak / flat.',
+        };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+
+  // ── analytics storage queries ("store now, analyze later") ────────────────
   store_query: tool({
     description:
       'Query the terminal\'s own SQLite analytics storage: what history has been persisted (stats per asset/table with row counts and time ranges), stored 1-minute multi-venue flow bars (OHLCV + delta + CVD + OI), stored 30-second microstructure snapshots (Kyle lambda, VPIN, Amihud, OBI, vol regime, VWAP distance...), the realized coverage audit of stored conformal forecasts (every persisted forecast band re-scored against what actually happened using the stored bars), backfilled exchange kline history (Binance 1m/5m/30m OHLCV + taker-buy volume = aggressor delta), and backfilled funding-rate / open-interest history. Use for "what do you have stored", historical flow/microstructure/kline/funding/OI questions, or "how calibrated were the stored forecast bands over time".',
