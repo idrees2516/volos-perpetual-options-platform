@@ -23,9 +23,16 @@ export async function GET() {
   let gatewayReachable: boolean | null = null;
   let gatewayModels: number | null = null;
   if (status.gateway) {
+    // Each gateway tier authenticates with its own env key — never leak them.
+    const gatewayKeyById: Record<string, string | undefined> = {
+      omniroute: process.env.OMNIROUTE_API_KEY,
+      respan: process.env.RESPAN_API_KEY,
+      'openai-compat': process.env.OPENAI_COMPAT_API_KEY,
+    };
+    const bearer = gatewayKeyById[status.gateway.id] ?? '';
     try {
       const res = await fetch(`${status.gateway.baseUrl.replace(/\/+$/, '')}/models`, {
-        headers: { Authorization: `Bearer ${process.env.OMNIROUTE_API_KEY ?? ''}` },
+        headers: { Authorization: `Bearer ${bearer}` },
         signal: AbortSignal.timeout(2500),
       });
       gatewayReachable = res.ok;

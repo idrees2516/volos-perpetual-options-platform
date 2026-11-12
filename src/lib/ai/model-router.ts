@@ -5,9 +5,11 @@
 // (`deskModel`). Which backend that is depends on configuration:
 //
 //   AI_PROVIDER=auto (default)  OmniRoute when OMNIROUTE_API_KEY is set,
+//                                then Respan when RESPAN_API_KEY is set,
 //                                otherwise the in-sandbox GLM (zai) backend.
 //   AI_PROVIDER=omniroute        force the OmniRoute gateway (must be
 //                                configured or we log + fall back to zai).
+//   AI_PROVIDER=respan           force the Respan gateway (same deal).
 //   AI_PROVIDER=zai | glml       force the in-sandbox GLM backend.
 //
 // OmniRoute (https://github.com/cheaper-inference/OmniRoute) is a free AI
@@ -33,19 +35,27 @@ import { createOpenAICompatModel, type OpenAICompatConfig } from './openai-compa
 export interface ResolvedProviderConfig {
   /** null → no remote primary configured; run on the GLM backend directly. */
   primary: OpenAICompatConfig | null;
-  label: string; // 'omniroute' | 'openai-compat' | 'zai' — the ACTIVE backend
+  label: string; // 'omniroute' | 'respan' | 'openai-compat' | 'zai' — the ACTIVE backend
 }
 
 const DEFAULT_OMNIROUTE_BASE = 'https://omniroute.online/v1';
 const DEFAULT_OMNIROUTE_MODEL = 'auto';
 
+// Respan (https://github.com/respanai/respan-gateway) — open-source Rust AI
+// gateway (OpenAI/Anthropic/Gemini-compatible endpoint, client keys, routing
+// and failover). The local gateway stack runs it on :8080 in front of the
+// zai-shim, with glm-* routes forwarded to the in-sandbox GLM backend.
+const DEFAULT_RESPAN_BASE = 'http://localhost:8080/v1';
+const DEFAULT_RESPAN_MODEL = 'glm-4-plus';
+
 export function resolveProviderConfig(env: Record<string, string | undefined>): ResolvedProviderConfig {
   const preference = (env.AI_PROVIDER ?? 'auto').toLowerCase();
   const forceZai = preference === 'zai' || preference === 'glml';
 
-  // 1 — OmniRoute gateway (dedicated envs, checked first).
+  // 1 — OmniRoute gateway (dedicated envs, checked first — unless the
+  //     operator explicitly forced Respan with AI_PROVIDER=respan).
   const omniKey = env.OMNIROUTE_API_KEY?.trim();
-  if (omniKey && !forceZai) {
+  if (omniKey && !forceZai && preference !== 'respan') {
     const cfg: OpenAICompatConfig = {
       id: 'omniroute',
       baseUrl: env.OMNIROUTE_BASE_URL?.trim() || DEFAULT_OMNIROUTE_BASE,
@@ -55,7 +65,19 @@ export function resolveProviderConfig(env: Record<string, string | undefined>): 
     return { primary: cfg, label: 'omniroute' };
   }
 
-  // 2 — generic OpenAI-compatible gateway escape hatch.
+  // 2 — Respan gateway (self-hosted Rust AI gateway; local stack runs on :8080).
+  const respanKey = env.RESPAN_API_KEY?.trim();
+  if (respanKey && !forceZai) {
+    const cfg: OpenAICompatConfig = {
+      id: 'respan',
+      baseUrl: env.RESPAN_BASE_URL?.trim() || DEFAULT_RESPAN_BASE,
+      apiKey: respanKey,
+      model: env.RESPAN_MODEL?.trim() || DEFAULT_RESPAN_MODEL,
+    };
+    return { primary: cfg, label: 'respan' };
+  }
+
+  // 3 — generic OpenAI-compatible gateway escape hatch.
   const compatKey = env.OPENAI_COMPAT_API_KEY?.trim();
   const compatBase = env.OPENAI_COMPAT_BASE_URL?.trim();
   if (compatKey && compatBase && !forceZai) {
@@ -69,7 +91,7 @@ export function resolveProviderConfig(env: Record<string, string | undefined>): 
   }
 
   // 3 — forced remote without credentials → warn + run on GLM.
-  if (!forceZai && (preference === 'omniroute' || preference === 'openai-compat')) {
+  if (!forceZai && (preference === 'omniroute' || preference === 'respan' || preference === 'openai-compat')) {
     console.warn(`[model-router] AI_PROVIDER=${preference} but no gateway credentials found — running on the GLM backend`);
   }
   return { primary: null, label: 'zai' };

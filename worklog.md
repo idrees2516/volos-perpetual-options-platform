@@ -124,3 +124,21 @@ Work Log:
 
 Stage Summary:
 - OmniRoute integrated as first-class AI provider with automatic GLM failover; conversation memory + RAG live end-to-end (persist → recall → restore); README documents all env vars
+
+---
+Task ID: 7
+Agent: main (Z.ai)
+Task: Run OmniRoute inside the sandbox + obtain keys from it; integrate Respan as a second AI gateway; keep the InstaBox key available "if needed".
+
+Work Log:
+- Recon: prior session had already merged the OmniRoute+RAG router (db7cb48); this session runs the actual gateways locally and wires Respan in
+- zai-shim (mini-services/zai-shim.mjs, :20130): OpenAI-compatible front for the in-sandbox GLM endpoint (https://internal-api.z.ai/v1) — re-reads /etc/.z-ai-config per request and injects the live session headers (X-Z-AI-From/X-Chat-Id/X-User-Id/X-Token), so OmniRoute/Respan get a keyless standard /v1 and session-header rotation is transparent (upstream 403 without those headers — verified)
+- Respan (external/respan/gateway.toml, :8080): pip respan-gateway 0.3.0 (PyPI → respanai/respan-gateway verified); openai-chat provider via the shim + glm-* route + desk client key (RESPAN_API_KEY in .env.local); end-to-end chat verified 200 (respan→shim→GLM)
+- OmniRoute self-host: source-tree npm run dev crashed (inotify ENOSPC — 29k files, watch limit 8192, sysctl denied); source next build OOM-killed (3.9G RAM); fell back to the published omniroute npm package (prebuilt standalone, `omniroute serve --port 20128`); first global install died on an npm cacache EEXIST race, retry running
+- model-router: Respan added as second gateway tier (RESPAN_API_KEY / RESPAN_BASE_URL / RESPAN_MODEL, defaults :8080 + glm-4-plus; AI_PROVIDER=respan; order omniroute → respan → openai-compat → zai); /api/ai/providers probe uses the right key per gateway id; +6 vitest cases
+- run-local.sh --gateways: starts zai-shim + OmniRoute serve + Respan in the background (pids + logs in .local-logs; --stop kills them; individual skip-with-warning guards)
+- InstaBox: key validated against api.instabox.sh (HTTP 200, machines list empty — read-only); INSTABOX_API_KEY stored in .env.local; scripts/instabox.sh helper (list machines / key info) — persistent hosting "if needed" left opt-in
+- README AI-providers section rewritten (OmniRoute + Respan + local stack + InstaBox); .gitignore: /external/ ignored with tracked exceptions (respan gateway.toml, zai-shim.mjs)
+- OmniRoute live e2e (after node-cache restart quirk): volos-desk key minted from the self-host (35 chars, in .env.local); smoke 200 "pong" via app→OmniRoute(:20129)→volos-glm node→zai-shim→GLM; node prefix must be slashless (resolver matches node.prefix verbatim) and NOT 'zai' (shadows the built-in provider id); executor requires a credential on the connection (dummy shim-local — the shim ignores auth)
+- Full stack boot verified via `bash run-local.sh --gateways`: app :3000 (200), shim :20130 healthz, OmniRoute dashboard :20128, Respan :8080 healthz; /api/ai/providers → active=omniroute, model=volos-glm/glm-4-plus, gatewayReachable=true, 453 models; copilot POST e2e 200 "pong" (1.5s) with the turn persisted (memory 3 sessions/6 msgs) and breaker clean
+- Router: AI_PROVIDER=respan now forces Respan past an OmniRoute key (preference honored); 17/17 router tests pass; eslint clean on changed files; typecheck 0 errors project-wide
