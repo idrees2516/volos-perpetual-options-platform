@@ -144,3 +144,25 @@ Work Log:
 - Router: AI_PROVIDER=respan now forces Respan past an OmniRoute key (preference honored); 17/17 router tests pass; eslint clean on changed files; typecheck 0 errors project-wide
 - Delivery state: feature branch feat/omniroute-respan-gateways (8410162 + sync) carries the change for the PR (scripts/create-pr-v5.sh, needs GH_TOKEN); local main also carries the merge so the sandbox tree keeps the new code (an environment quirk resets the working tree to local-main between agent messages — noted, not fought)
 - Secrets: OMNIROUTE_API_KEY (minted volos-desk key) + RESPAN_API_KEY + INSTABOX_API_KEY live only in .env.local (git-ignored); external/omniroute-data (OmniRoute SQLite + its JWT/API_KEY secrets) is git-ignored; the tracked external/respan/gateway.toml has env refs only
+
+---
+Task ID: 8
+Agent: main (Z.ai)
+Task: "Upload this to GitHub like people do deploy on GitHub, and also InstaBox" — deploy the platform on an InstaBox cloud machine behind a public HTTPS URL, and prepare the full local stack for the GitHub upload.
+
+Work Log:
+- InstaBox recon: docs + CLI reference (npx instabox@latest; REST api.instabox.sh/v1; ibk_ key → INSTABOX_API_KEY). Key restored into .env.local (git-ignored) after the environment reset wiped it; validated 200 against /v1/machines
+- Machine: volos-desk created from the agent-browser template (free plan allows only agent-browser/android/omarchy/ci; universal rejected) — 4 vCPU / 8 GiB / 20 GiB /data, Node v22.23.3 + Bun 1.4.4 + git/gh/cargo on board
+- Code upload: `instabox push volos-desk /home/z/my-project/ /data/volos` — 419 tracked files, 41.6 MiB compressed (secrets, node_modules, .next, dev DB all stay out — push copies only git-tracked files)
+- Build fixes surfaced by the first-ever production `next build` (dev mode had masked them): (1) next.config.ts carried a sandbox-absolute `turbopack.root` — dropped (default = project root, portable); (2) /api/backtest imported the v1.9 `blackScholes/surfaceIv/BASE_IV` surface that no longer exists — rewired onto the real pricing kernel (bsPrice + SVI-style ivForStrike, VOL_CONFIG); the dead volos/* legacy components carrying the same broken imports are unreferenced, so the reachable graph now compiles clean
+- Portable build/start: package.json no longer hardcodes .next/standalone/volos-perpetual-options-platform — both scripts now locate server.js via find, so any checkout directory name works; standalone layout on the machine is flat (.next/standalone/server.js)
+- Deploy on the machine: bun install (901 pkgs, 3.7s) → prisma generate + db push (fresh SQLite at /data/volos/db/custom.db, .env rewritten to the machine-absolute path) → bun run build → background job `node .next/standalone/server.js` on :3000 → `port publish 3000 --public`
+- LIVE: https://3000-agq5gk3gjcm4ckkv6ptcf3rygu.instabox.tech — verified from outside: HTTP 200 (308 KB shell, correct title), /api/venues serving real JSON, /api/ai/providers 200 with the Prisma memory store connected (fresh DB)
+- Free-plan reality: idle auto-pause is 30 min and NOT changeable (spec_not_allowed on auto-suspend 0) — wake restores the process from memory; `scripts/deploy-instabox.sh` (deploy/--update/--wake/--stop) automates the whole flow incl. health check and URL echo; `bun run deploy:instabox[:wake]` npm aliases added
+- README: new "Deploy on InstaBox" quickstart section; wake/update/stop usage + free-plan notes
+- GitHub upload: local main is 9 commits ahead of origin/main (track B + venues + copilot tools, OmniRoute+RAG memory, AI gateways, deploy infra). No GH_TOKEN exists in this environment, so scripts/create-pr-v5.sh was authored (same token-set-url→push→PR→API-merge→cleanup flow as v3/v4) and left ready; pushing awaits a PAT
+- Secrets check on the whole diff: .env.local untracked, INSTABOX_API_KEY only in .env.local, no keys in tracked files
+
+Stage Summary:
+- VolOS is deployed and publicly reachable on an InstaBox cloud machine (one-command redeploy/update/wake scripted and README-documented); the repo gained portable production scripts and a build-breaking import fix; the GitHub PR (all 9 commits) is staged behind GH_TOKEN.
+- Follow-up (same task): /api/backtest now consumes the real StrategyLegSpec (buy/sell · qty · strike multiplier · expiryDays) instead of the removed v1.9 leg fields (long/short · ratio · strikeOffsetPct · dte — the NaN-cycle bug), and fetches real daily closes from Binance with a paginated OKX fallback (OKX reachable when Binance geo-blocks: 451). Verified live on the deployed machine: 9 real cycles, real dated equity curve. Standalone restart kill pattern now covers the renamed `next-server` worker process (it survives a pkill of the node wrapper and keeps the port).

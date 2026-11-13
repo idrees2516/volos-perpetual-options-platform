@@ -295,6 +295,31 @@ cd rust-backend && cargo build --release
 ./target/release/volos-backend            # VOLOS_PORT=3031 by default
 ```
 
+### 4. Deploy on InstaBox (cloud computer, public HTTPS URL)
+
+The terminal can be deployed to an [InstaBox](https://instabox.sh) cloud
+machine — a full Linux VM (4 vCPU / 8 GiB) — with one command, and exposed
+on a public `https://<port>-<machine>.instabox.tech` URL:
+
+```bash
+bun run deploy:instabox            # create machine → push tracked files →
+                                   # bun install + prisma + next build →
+                                   # start standalone server → publish :3000
+bun run deploy:instabox:wake       # wake a paused machine + health check
+bash scripts/deploy-instabox.sh --update   # re-push code, rebuild, restart
+bash scripts/deploy-instabox.sh --stop     # stop (disk + URL stay)
+```
+
+Auth: `INSTABOX_API_KEY` in the environment or `.env.local` (git-ignored).
+The deploy uses the production standalone build (`bun run build` →
+`node .next/standalone/server.js`) and its own SQLite at
+`/data/volos/db/custom.db` — the sandbox/dev database is never shipped.
+On the free plan the machine auto-pauses after 30 idle minutes (URL and
+disk persist; `deploy:instabox:wake` restores it, with the server process
+still in memory). AI-provider keys (`OMNIROUTE_API_KEY`, …) are optional —
+add them to `/data/volos/.env.local` on the machine to activate the
+copilot's gateway tiers.
+
 ---
 
 ## The strategy catalog — 131 strategies in ONE workspace
