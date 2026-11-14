@@ -52,9 +52,13 @@ interface CopilotState {
   /** Deep research runs keyed by run id. */
   runs: Record<string, ResearchRun>;
   activeRunId: string | null;
+  /** Queued prompt from other views (e.g. position intelligence "Ask AI" buttons) — consumed by the chat tab. */
+  pendingPrompt: string | null;
   toggle: () => void;
   setOpen: (open: boolean) => void;
   setTab: (tab: CopilotTab) => void;
+  askAi: (prompt: string) => void;
+  consumePendingPrompt: () => string | null;
   startRun: (params: { asset: string; focus?: string; horizonDays?: number; riskAppetite?: string }) => string;
   patchRun: (id: string, patch: Partial<ResearchRun>) => void;
   upsertStage: (id: string, stage: AgentStageState) => void;
@@ -66,9 +70,16 @@ export const useCopilot = create<CopilotState>((set, get) => ({
   tab: 'chat',
   runs: {},
   activeRunId: null,
+  pendingPrompt: null,
   toggle: () => set((s) => ({ open: !s.open })),
   setOpen: (open) => set({ open }),
   setTab: (tab) => set({ tab }),
+  askAi: (prompt) => set({ open: true, tab: 'chat', pendingPrompt: prompt }),
+  consumePendingPrompt: () => {
+    const p = get().pendingPrompt;
+    if (p) set({ pendingPrompt: null });
+    return p;
+  },
   startRun: (params) => {
     const id = `run-${Date.now().toString(36)}`;
     const run: ResearchRun = {

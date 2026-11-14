@@ -532,6 +532,15 @@ function ChatTab({ onLoadStrategy, onLoadLegs, onPaperDeploy, suggestions, getIn
     [isLoading, append],
   );
 
+  // Prompts queued by other views (position intelligence "Ask AI" buttons):
+  // consume + fire once the chat mounts/updates.
+  const consumePendingPrompt = useCopilot((s) => s.consumePendingPrompt);
+  useEffect(() => {
+    const pending = consumePendingPrompt();
+    if (pending) ask(pending);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [consumePendingPrompt, ask, messages.length]);
+
   const sendCapability = useCallback(
     (cap: (typeof CAPABILITY_ACTIONS)[number]) => {
       ask(cap.build(getInput()));
