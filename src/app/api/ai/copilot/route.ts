@@ -26,6 +26,7 @@ import { marketTools } from '@/lib/ai/agent-tools';
 import { webIntelTools } from '@/lib/ai/web-intel-tools';
 import { quantTools, quantSystemPrompt } from '@/lib/ai/quant-tools';
 import { positionsTools, positionsSystemPrompt } from '@/lib/ai/positions-tools';
+import { autopilotTools, autopilotSystemPrompt } from '@/lib/ai/autopilot-tools';
 import { renderCardTool } from '@/lib/cards/render-card-tool';
 import { cardsSystemPrompt } from '@/lib/cards/catalog';
 import { formatCopilotContext, type CopilotContextSnapshot } from '@/lib/copilot-context';
@@ -104,6 +105,7 @@ export async function POST(req: Request) {
       WEB_RESEARCH_GUIDE,
       quantSystemPrompt(),
       positionsSystemPrompt(),
+      autopilotSystemPrompt(),
       cardsSystemPrompt(),
       memoryBlock,
       restoredBlock,
@@ -121,6 +123,7 @@ export async function POST(req: Request) {
         ...webIntelTools,
         ...quantTools,
         ...positionsTools,
+        ...autopilotTools,
         ...memoryTools,
         render_card: renderCardTool,
         dispatch_agent: dispatchAgentTool,

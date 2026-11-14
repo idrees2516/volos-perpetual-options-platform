@@ -183,3 +183,25 @@ Work Log:
 
 Stage Summary:
 - Positions are now a first-class decision surface: the desk fuses the paper book with the entire market-data stack, produces per-position verdicts with explainable metrics, and exposes read/write management settings to both the trader and the AI — with the full loop (data → decision → settings change → execution) working live in the UI and preview.
+
+---
+Task ID: 10
+Agent: main (Z.ai)
+Task: "Wire the decision engine into an auto-rebalance loop and morning brief also. And merge PRs and make app autorunnable on localhost and preview always."
+
+Work Log:
+- Merged PRs with the new PAT: PR #8 (QuantLab Depth Lab — clean merge, no conflicts) and PR #12 (the 11-commit position-intelligence stack via create-pr-v6.sh flow); local main synced with origin/main
+- Auto-rebalance loop (src/lib/positions/autopilot.ts): every cycle runs buildPositionIntelligence() and maps the composite decisions to paper actions — TAKE_PROFIT/EXIT → closePaperPosition, ROLL → close + deployPaperStrategy one cycle further out at preserved moneyness (strike × spot ratio, expiryDays ≥ max(14, minDte×3)), ADJUST → partial trim (closePaperPosition qty fraction), SCALE_IN → placePaperOrder same instrument; realized P&L per fill = (fill − entry) × qty × dir − fee
+- Guard rails: master switch (default OFF) + dry-run (default ON — journals planned actions, never touches the account), confidence gate (70), per-position cooldown (30 min), max actions per cycle (2, applies to planned AND executed), per-action execute toggles (takeProfit+exit on, roll/adjust/scaleIn opt-in)
+- Persistence: data/autopilot-settings.json + data/autopilot-journal.json (400-entry ring buffer, serialized atomic writes, same write-through pattern as the paper account); stats (cycles/executed/planned/errors/lastCycle) on globalThis
+- Server-side singleton loop started by src/instrumentation.ts (Next 16 register() hook — boots with the server in dev AND prod; VOLOS_AUTOPILOT=0 opts out) and lazily re-armed by the GET route; hot interval reload on settings change; single-flight guard; tick() also rolls the morning brief
+- Morning brief (src/lib/positions/morning-brief.ts): deterministic sections from the fusion report (overnight market recap, portfolio rollup, per-position decision digest, near-threshold watchlist, autopilot digest since the previous brief) + optional AI narrative via generateText(getDeskModel()) with a 30s race-timeout and graceful null; persisted 30 days (data/morning-briefs.json); ensureMorningBrief() generates once per day after briefHour in briefTz (default 08:00 Asia/Karachi); localDateStr via Intl with tz fallback
+- API: GET|POST /api/positions/autopilot (status+journal · patch · run_now · reset_journal · reset_settings) and GET|POST /api/positions/morning-brief (latest · history · ensure · regenerate)
+- Copilot: 3 new tools (autopilot_status, autopilot_control with SETTINGS_DOC, morning_brief) + autopilotSystemPrompt() registered in /api/ai/copilot — the AI can now turn the loop on/off, tighten guard rails, trigger cycles and read the brief
+- UI: AutopilotPanel in the Paper Desk (under the Position Intelligence panel) — mode pill (OFF/DRY-RUN/LIVE pulse), stats strip, enable + dry-run switches, full guard-rail editor (interval/confidence/cooldown/max/fractions/brief hour), 5 execute-toggle chips, Run-cycle button, streaming audit journal with realized P&L, morning-brief card (tape chips, portfolio strip, decision chips, watchlist, autopilot digest, AI narrative bullets, Generate + Ask-AI)
+- Autorun: run-local.sh upgraded from a naive restart loop to an adopt-or-take-over supervisor — if the port is already serving (sandbox preview process / your own next dev) it adopts and watches; when the port stops answering it frees the port and starts its own auto-restart dev server; verified in-sandbox that the orphaned supervisor survives tool-session cleanup (double-fork pattern) and keeps :3000 at 200
+- Tests: 22 new vitest cases (autopilot gating — disabled no-op, dry-run planning, live close with realized P&L, confidence gate, disabled toggles, cooldown, per-cycle cap, scale-in sizing, failed-close resilience; morning-brief — deterministic sections, watchlist thresholds, AI narrative attach + timeout race, ensure-hour window with fake timers) — 137 passing total; typecheck clean on all new files
+- Live verification: manual run_now → BTC 15NOV26 67000 CALL EXIT planned @ 90% conf, ETH 20NOV26 1800 PUT EXIT skipped @ 66% < 70 gate (10.4s cycle); loop enabled in dry-run → tick cycle journaled ETH ADJUST skipped; morning brief generated with real numbers and a grounded AI narrative (ETH −1.82% / BTC −2.53%, both positions EXIT with watchlist notes)
+
+Stage Summary:
+- The decision engine is now a closed loop: data → fusion → decision → guarded execution (or dry-run preview) → audit journal → morning brief → AI copilot control — running server-side continuously, on localhost and the preview, with the app auto-restarted by the supervisor whenever anything on :3000 dies.

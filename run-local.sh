@@ -4,8 +4,11 @@
 #
 # Keeps the Strategies terminal running locally, forever:
 #   • installs dependencies on first run (bun → npm → pnpm → yarn)
-#   • starts the Next.js dev server on http://localhost:3000 IMMEDIATELY
-#     (auto-restart loop — if it ever crashes it comes back in 2s)
+#   • SUPERVISES http://localhost:3000 — adopts the port when a server is
+#     already serving (e.g. the sandbox preview process) and otherwise starts
+#     the Next.js dev server itself with a 5s health-check auto-restart loop:
+#     if whatever serves the port ever dies or hangs, this script takes the
+#     port over and keeps the terminal up — on localhost AND the preview.
 #   • --full   also builds & starts the Rust engine (:3031) for authoritative
 #              SVI analytics + real venue quotes — the build runs in the
 #              background so the UI is up within seconds, and the engine
@@ -227,7 +230,7 @@ if [[ "$WITH_GATEWAYS" == "1" ]]; then
   start_gateways_bg
 fi
 
-# ── health banner ────────────────────────────────────────────────────────────
+# ── health banner ────────────────────────────────────────────────────────────────
 banner() {
   printf '\n'
   log "╔══════════════════════════════════════════════════╗"
@@ -241,7 +244,7 @@ banner() {
   printf '\n'
 }
 
-# ── the always-on loop ───────────────────────────────────────────────────────
+# ── the always-on supervisor (adopt or take over) ─────────────────────
 cleanup() {
   log "shutting down…"
   [[ -n "$UI_PID" ]] && kill "$UI_PID" 2>/dev/null
@@ -257,8 +260,23 @@ cleanup() {
 }
 trap cleanup INT TERM
 
-log "starting the dev server on :$PORT (auto-restart loop)…"
-while true; do
+# Free the port of anything still bound to it (orphaned servers).
+free_port() {
+  if command -v lsof >/dev/null 2>&1; then
+    local pids
+    pids="$(lsof -ti tcp:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
+    if [[ -n "$pids" ]]; then
+      kill $pids 2>/dev/null || true
+      sleep 1
+      log "freed port $PORT (pids: $pids)"
+    fi
+  fi
+}
+
+# Start OUR dev server on the port and wait for readiness.
+start_own_ui() {
+  free_port
+  log "starting the dev server on :$PORT (auto-restart loop)…"
   if [[ "$PM" == "bun" ]]; then
     bun x next dev -p "$PORT" >"$UI_LOG" 2>&1 &
   else
@@ -267,22 +285,44 @@ while true; do
   UI_PID=$!
   echo "$UI_PID" > "$LOG_DIR/ui.pid"
 
-  # Wait for readiness (or crash).
-  ready=0
   for _ in $(seq 1 90); do
-    if ! kill -0 "$UI_PID" 2>/dev/null; then break; fi
-    if curl -sf -o /dev/null "http://localhost:$PORT"; then ready=1; break; fi
+    if ! kill -0 "$UI_PID" 2>/dev/null; then return 1; fi
+    if curl -sf -o /dev/null "http://localhost:$PORT"; then return 0; fi
     sleep 1
   done
+  return 1
+}
 
-  if [[ "$ready" == "1" ]]; then
-    banner
-    wait "$UI_PID"
+log "supervising http://localhost:$PORT — adopt if healthy, take over + auto-restart if it ever dies…"
+ADOPTED=0
+while true; do
+  if curl -sf -o /dev/null "http://localhost:$PORT"; then
+    # Something already serves the port (this script's own dev server, or an
+    # externally managed one — e.g. the sandbox preview process). ADOPT it:
+    # keep watching; if it ever stops answering we take the port over.
+    if [[ "$ADOPTED" == "0" ]]; then
+      if [[ -n "$UI_PID" ]]; then
+        banner
+      else
+        log "port $PORT is already serving — adopting (supervising an external server; auto-take-over if it dies)"
+      fi
+      ADOPTED=1
+    fi
   else
-    log "server did not become ready — tail of $UI_LOG:"
-    tail -n 20 "$UI_LOG" || true
+    if [[ "$ADOPTED" == "1" ]]; then
+      log "the server on :$PORT stopped answering — taking over…"
+      ADOPTED=0
+      UI_PID=""
+    fi
+    if ! start_own_ui; then
+      log "server did not become ready — tail of $UI_LOG:"
+      tail -n 20 "$UI_LOG" || true
+      log "retrying in 2s…"
+      sleep 2
+      continue
+    fi
+    ADOPTED=1
+    banner
   fi
-
-  log "dev server exited — restarting in 2s (Ctrl-C to quit)…"
-  sleep 2
+  sleep 5
 done
