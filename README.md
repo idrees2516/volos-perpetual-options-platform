@@ -204,6 +204,41 @@ price, not a simulation:
   can paper-trade its own recommendations on request ("paper-deploy an iron
   condor", "buy 0.1 BTC 84k call", "close my short put")
 
+**Autopilot — the auto-rebalance loop** (`src/lib/positions/autopilot.ts`).
+The decision engine above is wired into a server-side loop (single instance
+started by `src/instrumentation.ts` at server boot): every cycle it evaluates
+every open position against the whole live market stack and executes the
+composite decisions — `TAKE_PROFIT` / `EXIT` (close), `ROLL` (close +
+re-deploy one cycle further out at the same moneyness), `ADJUST` (partial
+trim), `SCALE_IN` (add) — behind explicit guard rails:
+
+- master switch (default **off**) + **dry-run mode** (default **on**: the
+  journal previews every action without touching the account)
+- confidence gate (default 70) · per-position cooldown (default 30 min) ·
+  max actions per cycle (default 2) · per-action toggles (take-profit/exit on;
+  roll/trim/scale-in opt-in)
+- every evaluated action lands in a persistent audit journal
+  (`data/autopilot-journal.json`) — executed vs planned, fill prices,
+  realized P&L
+- controllable from the Paper Desk panel, the API and the copilot
+  (`autopilot_status` / `autopilot_control` tools — "turn on the autopilot",
+  "what did it do overnight" are answered from the live state)
+
+API: `GET|POST /api/positions/autopilot` (status · patch · `run_now` ·
+`reset_journal` · `reset_settings`). Loop opt-out for hosting without side
+effects: `VOLOS_AUTOPILOT=0`.
+
+**Morning brief** (`src/lib/positions/morning-brief.ts`). Once a day
+(default **08:00 Asia/Karachi** — configurable hour + timezone) the same
+loop rolls the desk's daily brief: overnight tape recap per asset, portfolio
+rollup (equity · net Greeks · ±1-ATR stress · margin), the per-position
+decision digest from the fusion engine, the watchlist of positions sitting
+near a management threshold, what the autopilot did since the previous brief,
+and an AI narrative synthesized from those exact numbers. Stored for 30 days
+(`data/morning-briefs.json`); rendered in the Paper Desk panel and readable
+by the copilot (`morning_brief` tool). API: `GET|POST
+/api/positions/morning-brief`.
+
 UI: **Paper Desk** tab — account bar with equity curve, order ticket with a
 live cross-venue quote preview, positions with live marks and one-click
 close, resting orders, fill history and a "Paper-deploy <builder strategy>"
@@ -253,9 +288,12 @@ simulation — all server-side, all consistent with the pricing core in
 
 ### 0. Always-on local preview (recommended)
 
-One script installs what's missing, starts the terminal on
-http://localhost:3000 and **keeps it running** — auto-restart if the dev
-server ever crashes, `--full` also brings up the Rust engine:
+One script installs what's missing and **supervises**
+http://localhost:3000 — adopts the port when a server is already serving
+(the sandbox preview process, a `next dev` you started yourself) and
+otherwise starts the dev server itself with a 5-second health-check loop:
+if whatever serves the port ever dies or hangs, the script takes it over
+and keeps the terminal up — on localhost AND the preview URL:
 
 ```bash
 bash run-local.sh            # UI on :3000, auto-restart loop  (or: bun run local)
