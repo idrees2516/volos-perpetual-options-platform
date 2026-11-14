@@ -14,6 +14,7 @@ import { fmtNum, fmtUsd } from '@/lib/format';
 import { LiveExchangeStatus } from './trade/venue-panel';
 import { PositionIntelligencePanel } from './paper/position-intelligence';
 import { AutopilotPanel } from './paper/autopilot-panel';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 import {
   Wallet, RefreshCw, Loader2, TrendingUp, TrendingDown, RotateCcw,
   FlaskConical, Zap, X, ArrowUpRight, ArrowDownRight, Radio,
@@ -603,12 +604,18 @@ export function PaperView() {
         </div>
         </div>
 
-        {/* Position intelligence (decisions × market data × settings) + positions / orders / fills */}
-        <div className="flex min-h-0 flex-col gap-3">
-          <PositionIntelligencePanel onClosePosition={closePosition} />
-          <AutopilotPanel />
+        {/* Position intelligence (decisions × market data × settings) + positions / orders / fills
+            — every part draggable, collapsible, resizable and pinnable into the Builder */}
+        <Dock viewId="paper-desk">
+          <DockPanel id="position-intelligence" title="Position Intelligence" variant="bare" dock={{ kind: 'paper-intelligence' }}>
+            <PositionIntelligencePanel onClosePosition={closePosition} />
+          </DockPanel>
+          <DockPanel id="autopilot" title="Autopilot · auto-rebalance + morning brief" variant="bare" dock={{ kind: 'paper-autopilot' }}>
+            <AutopilotPanel />
+          </DockPanel>
 
           {/* positions */}
+          <DockPanel id="positions" title="Positions" variant="bare">
           <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
             <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
               <TrendingUp className="h-3.5 w-3.5 text-teal-400" /> Positions
@@ -677,9 +684,11 @@ export function PaperView() {
               </table>
             </div>
           </div>
+          </DockPanel>
 
           {/* resting limit orders */}
           {(account?.openOrders.length ?? 0) > 0 && (
+          <DockPanel id="orders" title="Resting limit orders" variant="bare">
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Resting limit orders</p>
               <div className="space-y-1">
@@ -701,9 +710,11 @@ export function PaperView() {
                 ))}
               </div>
             </div>
+          </DockPanel>
           )}
 
           {/* fills */}
+          <DockPanel id="fills" title="Fill history" variant="bare">
           <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
             <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
               <RefreshCw className="h-3.5 w-3.5 text-sky-400" /> Fill history
@@ -751,7 +762,8 @@ export function PaperView() {
               </table>
             </div>
           </div>
-        </div>
+          </DockPanel>
+        </Dock>
       </div>
     </div>
   );

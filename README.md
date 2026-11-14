@@ -239,6 +239,19 @@ and an AI narrative synthesized from those exact numbers. Stored for 30 days
 by the copilot (`morning_brief` tool). API: `GET|POST
 /api/positions/morning-brief`.
 
+**Dockable panels — drag, adjust, open in Builder.** The parts inside the
+workspaces are adjustable and draggable: `<Dock>`/`<DockPanel>`
+(`src/components/terminal/dock/`) turns each panel into a card whose header
+is a drag handle (reorder by dragging one panel onto another — the layout
+persists per view in localStorage), with a resize cycle (compact → medium →
+full), collapse, and an **Open in Builder** pin. Pinned panels dock into the
+**Builder workspace** (`BuilderDock`) as LIVE cards — a switcher strip to
+flip between them, drag to reorder the strip, unpin individually — the
+pinned sections keep rendering their real components (live data, live
+decisions), not snapshots. Wired today: QuantLab Overview + Signals and the
+Paper Desk column (Position Intelligence · Autopilot · Positions · orders ·
+fills); other views adopt the same primitive panel by panel.
+
 UI: **Paper Desk** tab — account bar with equity curve, order ticket with a
 live cross-venue quote preview, positions with live marks and one-click
 close, resting orders, fill history and a "Paper-deploy <builder strategy>"
