@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { useStrategy } from '@/stores/strategy-store';
 import { fmtNum, fmtUsd } from '@/lib/format';
 import { LiveExchangeStatus } from './trade/venue-panel';
+import { PositionIntelligencePanel } from './paper/position-intelligence';
 import {
   Wallet, RefreshCw, Loader2, TrendingUp, TrendingDown, RotateCcw,
   FlaskConical, Zap, X, ArrowUpRight, ArrowDownRight, Radio,
@@ -601,8 +602,10 @@ export function PaperView() {
         </div>
         </div>
 
-        {/* Positions / orders / fills */}
+        {/* Position intelligence (decisions × market data × settings) + positions / orders / fills */}
         <div className="flex min-h-0 flex-col gap-3">
+          <PositionIntelligencePanel onClosePosition={closePosition} />
+
           {/* positions */}
           <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
             <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">

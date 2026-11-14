@@ -1,0 +1,21 @@
+# VolOS sandbox — Respan Gateway (generated 2026-11-12)
+# Upstream: the in-sandbox GLM endpoint (z-ai internal OpenAI-compatible API,
+# fronted by mini-services/zai-shim.mjs on :20130 with live session headers)
+listen = "127.0.0.1:8080"
+log    = "text"
+ui     = true
+
+# The desk's client key — required for callers; providers never see it.
+client_keys = [{ name = "volos", key = "env:RESPAN_CLIENT_KEY" }]
+
+[cors]
+origins = ["http://localhost:3000"]
+
+[providers.zai]
+formats  = ["openai-chat"]
+base_url = "http://localhost:20130/v1"
+key      = "env:ZAI_API_KEY"
+
+# Route every glm-* model name to the zai provider
+[routes."glm-*"]
+to = "zai/{model}"

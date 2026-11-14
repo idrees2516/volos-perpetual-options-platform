@@ -16,6 +16,10 @@
 //                   no public liq feed
 //   Coinbase spot   matches (side is the MAKER side — inverted to taker) ·
 //                   REST level-2 book poll · no funding/OI/liquidations
+//   Kraken spot     WS v2 trade channel (side IS the taker/aggressor side —
+//                   verified live 2026-11: buy prints execute at the top ask)
+//                   · book channel (snapshot + incremental updates, qty=0
+//                   deletes a level) · no funding/OI/liquidations (spot)
 //
 // Adapter patterns adapted from the open-source order-flow-screener by
 // zadescoxp (Apache-2.0); normalized to VolOS types.
@@ -1263,6 +1267,125 @@ export class CoinbaseSpotAdapter extends BaseVenueAdapter {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// KRAKEN SPOT (WS v2 — the JSON protocol)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const KRAKEN_WS_V2 = 'wss://ws.kraken.com/v2';
+
+interface KrakenTradeDatum {
+  symbol: string;
+  side: 'buy' | 'sell';
+  price: number;
+  qty: number;
+  ord_type?: string;
+  trade_id: number;
+  timestamp: string; // ISO-8601
+}
+
+interface KrakenBookLevel {
+  symbol: string;
+  price: number;
+  qty: number;
+}
+
+interface KrakenWsMessage {
+  channel?: 'status' | 'trade' | 'book';
+  type?: 'update' | 'snapshot';
+  data?: KrakenTradeDatum[] | Array<{ symbol: string; bids?: KrakenBookLevel[]; asks?: KrakenBookLevel[]; checksum?: number; timestamp?: string }>;
+  method?: string; // subscribe / pong acks
+  success?: boolean;
+}
+
+export class KrakenSpotAdapter extends BaseVenueAdapter {
+  readonly venue: OfVenueId = 'kraken';
+
+  constructor(asset: OfAsset) {
+    super(asset, OF_VENUE_META.kraken.symbol(asset) ?? `${asset}/USD`);
+  }
+
+  protected buildWsUrl(): string {
+    return KRAKEN_WS_V2;
+  }
+
+  protected subscribe(): void {
+    // one subscription message per channel — the v2 server accepts both in a
+    // single socket; trade gives the tape, book (depth 25 snapshot + diffs)
+    // gives the resting-liquidity picture without any REST polling.
+    this.socket?.send(
+      JSON.stringify({ method: 'subscribe', params: { channel: 'trade', symbol: [this.nativeSymbol] } }),
+    );
+    this.socket?.send(
+      JSON.stringify({ method: 'subscribe', params: { channel: 'book', symbol: [this.nativeSymbol], depth: 25 } }),
+    );
+  }
+
+  protected handleMessage(raw: string): void {
+    const msg = JSON.parse(raw) as KrakenWsMessage;
+    if (msg.method) return; // subscribe/pong acks — nothing to feed analytics
+    if (msg.channel === 'trade' && Array.isArray(msg.data)) {
+      for (const t of msg.data as KrakenTradeDatum[]) {
+        if (t.symbol !== this.nativeSymbol) continue;
+        // Kraken v2 documents trade.side as the aggressor (taker) side — and
+        // live verification agrees: side="buy" prints execute at the top ask.
+        // No inversion needed (contrast with Coinbase's maker-side matches).
+        const ts = Date.parse(t.timestamp);
+        this.emitTrade({
+          id: `kr-${t.trade_id}`,
+          venue: this.venue,
+          asset: this.asset,
+          timestamp: Number.isFinite(ts) ? ts : Date.now(),
+          localTimestamp: Date.now(),
+          price: t.price,
+          quantity: t.qty,
+          quoteVolume: t.price * t.qty,
+          side: t.side === 'buy' ? 'buy' : 'sell',
+        });
+      }
+      return;
+    }
+    if (msg.channel === 'book' && msg.type === 'snapshot' && msg.data) {
+      // data is a one-element array whose object carries full bid/ask ladders
+      const snap = (msg.data as Array<{ symbol: string; bids?: KrakenBookLevel[]; asks?: KrakenBookLevel[] }>)[0];
+      if (!snap || (snap.symbol && snap.symbol !== this.nativeSymbol)) return;
+      this.bids.clear();
+      this.asks.clear();
+      const apply = (levels: KrakenBookLevel[] | undefined, side: Map<number, number>) => {
+        if (!levels) return;
+        for (const l of levels) {
+          if (!(l.price > 0) || !Number.isFinite(l.qty)) continue;
+          if (l.qty > 0) side.set(l.price, l.qty);
+        }
+      };
+      apply(snap.bids, this.bids);
+      apply(snap.asks, this.asks);
+      this.bookChanged();
+      return;
+    }
+    if (msg.channel === 'book' && msg.type === 'update' && msg.data) {
+      // update frames carry only the CHANGED levels; qty = 0 removes the level
+      const upd = (msg.data as Array<{ symbol: string; bids?: KrakenBookLevel[]; asks?: KrakenBookLevel[] }>)[0];
+      if (!upd || (upd.symbol && upd.symbol !== this.nativeSymbol)) return;
+      const apply = (levels: KrakenBookLevel[] | undefined, side: Map<number, number>) => {
+        if (!levels) return;
+        for (const l of levels) {
+          if (!(l.price > 0) || !Number.isFinite(l.qty)) continue;
+          if (l.qty > 0) side.set(l.price, l.qty);
+          else side.delete(l.price);
+        }
+      };
+      apply(upd.bids, this.bids);
+      apply(upd.asks, this.asks);
+      this.bookChanged();
+    }
+  }
+
+  protected sendPing(): void {
+    // v2 server answers {"method":"pong"} — keeps the socket warm
+    this.socket?.send(JSON.stringify({ method: 'ping' }));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // FACTORY
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1284,6 +1407,8 @@ export function createAdapter(venue: OfVenueId, asset: OfAsset): BaseVenueAdapte
       return new HyperliquidAdapter(asset);
     case 'coinbase':
       return new CoinbaseSpotAdapter(asset);
+    case 'kraken':
+      return new KrakenSpotAdapter(asset);
     default:
       return null;
   }

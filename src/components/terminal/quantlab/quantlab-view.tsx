@@ -26,7 +26,7 @@
 // -----------------------------------------------------------------------------
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Atom, LayoutGrid, Activity, Link2, Sigma, Layers3, Waves, Radio, LineChart, Landmark, BookOpen, Compass, Globe2, ShieldAlert, Gauge } from 'lucide-react';
+import { Atom, LayoutGrid, Activity, Link2, Sigma, Layers3, Waves, Radio, LineChart, Landmark, BookOpen, Compass, Globe2, ShieldAlert, Gauge, FlaskConical } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Pill } from './quant-viz';
 import { useAgeLabel, useQuant } from './use-quant';
@@ -43,6 +43,7 @@ import { SignalsPanel } from './panels-signals';
 import { ScreenerPanel } from './panels-screener';
 import { VolRegimePanel } from './panels-volregime';
 import { RiskPanel } from './panels-risk';
+import { ResearchPanel } from './panels-research';
 import { TradeDrawer, type InspectTarget } from './trade-drawer';
 
 const SYMBOLS = [
@@ -66,6 +67,7 @@ const TABS = [
   { id: 'oi', label: 'OI & Flow', icon: <Waves className="h-3 w-3" /> },
   { id: 'tape', label: 'Tape · Live', icon: <Radio className="h-3 w-3" /> },
   { id: 'perps', label: 'Perps & Liquidations', icon: <LineChart className="h-3 w-3" /> },
+  { id: 'research', label: 'Signal Research', icon: <FlaskConical className="h-3 w-3" /> },
   { id: 'risk', label: 'Risk & Orders', icon: <ShieldAlert className="h-3 w-3" /> },
   { id: 'macro', label: 'ETF & Filings', icon: <Landmark className="h-3 w-3" /> },
   { id: 'catalog', label: 'API Catalog', icon: <BookOpen className="h-3 w-3" /> },
@@ -180,6 +182,9 @@ export function QuantLabView() {
         </TabsContent>
         <TabsContent value="perps" className="mt-2">
           <PerpsPanel symbol={symbol} />
+        </TabsContent>
+        <TabsContent value="research" className="mt-2">
+          <ResearchPanel symbol={symbol} />
         </TabsContent>
         <TabsContent value="risk" className="mt-2">
           <RiskPanel symbol={symbol} />

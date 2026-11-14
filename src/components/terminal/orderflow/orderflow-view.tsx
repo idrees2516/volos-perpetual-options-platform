@@ -45,6 +45,7 @@ const VENUE_FILTERS: Array<{ id: OfVenueId | 'all'; label: string }> = [
   { id: 'hyperliquid', label: 'hl' },
   { id: 'deribit', label: 'deribit' },
   { id: 'coinbase', label: 'cb spot' },
+  { id: 'kraken', label: 'kraken' },
 ];
 const TFS: Array<{ tf: number; label: string }> = [
   { tf: 60_000, label: '1m' },

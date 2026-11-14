@@ -11,24 +11,54 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 import { strategyById } from '@/lib/strategies';
-import { blackScholes, surfaceIv } from '@/lib/pricing';
-import { BASE_IV, type UnderlyingId } from '@/lib/types';
+import { bsPrice, ivForStrike, VOL_CONFIG } from '@/lib/pricing';
+import type { UnderlyingId } from '@/lib/types';
 
 interface Kline { date: string; close: number }
 
 const CALIBRATION = 1.15; // IV calibration factor on rolling realized vol
 
 async function fetchDailyCloses(symbol: string, limit: number): Promise<Kline[]> {
-  const r = await fetch(
-    `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=${limit}`,
-    { cache: 'no-store' },
-  );
-  if (!r.ok) throw new Error(`binance ${r.status}`);
-  const rows = (await r.json()) as (string | number)[][];
-  return rows.map((k) => ({
-    date: new Date(Number(k[0])).toISOString().slice(0, 10),
-    close: parseFloat(String(k[4])),
-  }));
+  // 1) Binance — one shot, up to 1000 daily candles
+  try {
+    const r = await fetch(
+      `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=${Math.min(limit, 1000)}`,
+      { cache: 'no-store' },
+    );
+    if (r.ok) {
+      const rows = (await r.json()) as (string | number)[][];
+      const out = rows.map((k) => ({
+        date: new Date(Number(k[0])).toISOString().slice(0, 10),
+        close: parseFloat(String(k[4])),
+      }));
+      if (out.length >= 30) return out;
+    }
+  } catch { /* fall through to OKX */ }
+  // 2) OKX — daily candles, newest-first pages of 100, walk back up to 3 pages
+  const instId = symbol === 'BTCUSDT' ? 'BTC-USDT' : symbol === 'ETHUSDT' ? 'ETH-USDT' : 'SOL-USDT';
+  const all: Kline[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 3 && all.length < limit; page++) {
+    const r = await fetch(
+      `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=1D&limit=100${after ? `&after=${after}` : ''}`,
+      { cache: 'no-store' },
+    );
+    if (!r.ok) break;
+    const rows = ((await r.json()) as { data: string[][] }).data;
+    if (!rows?.length) break;
+    for (const k of rows) {
+      all.push({ date: new Date(Number(k[0])).toISOString().slice(0, 10), close: parseFloat(k[4]) });
+    }
+    after = String(rows[rows.length - 1][0]); // rows are newest-first: last row = oldest → next page walks further back
+    if (all.length >= limit) break;
+  }
+  if (all.length >= 30) {
+    const seen = new Set<string>();
+    return all
+      .filter((k) => (seen.has(k.date) ? false : (seen.add(k.date), true)))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+  throw new Error('no daily history from binance or okx');
 }
 
 /** Deterministic fallback path — seeded random walk at crypto vol. */
@@ -77,10 +107,12 @@ export async function GET(req: Request) {
   const px = closes.map((c) => c.close);
   if (px.length < 30) return NextResponse.json({ ok: false, error: 'insufficient history' }, { status: 502 });
 
-  // cycle length: the strategy's dated horizon clamped to [1, 30] days
-  const dated = spec.legs.filter((l) => l.kind === 'call' || l.kind === 'put').map((l) => l.dte);
+  // cycle length: the strategy's dated horizon clamped to [1, 30] days (perpetual strategies default to 30)
+  const dated = spec.legs.map((l) => l.expiryDays).filter((d): d is number => typeof d === 'number' && d > 0);
   const cycle = Math.min(Math.max(dated.length ? Math.max(...dated) : 30, 1), 30);
-  const baseIv = BASE_IV[underlying];
+  // vol surface: the pricing kernel's SVI-style smile/term structure, centered on its ATM level
+  const cfg = VOL_CONFIG[underlying] ?? VOL_CONFIG.BTC;
+  const baseIv = cfg.atm30d;
 
   interface Cycle {
     n: number; entryDate: string; exitDate: string; spotIn: number; spotOut: number;
@@ -93,21 +125,24 @@ export async function GET(req: Request) {
   const expiryPayoff = (spotExit: number, entrySpot: number): { settle: number; cost: number } => {
     let cost = 0, settle = 0;
     for (const l of spec.legs) {
+      const sign = l.side === 'buy' ? 1 : -1;
+      const qty = l.qty ?? 1;
       if (l.kind === 'perp' || l.kind === 'spot') {
         const dPnl = spotExit - entrySpot;
-        cost += (l.side === 'long' ? -1 : 1) * entrySpot * l.ratio * -1;
-        settle += (l.side === 'long' ? 1 : -1) * dPnl * l.ratio;
+        cost += -sign * entrySpot * qty; // buy pays notional (debit), sell receives (credit)
+        settle += sign * dPnl * qty;
         continue;
       }
-      const off = l.strikeOffsetPct ?? 0;
-      const strike = entrySpot * (1 + off / 100);
-      const iv = surfaceIv(l.kind === 'put' ? 'put' : 'call', off, cycle, baseIv);
-      const kind = l.kind === 'perp_option' ? (off >= 0 ? 'call' : 'put') : l.kind;
-      const q = blackScholes(kind as 'call' | 'put', entrySpot, strike, iv, cycle);
-      const sign = l.side === 'long' ? 1 : -1;
-      cost += sign * q.price * l.ratio; // debit > 0
+      const strikeMult = l.strike ?? 1;               // multiplier of entry spot
+      const strike = entrySpot * strikeMult;
+      const dte = Math.min(Math.max(l.expiryDays ?? cycle, 1, cycle), 365); // leg horizon for pricing
+      const off = (strikeMult - 1) * 100;              // moneyness % for the vol surface
+      const kind: 'call' | 'put' = l.kind === 'put' || (l.kind === 'perp_option' && strikeMult < 1) ? 'put' : 'call';
+      const iv = ivForStrike(cfg, entrySpot, strike, dte / 365, 0);
+      const q = bsPrice(entrySpot, strike, dte / 365, iv, cfg.rate, kind);
+      cost += sign * q * qty; // debit > 0
       const intrinsic = kind === 'call' ? Math.max(0, spotExit - strike) : Math.max(0, strike - spotExit);
-      settle += sign * intrinsic * l.ratio;
+      settle += sign * intrinsic * qty;
     }
     return { settle, cost };
   };

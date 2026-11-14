@@ -420,6 +420,8 @@ export function venueColor(venue: OfVenueId | string): string {
       return '#97fce4';
     case 'coinbase':
       return '#3b6eff';
+    case 'kraken':
+      return '#e57ab3';
     default:
       return '#a1a1aa';
   }

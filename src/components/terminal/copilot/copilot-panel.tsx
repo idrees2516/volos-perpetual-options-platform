@@ -13,7 +13,7 @@
 // Profit+ · Alts · Teach) plus AUTO-SUGGESTIONS derived from the active
 // view's live data — every chip quotes the user's real strategy numbers.
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { useCopilot } from '@/stores/copilot-store';
 import { useStrategy } from '@/stores/strategy-store';
@@ -31,8 +31,8 @@ import { JsonCard, setCardActionHandlers } from './json-cards';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  ArrowUpRight, BookOpen, Crosshair, Globe, GraduationCap, Layers, Lightbulb,
-  MessageSquare, Send, ShieldMinus, Sparkles, Square, Telescope, TrendingUp, User, X,
+  ArrowUpRight, BookOpen, Brain, Crosshair, Globe, GraduationCap, Layers, Lightbulb,
+  MessageSquare, RotateCcw, Send, ShieldMinus, Sparkles, Square, Telescope, TrendingUp, User, X,
 } from 'lucide-react';
 import type { ViewId } from '@/components/terminal/topbar';
 
@@ -44,6 +44,36 @@ const CAPABILITY_ICONS: Record<string, React.ReactNode> = {
   teach: <GraduationCap className="h-3 w-3" />,
   research: <Globe className="h-3 w-3" />,
 };
+
+// --- persistent chat session (conversation memory) ------------------------------
+// The sessionId groups persisted turns in SQLite (ConversationSession) so the
+// copilot restores the thread after reloads and RAG-recalls past exchanges.
+
+const SESSION_KEY = 'volos-copilot-session';
+
+function currentSessionId(): string {
+  if (typeof window === 'undefined') return 'ssr';
+  let id = window.localStorage.getItem(SESSION_KEY);
+  if (!id || id.length < 4) {
+    id = `cs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    window.localStorage.setItem(SESSION_KEY, id);
+  }
+  return id;
+}
+
+function rotateSessionId(): string {
+  const id = `cs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  if (typeof window !== 'undefined') window.localStorage.setItem(SESSION_KEY, id);
+  return id;
+}
+
+/** /api/ai/providers reply — which AI backend answers + memory size. */
+interface DeskStatus {
+  active: string;
+  model: string;
+  gatewayReachable?: boolean | null;
+  memory: { sessions: number; messages: number; oldestDays?: number };
+}
 
 // --- live spot bridge -------------------------------------------------------------
 // MarketSpotBridge subscribes to the market context and mirrors it into a
@@ -179,6 +209,22 @@ export function CopilotPanel({ view, onView }: CopilotPanelProps) {
   const { underlying, strategyName, legs } = useStrategy();
   const { toast } = useToast();
   const ctx = copilotContextRef.current;
+
+  // Which AI backend answers + how much conversation memory exists
+  // (drives the header subtitle and the chat tab's memory chip).
+  const [deskStatus, setDeskStatus] = useState<DeskStatus | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/ai/providers')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: DeskStatus | null) => {
+        if (!cancelled && d) setDeskStatus(d);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // live strategy numbers → quantized so the derived suggestions stay stable
   // between market ticks (only re-chip when a number actually moves)
@@ -356,8 +402,25 @@ export function CopilotPanel({ view, onView }: CopilotPanelProps) {
           <p className="text-[12px] font-bold tracking-tight text-zinc-50">
             Agentic Research Desk
           </p>
-          <p className="mt-0.5 text-[8.5px] uppercase tracking-[0.16em] text-zinc-500">
-            volos ai · vercel ai sdk · glm
+          <p
+            className="mt-0.5 text-[8.5px] uppercase tracking-[0.16em] text-zinc-500"
+            title={
+              deskStatus
+                ? `AI backend: ${deskStatus.active}${deskStatus.model ? ` (${deskStatus.model})` : ''}${
+                    deskStatus.active !== 'zai' ? ' · automatic failover to GLM' : ''
+                  } · conversation memory: ${deskStatus.memory.messages} messages across ${deskStatus.memory.sessions} sessions${
+                    deskStatus.gatewayReachable === false ? ' · gateway unreachable (running on GLM)' : ''
+                  }`
+                : 'AI backend status…'
+            }
+          >
+            volos ai ·{' '}
+            {deskStatus
+              ? `${deskStatus.active === 'zai' ? 'glm-4-plus' : `${deskStatus.active}${deskStatus.gatewayReachable === false ? ' (down→glm)' : ''}`}`
+              : 'ai router'}
+            {deskStatus && deskStatus.memory.messages > 0 && (
+              <span className="text-zinc-600"> · remembers {deskStatus.memory.messages}</span>
+            )}
           </p>
         </div>
         <button onClick={toggle} className="ml-auto rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200" aria-label="Close copilot">
@@ -403,6 +466,7 @@ export function CopilotPanel({ view, onView }: CopilotPanelProps) {
             onPaperDeploy={paperDeployLegs}
             suggestions={suggestions}
             getInput={() => inputRef.current}
+            deskStatus={deskStatus}
           />
         ) : (
           <ResearchView onView={onView} />
@@ -431,9 +495,10 @@ interface ChatTabProps {
   ) => Promise<boolean>;
   suggestions: SuggestionChip[];
   getInput: () => SuggestInput;
+  deskStatus: DeskStatus | null;
 }
 
-function ChatTab({ onLoadStrategy, onLoadLegs, onPaperDeploy, suggestions, getInput }: ChatTabProps) {
+function ChatTab({ onLoadStrategy, onLoadLegs, onPaperDeploy, suggestions, getInput, deskStatus }: ChatTabProps) {
   const { messages, input, handleInputChange, handleSubmit, isLoading, stop, reload, append, error, setMessages } =
     useChat({ api: '/api/ai/copilot' });
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -442,8 +507,14 @@ function ChatTab({ onLoadStrategy, onLoadLegs, onPaperDeploy, suggestions, getIn
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
-  // Every request ships the freshest live terminal context snapshot.
-  const ctxBody = () => ({ context: copilotContextRef.current });
+  // Persistent conversation session: every request ships the sessionId so
+  // turns are grouped in SQLite, the thread survives reloads and RAG recall
+  // can surface past exchanges. Rotated by the "New chat" button.
+  const sessionRef = useRef<string>('');
+  const sessionId = () => (sessionRef.current = sessionRef.current || currentSessionId());
+
+  // Every request ships the freshest live terminal context snapshot + session.
+  const ctxBody = () => ({ context: copilotContextRef.current, sessionId: sessionId() });
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -461,6 +532,15 @@ function ChatTab({ onLoadStrategy, onLoadLegs, onPaperDeploy, suggestions, getIn
     [isLoading, append],
   );
 
+  // Prompts queued by other views (position intelligence "Ask AI" buttons):
+  // consume + fire once the chat mounts/updates.
+  const consumePendingPrompt = useCopilot((s) => s.consumePendingPrompt);
+  useEffect(() => {
+    const pending = consumePendingPrompt();
+    if (pending) ask(pending);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [consumePendingPrompt, ask, messages.length]);
+
   const sendCapability = useCallback(
     (cap: (typeof CAPABILITY_ACTIONS)[number]) => {
       ask(cap.build(getInput()));
@@ -468,8 +548,41 @@ function ChatTab({ onLoadStrategy, onLoadLegs, onPaperDeploy, suggestions, getIn
     [ask, getInput],
   );
 
+  // Start a fresh thread: rotate the persisted session id + clear the view.
+  const newChat = useCallback(() => {
+    sessionRef.current = rotateSessionId();
+    setMessages([]);
+  }, [setMessages]);
+
   return (
     <div className="flex h-full flex-col">
+      {/* memory bar — provider badge + how much the desk remembers + new thread */}
+      <div className="flex items-center gap-2 border-b border-zinc-800/60 bg-zinc-950/30 px-3 py-1.5 text-[9.5px] text-zinc-500">
+        <span
+          className="flex items-center gap-1 rounded-full bg-teal-950/40 px-2 py-0.5 text-teal-400/90 ring-1 ring-teal-800/40"
+          title={deskStatus ? `AI backend: ${deskStatus.active} (${deskStatus.model})${deskStatus.active !== 'zai' ? ' · automatic GLM failover' : ''}` : undefined}
+        >
+          <Sparkles className="h-2.5 w-2.5" />
+          {deskStatus ? `${deskStatus.active === 'zai' ? 'glm' : deskStatus.active}${deskStatus.gatewayReachable === false ? ' → glm' : ''}` : 'ai'}
+        </span>
+        <span
+          className="flex items-center gap-1 rounded-full bg-violet-950/30 px-2 py-0.5 text-violet-400/80 ring-1 ring-violet-800/40"
+          title={deskStatus ? `Every turn is persisted and retrieved by relevance — auto-recall across the last 180 days.${deskStatus.memory.oldestDays !== undefined ? ` Oldest memory: ${deskStatus.memory.oldestDays}d.` : ''} Ask about past threads or use memory_search.` : 'Conversation memory'}
+        >
+          <Brain className="h-2.5 w-2.5" />
+          {deskStatus && deskStatus.memory.messages > 0
+            ? `remembers ${deskStatus.memory.messages} msgs`
+            : 'memory on — turns persist'}
+        </span>
+        <button
+          onClick={newChat}
+          disabled={isLoading || messages.length === 0}
+          className="ml-auto flex items-center gap-1 rounded-md px-2 py-0.5 text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40 disabled:hover:bg-transparent"
+          title="Start a fresh thread (past conversations stay in long-term memory and remain retrievable)"
+        >
+          <RotateCcw className="h-2.5 w-2.5" /> New chat
+        </button>
+      </div>
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         {messages.length === 0 && <EmptyState />}
         {messages.map((m) => (

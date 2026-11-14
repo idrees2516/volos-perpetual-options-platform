@@ -295,6 +295,31 @@ cd rust-backend && cargo build --release
 ./target/release/volos-backend            # VOLOS_PORT=3031 by default
 ```
 
+### 4. Deploy on InstaBox (cloud computer, public HTTPS URL)
+
+The terminal can be deployed to an [InstaBox](https://instabox.sh) cloud
+machine — a full Linux VM (4 vCPU / 8 GiB) — with one command, and exposed
+on a public `https://<port>-<machine>.instabox.tech` URL:
+
+```bash
+bun run deploy:instabox            # create machine → push tracked files →
+                                   # bun install + prisma + next build →
+                                   # start standalone server → publish :3000
+bun run deploy:instabox:wake       # wake a paused machine + health check
+bash scripts/deploy-instabox.sh --update   # re-push code, rebuild, restart
+bash scripts/deploy-instabox.sh --stop     # stop (disk + URL stay)
+```
+
+Auth: `INSTABOX_API_KEY` in the environment or `.env.local` (git-ignored).
+The deploy uses the production standalone build (`bun run build` →
+`node .next/standalone/server.js`) and its own SQLite at
+`/data/volos/db/custom.db` — the sandbox/dev database is never shipped.
+On the free plan the machine auto-pauses after 30 idle minutes (URL and
+disk persist; `deploy:instabox:wake` restores it, with the server process
+still in memory). AI-provider keys (`OMNIROUTE_API_KEY`, …) are optional —
+add them to `/data/volos/.env.local` on the machine to activate the
+copilot's gateway tiers.
+
 ---
 
 ## The strategy catalog — 131 strategies in ONE workspace
@@ -442,10 +467,17 @@ GET  /api/v1/fees                              fee schedule + equilibrium notes
 ```
 POST /api/ai/copilot                           Research Director chat — multi-step
                                                agentic loop, agent dispatch, strategy
-                                               loading, paper trading; AI SDK data stream
+                                               loading, paper trading; AI SDK data stream.
+                                               MEMORY-GROUNDED: persists every turn
+                                               (RAG) and auto-recalls past exchanges;
+                                               restores the thread after reloads
 POST /api/ai/research                          Deep Research pipeline — NDJSON events:
                                                stages, agent reports, strategy
-                                               payloads, streaming dossier
+                                               payloads, streaming dossier (dossiers
+                                               are persisted into memory too)
+GET  /api/ai/providers                         Which AI backend answers (omniroute /
+                                               glm), failover + circuit state,
+                                               gateway reachability, memory size
 GET  /api/paper                                Paper account: equity, positions with
                                                live marks, P&L, resting orders, fills
 POST /api/paper                                Paper actions: order | close | cancel |
@@ -455,6 +487,79 @@ GET  /api/chain?asset=BTC&venue=paradex        Live options chain per venue (aut
 GET  /api/venues?asset=BTC                     Venue health, latency, instruments,
                                                spot, ATM IV
 ```
+
+### AI providers — OmniRoute / Respan gateways + GLM fallback
+
+The desk answers through a **model router** (`src/lib/ai/model-router.ts`):
+any OpenAI-compatible gateway with automatic failover to the built-in GLM
+backend — the copilot never goes dark because of a dead key, an exhausted
+quota, or a downed gateway. Selection order: OmniRoute → Respan → generic
+OpenAI-compatible → GLM (or force one with `AI_PROVIDER`).
+
+[OmniRoute](https://github.com/cheaper-inference/OmniRoute) is a free AI
+gateway aggregating 375+ providers (150+ with free tiers) behind one
+OpenAI-compatible `/v1` endpoint with quota-aware auto-fallback.
+[Respan](https://github.com/respanai/respan-gateway) is an open-source Rust
+AI gateway — one endpoint, client keys, routing/failover, `/ui/` dashboard.
+Configure either by dropping keys into `.env.local` (git-ignored):
+
+```
+OMNIROUTE_API_KEY=your-omniroute-key
+OMNIROUTE_BASE_URL=https://omniroute.online/v1   # or self-host: http://localhost:20128/v1
+OMNIROUTE_MODEL=auto                              # 'auto', 'auto/cheap', 'openai/gpt-…', 'glm/glm-…'
+RESPAN_API_KEY=your-respan-client-key
+RESPAN_BASE_URL=http://localhost:8080/v1           # self-hosted Respan
+RESPAN_MODEL=glm-4-plus
+AI_PROVIDER=auto                                   # auto | omniroute | respan | zai (force GLM)
+```
+
+**Local gateway stack** — `bash run-local.sh --gateways` starts the whole AI
+gateway layer in the background alongside the UI (each piece is skipped
+with a warning if its binary/config is missing; GLM failover keeps the
+copilot alive regardless):
+
+- `mini-services/zai-shim.mjs` (:20130) — a tiny OpenAI-compatible front for
+  the in-sandbox GLM endpoint. It re-reads `/etc/.z-ai-config` on every
+  request, so the live session headers (`X-Chat-Id` / `X-User-Id` /
+  `X-Token`) are always fresh. OmniRoute and Respan use it as their GLM
+  upstream (`glm-*` models).
+- **OmniRoute self-host** (:20128 — dashboard + `/v1`) — the published
+  `omniroute` npm package, serving from `external/omniroute-data` (its env
+  file with `JWT_SECRET` / `API_KEY_SECRET` / `INITIAL_PASSWORD` lives there,
+  git-ignored). Providers are added from the dashboard or the CLI
+  (`omniroute providers add …`); desk keys are minted via `omniroute
+  api-keys post-api-keys` and land in `.env.local`.
+- **Respan** (:8080 — `/v1` + `/ui/`) — `external/respan/gateway.toml`
+  routes `glm-*` to the shim behind a desk client key (`RESPAN_API_KEY`).
+
+Any other OpenAI-compatible gateway (OpenRouter, LiteLLM, vLLM, Ollama) via
+the generic escape hatch: `OPENAI_COMPAT_BASE_URL` + `OPENAI_COMPAT_API_KEY`
++ `OPENAI_COMPAT_MODEL`.
+
+Resilience: the gateway call happens **before** any token is streamed, so on
+failure the request transparently reruns on GLM; a circuit breaker (3
+consecutive failures → 5-minute cooldown) stops paying the timeout on every
+request while a gateway is down. `/api/ai/providers` and the copilot header
+badge expose the active backend and gateway health.
+
+**InstaBox (optional):** `INSTABOX_API_KEY` in `.env.local` +
+`bash scripts/instabox.sh` lists the account's cloud machines — the escape
+hatch for hosting the gateway stack persistently outside the recycled
+sandbox.
+
+### Conversation memory (RAG) — the copilot remembers
+
+Every copilot turn and every deep-research dossier is persisted to SQLite
+(`ConversationSession` / `ConversationMessage`) with a deterministic local
+embedding (hashing vectorizer, 384-dim, `src/lib/ai/memory/`). On each request
+the latest question is embedded and the **hybrid retriever** (55% embedding
+cosine + 45% BM25 + recency tiebreak) pulls the most relevant past exchanges
+across ALL sessions into the system prompt as `## Conversation memory`. The
+current thread also survives reloads (restored from its persisted tail), and
+the model can dig deeper on demand through the `memory_search` tool (plus
+`memory_stats`). The chat bar shows the active backend and how many messages
+the desk remembers; **New chat** starts a fresh thread — past conversations
+stay retrievable. Recall window: 180 days; retention: 2 years.
 
 ## Project structure
 

@@ -227,3 +227,60 @@ model BackfillJob {
 
   @@index([venue, asset, kind, to])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRACK B — SIGNAL RESEARCH HARNESS.
+// Every factor backtest run over the stored history is persisted here: the
+// universe it saw (asset, tf, horizon, window), per-factor statistics (IC,
+// hit rate, quintile spread, t-stats) and the composite row — so the Copilot
+// and the UI can quote research results that survive restarts, and repeated
+// runs form a track record of *which factors actually worked, when*.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ResearchRun {
+  id           String   @id @default(cuid())
+  asset        String
+  tfSec        Int // bar timeframe the factors consumed (300 = 5m)
+  horizonBars  Int // forward-return horizon in bars
+  lookbackDays Int // history window evaluated
+  venue        String // kline source venue (binance)
+  bars         Int // bars actually scored
+  factorsJson  String // FactorResult[] — full per-factor stats
+  compositeJson String // composite factor stats
+  createdAt    DateTime @default(now())
+
+  @@index([asset, tfSec, horizonBars, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONVERSATION MEMORY (RAG substrate).
+// Every copilot/deep-research turn is persisted: the user asks, the desk
+// answers. Messages are embedded (hashing vectorizer, optionally remote)
+// so later turns can retrieve relevant past exchanges and the copilot
+// REMEMBERS prior conclusions across sessions and reloads.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ConversationSession {
+  id        String   @id @default(cuid())
+  title     String? // first user message, truncated
+  kind      String   @default("chat") // chat | research
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  messages  ConversationMessage[]
+
+  @@index([updatedAt])
+}
+
+model ConversationMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   ConversationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      String // user | assistant | research
+  content   String
+  embedding String? // base64-packed Float32 hashing-vector embedding
+  tokens    Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+  @@index([createdAt])
+}
