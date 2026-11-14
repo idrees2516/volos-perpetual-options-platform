@@ -11,7 +11,8 @@
 import React, { useState } from 'react';
 import { fmtUsd, fmtNum } from '@/lib/format';
 import { useQuant, useAgeLabel } from './use-quant';
-import { EmptyNote, ErrNote, LiveDot, Panel, Pill, Segmented, StatGrid } from './quant-viz';
+import { EmptyNote, ErrNote, LiveDot, Pill, Segmented, StatGrid } from './quant-viz';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 import { Gauge, StrengthMeter } from './viz-deep';
 
 interface Signal {
@@ -70,14 +71,15 @@ export function SignalsPanel({ symbol }: { symbol: string }) {
       <ErrNote error={brief.error} />
       {!d && brief.loading && <EmptyNote>computing the live signal battery — first run takes a few seconds…</EmptyNote>}
       {d && (
-        <>
-          <div className="grid gap-2 xl:grid-cols-[minmax(280px,340px)_1fr]">
-            {/* ── regime card ── */}
-            <Panel
-              title={`${symbol} Regime`}
-              sub="composite of every live signal"
-              right={<LiveDot ok={!brief.error} label={`live · ${age}`} />}
-            >
+        <Dock viewId="quant-signals" layout="grid">
+          <DockPanel
+            id="regime"
+            title={`${symbol} Regime`}
+            sub="composite of every live signal"
+            span={1}
+            dock={{ kind: 'quant-signals', meta: { symbol } }}
+            right={<LiveDot ok={!brief.error} label={`live · ${age}`} />}
+          >
               <Gauge score={d.regimeScore} label={d.regimeLabel} />
               <div className="mt-3">
                 <StatGrid
@@ -113,10 +115,10 @@ export function SignalsPanel({ symbol }: { symbol: string }) {
                   ))}
                 </div>
               )}
-            </Panel>
+          </DockPanel>
 
-            {/* ── playbook ── */}
-            <Panel title="Strategy Playbook" sub="rule-based setups with live numbers — the reason you don't need another platform" right={<Pill tone="violet">{d.playbook.length} setups</Pill>}>
+          {/* ── playbook ── */}
+          <DockPanel id="playbook" title="Strategy Playbook" sub="rule-based setups with live numbers — the reason you don't need another platform" span={1} right={<Pill tone="violet">{d.playbook.length} setups</Pill>}>
               {d.playbook.length ? (
                 <div className="space-y-2">
                   {d.playbook.map((p, i) => (
@@ -144,13 +146,14 @@ export function SignalsPanel({ symbol }: { symbol: string }) {
               ) : (
                 <EmptyNote>no high-conviction setups right now — signals are mid-range; check the battery →</EmptyNote>
               )}
-            </Panel>
-          </div>
+          </DockPanel>
 
           {/* ── signal battery ── */}
-          <Panel
+          <DockPanel
+            id="battery"
             title="Signal Battery"
             sub="every live metric turned into a decision — hover for the full read"
+            span={2}
             right={
               <Segmented
                 value={group}
@@ -190,10 +193,10 @@ export function SignalsPanel({ symbol }: { symbol: string }) {
               })}
             </div>
             {!signals.length && <EmptyNote>no signals in this group yet</EmptyNote>}
-          </Panel>
+          </DockPanel>
 
           {/* ── watchlist ── */}
-          <Panel title="Watchlist" sub="the levels that matter right now — set alerts around these on any other platform? not anymore" right={<Pill tone="amber">{d.watchlist.filter((w) => w.kind === 'price').length} levels</Pill>}>
+          <DockPanel id="watchlist" title="Watchlist" sub="the levels that matter right now — set alerts around these on any other platform? not anymore" span={2} right={<Pill tone="amber">{d.watchlist.filter((w) => w.kind === 'price').length} levels</Pill>}>
             <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
               {d.watchlist.map((w) => (
                 <div key={w.id} className="flex items-start gap-2 rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-2.5 py-2">
@@ -216,10 +219,10 @@ export function SignalsPanel({ symbol }: { symbol: string }) {
                 </div>
               ))}
             </div>
-          </Panel>
+          </DockPanel>
 
           {d.notes.length > 0 && d.notes.map((n) => <p key={n} className="text-[9px] text-zinc-600">{n}</p>)}
-        </>
+        </Dock>
       )}
     </div>
   );

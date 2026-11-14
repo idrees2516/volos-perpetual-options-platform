@@ -51,6 +51,7 @@ import { engine, RustIntentResponse } from '@/lib/api';
 import { TEMPLATES } from '@/lib/templates';
 import { PayoffChart } from '@/components/terminal/payoff-chart';
 import { BuilderView } from '@/components/terminal/builder-view';
+import { BuilderDock } from '@/components/terminal/dock/builder-dock';
 import { StrategyIntelligence } from './strategy-intelligence';
 import { StrategyLiveData } from './strategy-live-data';
 import { StrategyMetrics } from './strategy-metrics';
@@ -261,6 +262,8 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
         <div className="min-h-0 flex-1">
           <BuilderView />
         </div>
+        {/* pinned desk panels — live sections opened here via “Open in Builder” */}
+        <BuilderDock />
       </div>
     );
   }
@@ -829,6 +832,9 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
               onLoad={() => handleCustomize(selected)}
             />
           )}
+
+          {/* pinned desk panels — live sections opened here via “Open in Builder” */}
+          <BuilderDock />
         </div>
       </section>
     </div>

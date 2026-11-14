@@ -205,3 +205,19 @@ Work Log:
 
 Stage Summary:
 - The decision engine is now a closed loop: data → fusion → decision → guarded execution (or dry-run preview) → audit journal → morning brief → AI copilot control — running server-side continuously, on localhost and the preview, with the app auto-restarted by the supervisor whenever anything on :3000 dies.
+
+---
+Task ID: 11
+Agent: main (Z.ai)
+Task: "Make all the parts inside adjustable and draggable and make switching between open in builder — do this UI stuff in a separate PR."
+
+Work Log:
+- Dockable panel system (src/components/terminal/dock/dock.tsx): <Dock viewId> container + <DockPanel> card — every panel's header becomes a drag handle (HTML5 dnd, drop-on-target reorder, teal ring drop indicator, per-view layout persisted to localStorage volos-dock-<viewId> incl. new/gone panel id reconciliation), a resize cycle (S 220px / M 460px / full, overflow-scroll), collapse chevron, and an "Open in Builder" pin; two chrome variants: 'panel' (classic look) and 'bare' (slim grip strip for self-chromed components); plain fallback when rendered outside a Dock keeps the classic Panel look so call sites migrate one by one
+- Builder dock (src/components/terminal/dock/builder-dock.tsx): pinned panels dock into the Builder workspace as LIVE cards — switcher strip chips to flip between them, drag to reorder the strip, per-chip unpin + clear all, max-height scroll; content renders the REAL components via the kind registry (quant overview/signals/gex/iv/volregime/tape/perps/risk + paper position intelligence + autopilot), symbol carried in the pin meta
+- Pin store (src/stores/dock-store.ts): zustand + persist (volos-builder-dock) — dedup by kind+meta, activeId switching, movePinned drag reorder
+- Wired surfaces: QuantLab Overview (4 panels, grid layout span-1/2) + Signals (4 panels), the Paper Desk column (Position Intelligence · Autopilot · Positions · resting orders · fills as bare DockPanels), and BuilderDock mounted in the Strategies workspace BOTH in explore mode (bottom of the detail tabs) and customize mode (under the Builder)
+- Live verification via headless browser: drag reorder of QuantLab panels works and persists ("price" moved to first, order JSON in localStorage); pin from QuantLab then from Paper Desk → Builder dock shows 2 switchable chips; flipping chips swaps the live content (OverviewPanel ↔ AutopilotPanel); the ENABLED checkbox click in the UI toggled the loop off → proving the write path end-to-end (re-enabled after); zero page errors
+- Typecheck clean on all new/changed files; 134 vitest still green; app healthy at :3000 under the orphaned run-local supervisor
+
+Stage Summary:
+- Every wired panel is now adjustable (resize + collapse), draggable (reorder persisted per view) and openable in the Builder as a live docked card with switching — delivered as its own PR, separate from the autopilot/morning-brief work as requested.

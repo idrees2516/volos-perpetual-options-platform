@@ -8,8 +8,9 @@
 import React from 'react';
 import { fmtUsd, fmtNum } from '@/lib/format';
 import { useQuant, useAgeLabel } from './use-quant';
-import { EmptyNote, ErrNote, LevelStrip, LineChart, LiveDot, Panel, Pill, StatGrid } from './quant-viz';
+import { EmptyNote, ErrNote, LevelStrip, LineChart, LiveDot, Pill, StatGrid } from './quant-viz';
 import { MultiSymbolTable } from './panels-gex';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 interface BriefData {
   symbol: string;
@@ -35,10 +36,13 @@ export function OverviewPanel({ symbol, hasOptions }: { symbol: string; hasOptio
       <ErrNote error={brief.error} />
       {!d && brief.loading && <EmptyNote>booting the native engine — first compute takes a few seconds…</EmptyNote>}
       {d && (
-        <>
-          <Panel
+        <Dock viewId="quant-overview" layout="grid">
+          <DockPanel
+            id="brief"
             title={`${symbol} Market Brief`}
             sub="one call · every number computed live from venue APIs"
+            span={2}
+            dock={{ kind: 'quant-overview', meta: { symbol } }}
             right={
               <>
                 <LiveDot ok={!brief.error} label={`live · ${age}`} />
@@ -71,10 +75,9 @@ export function OverviewPanel({ symbol, hasOptions }: { symbol: string; hasOptio
                 ]}
               />
             </div>
-          </Panel>
+          </DockPanel>
 
-          <div className="grid gap-2 xl:grid-cols-2">
-            <Panel title="Price · last 8h" sub="5m closes (binance perp)">
+          <DockPanel id="price" title="Price · last 8h" sub="5m closes (binance perp)" span={1}>
               {market.data?.candles?.length ? (
                 <LineChart
                   height={150}
@@ -85,9 +88,14 @@ export function OverviewPanel({ symbol, hasOptions }: { symbol: string; hasOptio
               ) : (
                 <EmptyNote>{market.loading ? 'loading…' : '—'}</EmptyNote>
               )}
-            </Panel>
+          </DockPanel>
 
-            <Panel title="Front Expiry & Whale Watch" sub={d.frontExpiry ? `${d.frontExpiry.expiry} · ${d.frontExpiry.type}` : '—'}>
+          <DockPanel
+            id="front-expiry"
+            title="Front Expiry & Whale Watch"
+            sub={d.frontExpiry ? `${d.frontExpiry.expiry} · ${d.frontExpiry.type}` : '—'}
+            span={1}
+          >
               {d.frontExpiry ? (
                 <StatGrid
                   cols={4}
@@ -114,15 +122,14 @@ export function OverviewPanel({ symbol, hasOptions }: { symbol: string; hasOptio
                   ))}
                 </div>
               ) : null}
-            </Panel>
-          </div>
+          </DockPanel>
 
           {hasOptions && (
-            <Panel title="Cross-Symbol Dealer Levels" sub="btc & eth side by side · native engine" right={<Pill tone="teal">live</Pill>}>
+            <DockPanel id="cross-symbol" title="Cross-Symbol Dealer Levels" sub="btc & eth side by side · native engine" span={2} right={<Pill tone="teal">live</Pill>}>
               <MultiSymbolTable />
-            </Panel>
+            </DockPanel>
           )}
-        </>
+        </Dock>
       )}
     </div>
   );
