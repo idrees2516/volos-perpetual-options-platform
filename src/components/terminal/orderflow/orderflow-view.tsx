@@ -92,6 +92,7 @@ export function OrderFlowView() {
   const [printId, setPrintId] = useState<string | null>(null);
   const [options, setOptions] = usePersisted<FlowChartOptions>('volos-of-options', {
     showHeatmap: true,
+    showWalls: true,
     showFootprint: true,
     showBubbles: true,
     showLiquidations: true,
@@ -131,6 +132,7 @@ export function OrderFlowView() {
 
   const optionChips: Array<{ key: keyof FlowChartOptions; label: string; title: string }> = [
     { key: 'showHeatmap', label: 'liquidity heat', title: 'resting-liquidity heatmap — order-book depth over time' },
+    { key: 'showWalls', label: 'walls', title: 'resting-liquidity walls — bracket lines at defended levels, ✕ at vanish events' },
     { key: 'showFootprint', label: 'footprint', title: 'per-price bid×ask volume per candle' },
     { key: 'showBubbles', label: 'prints', title: 'trade bubbles sized by notional; rings mark ≥5× average' },
     { key: 'showLiquidations', label: 'liq bubbles', title: 'forced-close bubbles (L = longs, S = shorts)' },

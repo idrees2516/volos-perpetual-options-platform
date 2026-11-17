@@ -21,11 +21,13 @@
 
 import { useEffect, useRef } from 'react';
 import { HeatmapRenderer } from './heatmap-render';
+import { detectWalls, type WallScan } from '@/lib/orderflow/walls';
 import type { OrderFlowStore } from './use-orderflow';
 import type { OfWireTrade } from '@/lib/orderflow/types';
 
 export interface FlowChartOptions {
   showHeatmap: boolean;
+  showWalls: boolean;
   showFootprint: boolean;
   showBubbles: boolean;
   showLiquidations: boolean;
@@ -70,6 +72,7 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef(new HeatmapRenderer());
+  const wallsRef = useRef<{ scan: WallScan | null; at: number }>({ scan: null, at: 0 });
   const dirtyRef = useRef(true);
   const viewRef = useRef({ t1: Date.now(), span: tf * 60, effT0: 0, effT1: 0 });
   const hoverRef = useRef<{ x: number; y: number } | null>(null);
@@ -227,6 +230,60 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
       if (st && opts.showHeatmap && st.heatmapColumns.size) {
         rendererRef.current.update(st.heatmapColumns.values(), st.tick || 0.01);
         rendererRef.current.draw(ctx, t0, t1, xOf, priceY, 0.72);
+      }
+
+      // ── 1b. liquidity walls (depth-heatmap v2 markers) ─────────────────
+      if (st && opts.showWalls && st.heatmapColumns.size) {
+        // recompute at most every 5 s — pure fn over the streamed columns
+        const wstate = wallsRef.current;
+        if (Date.now() - wstate.at > 5_000 || !wstate.scan) {
+          const columns = [...st.heatmapColumns.values()].sort((a, b) => a.t - b.t);
+          wstate.scan = detectWalls(columns, st.tick || 0.01);
+          wstate.at = Date.now();
+        }
+        const scan = wallsRef.current.scan;
+        if (scan) {
+          ctx.lineWidth = 1.5;
+          // live walls: bracket line from appearance → now, side-colored
+          for (const w of scan.live) {
+            const y = priceY(w.price);
+            if (y < plotT - 2 || y > plotB + 2) continue;
+            const x0 = Math.max(plotL, xOf(w.tStart));
+            const x1 = Math.min(plotR, xOf(Math.min(w.tEnd, t1)));
+            if (x1 <= plotL || x0 >= plotR) continue;
+            const color = w.side === 'bid' ? 'rgba(45,212,191,0.85)' : 'rgba(251,113,133,0.85)';
+            ctx.strokeStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(x0, y);
+            ctx.lineTo(x1, y);
+            // end caps
+            ctx.moveTo(x0, y - 3);
+            ctx.lineTo(x0, y + 3);
+            ctx.moveTo(x1, y - 3);
+            ctx.lineTo(x1, y + 3);
+            ctx.stroke();
+            // peak-size ring at the strongest moment (right end)
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x1, y, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          // recent vanishes: small ✕ at the vanish time & price
+          ctx.lineWidth = 1;
+          for (const e of scan.events) {
+            const y = priceY(e.price);
+            if (y < plotT - 2 || y > plotB + 2) continue;
+            const x = xOf(e.tEnd);
+            if (x < plotL || x > plotR) continue;
+            ctx.strokeStyle = 'rgba(251,191,36,0.9)';
+            ctx.beginPath();
+            ctx.moveTo(x - 3, y - 3);
+            ctx.lineTo(x + 3, y + 3);
+            ctx.moveTo(x + 3, y - 3);
+            ctx.lineTo(x - 3, y + 3);
+            ctx.stroke();
+          }
+        }
       }
 
       // ── 2. footprint cells ────────────────────────────────────────────

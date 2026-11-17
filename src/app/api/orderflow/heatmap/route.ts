@@ -1,9 +1,12 @@
-// GET /api/orderflow/heatmap?asset=BTC&minutes=15&rowTick=&stride=1 —
+// GET /api/orderflow/heatmap?asset=BTC&minutes=15&rowTick=&stride=1&walls=1 —
 // resting-liquidity heatmap backfill (sparse 1-second columns of the depth
-// ring, re-bucketable to coarser rows for zoomed-out views).
+// ring, re-bucketable to coarser rows for zoomed-out views). `walls=1` also
+// runs the wall detector server-side over the same columns, so the wall
+// list survives browser reloads mid-session.
 
 import { getOrderFlowManager } from '@/lib/orderflow/manager';
 import { heatmapColumns, json, parseAsset } from '@/lib/orderflow/wire';
+import { detectWalls } from '@/lib/orderflow/walls';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,5 +26,9 @@ export async function GET(req: Request) {
     rowTick: Number.isFinite(rowTickRaw) && rowTickRaw > 0 ? rowTickRaw : undefined,
     stride,
   });
-  return json({ asset, ...result, tsMs: Date.now() });
+  const withWalls = url.searchParams.get('walls') === '1';
+  const walls = withWalls
+    ? detectWalls(result.columns, result.rowTick, {}, result.columns.length ? result.columns[result.columns.length - 1].t : Date.now())
+    : undefined;
+  return json({ asset, ...result, ...(walls ? { walls } : {}), tsMs: Date.now() });
 }
