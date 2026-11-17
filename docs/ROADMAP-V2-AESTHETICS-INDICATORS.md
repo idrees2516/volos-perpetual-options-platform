@@ -1,6 +1,6 @@
 # VolOS V2 — Aesthetics, Heatmaps, Indicators & Copilot Deep-Integration Roadmap
 
-> **Status: PLAN + P0/P1/P2 SHIPPED.** This is the agreed next-steps roadmap for the
+> **Status: PLAN + P0/P1/P2/P2b SHIPPED.** This is the agreed next-steps roadmap for the
 > VolOS perpetual-options terminal. Landed so far:
 > 1. *(shipped earlier)* The left (Analytics) and right (Strategy Lab) nav rails
 >    were **merged into ONE unified rail** with **Strategies pinned on top**;
@@ -36,8 +36,24 @@
 >    + volume shadow + EMA/BB/VWAP/Supertrend/Ichimoku-cloud/Donchian overlays,
 >    Δ+CVD / RSI / MACD / Stoch / ADX / OBV sub-panes, crosshair + OHLCV tooltip,
 >    and every control persisted (new `usePersistedState` external-store hook).
->
-> Everything else below is design + research + phasing for future PRs.
+> 5. *(shipped — P2b)* **`feat/depth-heatmap-v2` — the §1 visual set completed:**
+>    the **funding heat grid** (`/api/quant/market/funding`, asset × 8h-event
+>    APR heat, store-first with a staggered live sweep + per-asset
+>    drop-resilience — 7 tests, Market Map tab), the **IV surface v2**
+>    (moneyness row axis, shared viridis scale + HeatLegend — now in
+>    `quant-viz` — term-structure & 25Δ-skew strips, robust p10..p90 domain),
+>    the **GEX session heatmap** (`/api/quant/gex?view=session` — a server-side
+>    1-minute sampler ring off the SHARED chain snapshot, so the strike × time
+>    grid costs zero extra venue calls; canvas render with the amber zero-gamma
+>    line + white spot trace — 6 tests), and the **depth heatmap v2 walls**
+>    (`src/lib/orderflow/walls.ts` pure detector — robust p98 threshold,
+>    gap-tolerant wall life-cycle, bid/ask side inference — chart bracket/✕
+>    markers + toggle + `?walls=1` server scan that survives reloads — 5 tests).
+>    Verification: 190/190 vitest, tsc/eslint clean on every touched file,
+>    browser-verified golden paths incl. a transpose bug in the funding grid
+>    caught live (168/168 cells), captures in `docs/assets/ui-v2-captures/r6-*`.
+
+Everything else below is design + research + phasing for future PRs.
 
 ---
 
@@ -270,7 +286,7 @@ Planned next:
 | P1 | `feat/design-tokens` | **SHIPPED** — `--volos-*` token layer, density toggle, LiveNum flash, PanelState | — |
 | P1 | `feat/heatmap-system` | **SHIPPED** — shared color/legend module + breadth treemap + correlation matrix (Market Map tab) | stored history |
 | P2 | `feat/indicator-core` | **SHIPPED** — indicator kernels (25 tests) + store-first `/api/quant/indicators` + `<IndicatorChart>` + Indicators tab (families 1/2/3) | P1 tokens |
-| P2b | `feat/depth-heatmap-v2` + IV/GEX heatmaps | §1 remaining visual set | heatmap-system |
+| P2b | `feat/depth-heatmap-v2` + IV/GEX heatmaps | **SHIPPED** — funding heat grid (Market Map) + IV surface v2 (moneyness/viridis/skew+term strips) + GEX session (strike × time + zero-gamma) + depth walls (markers + `?walls=1`) — 18 new tests | heatmap-system |
 | P3 | `feat/collapsible-everywhere` | §3 primitive + registry + migration order | P1 |
 | P3 | `feat/copilot-indicator-integration` | §5 tools + bridges + scheduled Firecrawl pulls + RAG journaling | indicator-core |
 | P4 | `feat/navigation-v2` | command palette, URL state, responsive, keyboard map | collapsible |
