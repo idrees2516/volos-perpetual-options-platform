@@ -60,6 +60,49 @@ export async function candles(symbol: string, interval = '5m', limit = 480): Pro
   }));
 }
 
+// ── whole-market sweep (one call each — the breadth/treemap sources) ────────
+
+export interface Ticker24 {
+  symbol: string; // venue symbol, e.g. BTCUSDT
+  lastPrice: number;
+  changePct: number; // 24h price change, percent
+  quoteVolume: number; // 24h turnover in USDT
+  trades: number;
+}
+
+/** Every USDT-perp's 24h ticker in ONE call (Binance fapi weight 40). */
+export async function tickers24h(): Promise<Ticker24[]> {
+  const r = await jget<
+    Array<{ symbol: string; lastPrice: string; priceChangePercent: string; quoteVolume: string; count: number }>
+  >(`${BINANCE_F}/fapi/v1/ticker/24hr`);
+  return r
+    .filter((t) => /^[A-Z0-9]{2,10}USDT$/.test(t.symbol))
+    .map((t) => ({
+      symbol: t.symbol,
+      lastPrice: Number(t.lastPrice),
+      changePct: Number(t.priceChangePercent),
+      quoteVolume: Number(t.quoteVolume),
+      trades: Number(t.count),
+    }))
+    .filter((t) => Number.isFinite(t.quoteVolume) && t.quoteVolume > 0);
+}
+
+export interface FundingAllEntry {
+  symbol: string;
+  lastFundingRate: number; // per 8h interval, decimal
+}
+
+/** Funding + mark for EVERY symbol in one call (Binance fapi weight 10). */
+export async function fundingAll(): Promise<Map<string, FundingAllEntry>> {
+  const r = await jget<Array<{ symbol: string; lastFundingRate: string }>>(`${BINANCE_F}/fapi/v1/premiumIndex`);
+  const out = new Map<string, FundingAllEntry>();
+  for (const f of r) {
+    const rate = Number(f.lastFundingRate);
+    if (Number.isFinite(rate)) out.set(f.symbol, { symbol: f.symbol, lastFundingRate: rate });
+  }
+  return out;
+}
+
 /** Current funding + mark (Binance premium index). */
 export async function premiumIndex(symbol: string) {
   const r = await jget<{ markPrice: string; indexPrice: string; lastFundingRate: string; nextFundingTime: number }>(

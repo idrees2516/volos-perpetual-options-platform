@@ -1,14 +1,30 @@
 # VolOS V2 — Aesthetics, Heatmaps, Indicators & Copilot Deep-Integration Roadmap
 
-> **Status: PLAN ONLY — no implementation in this document.** This is the agreed next-steps
-> roadmap for the VolOS perpetual-options terminal. Two items landed alongside this plan
-> (they were explicit, bounded instructions, not part of the "plan-only" batch):
-> 1. The left (Analytics) and right (Strategy Lab) nav rails were **merged into ONE unified
->    rail** with **Strategies pinned on top** and everything else below.
-> 2. InstaBox deployment retired — the app now runs **only on localhost + preview**.
+> **Status: PLAN + P1 SHIPPED.** This is the agreed next-steps roadmap for the
+> VolOS perpetual-options terminal. Three items landed so far:
+> 1. *(shipped earlier)* The left (Analytics) and right (Strategy Lab) nav rails
+>    were **merged into ONE unified rail** with **Strategies pinned on top**;
+>    InstaBox deployment retired — localhost + preview only.
+> 2. *(shipped — P1, this round)* **`feat/design-tokens`**: the `--volos-*` token
+>    layer (surfaces / edges / pos-neg-neut numerals / focus) in `globals.css`,
+>    a persisted **compact|comfortable density toggle** (row heights / cell
+>    padding via CSS vars, wired through the topbar), **LiveNum/LivePct**
+>    flash-on-change numerals (teal up / rose down, tabular, no layout shift)
+>    live on the topbar ticker, and the shared **PanelState** primitive
+>    (skeletons sized to content / empty / error+retry) with shimmer +
+>    reduced-motion discipline.
+> 3. *(shipped — P1, this round)* **`feat/heatmap-system`**: shared
+>    `src/lib/quant/heatmap.ts` (rose↔slate↔teal diverging scale, viridis-class
+>    sequential scale, legend ticks, squarified-treemap layout — 13 unit tests),
+>    the **Market Map tab** in Quant Lab with the **market-breadth treemap**
+>    (64 tiles from ONE Binance sweep — area = 24h turnover, color = 24h
+>    change / funding APR / volume share, robust p90 domains so outliers
+>    saturate instead of washing the map, hover tooltips, click-to-focus),
+>    the **cross-asset correlation matrix** (8 majors × 7d/30d/90d Pearson on
+>    log returns from the backfill store with a live fallback, per-asset
+>    drop-resilience), and the shared **HeatLegend**.
 >
-> Everything else below is design + research + phasing for future PRs. Estimated as a
-> whole: ~4 focused PRs over multiple sessions.
+> Everything else below is design + research + phasing for future PRs.
 
 ---
 
@@ -226,8 +242,8 @@ Planned next:
 |---|---|---|---|
 | P0 | `feat/unified-rail` | shipped (this round) | — |
 | P0 | `chore/retire-instabox` | shipped (this round): remove deploy scripts/docs; preview+localhost only | — |
-| P1 | `feat/design-tokens` | §2 items 1-6 (tokens, type, density, states, chart polish) | — |
-| P1 | `feat/heatmap-system` | §1: shared color/legend/tooltip module + breadth treemap + correlation matrix | stored history |
+| P1 | `feat/design-tokens` | **SHIPPED** — `--volos-*` token layer, density toggle, LiveNum flash, PanelState | — |
+| P1 | `feat/heatmap-system` | **SHIPPED** — shared color/legend module + breadth treemap + correlation matrix (Market Map tab) | stored history |
 | P2 | `feat/indicator-core` | §4: openalgo-charts + PineTS wiring, `/api/quant/indicators`, `<IndicatorChart>` with family-1/2/3 overlays | P1 tokens |
 | P2 | `feat/depth-heatmap-v2` + IV/GEX heatmaps | §1 remaining visual set | heatmap-system |
 | P3 | `feat/collapsible-everywhere` | §3 primitive + registry + migration order | P1 |
