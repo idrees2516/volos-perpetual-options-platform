@@ -15,8 +15,6 @@
     "local:full": "bash run-local.sh --full",
     "local:stop": "bash run-local.sh --stop",
     "preview": "bash run-local.sh",
-    "deploy:instabox": "bash scripts/deploy-instabox.sh",
-    "deploy:instabox:wake": "bash scripts/deploy-instabox.sh --wake",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
