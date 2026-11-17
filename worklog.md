@@ -221,3 +221,24 @@ Work Log:
 
 Stage Summary:
 - Every wired panel is now adjustable (resize + collapse), draggable (reorder persisted per view) and openable in the Builder as a live docked card with switching — delivered as its own PR, separate from the autopilot/morning-brief work as requested.
+
+---
+Task ID: 12
+Agent: main (Z.ai)
+Task: "Start working on these" — begin executing the V2 roadmap (aesthetics/heatmaps/indicators/copilot). This round: P1 (design tokens + heatmap system).
+
+Work Log:
+- App autorun restored first: the always-on supervisor (run-local.sh, double-fork orphan pattern) had died with the environment reset — relaunched, :3000 + preview both 200; SQLite store recreated (prisma db push — the DB file is untracked and gets wiped by environment resets); history backfill worker restarted via /api/store/backfill (600-chunk plan, resumed ledger intact)
+- Shared heatmap system (src/lib/quant/heatmap.ts): rose↔slate↔teal diverging scale (the same semantic as the desk's pos/neg numerals), viridis-class sequential scale, legendTicks, the squarified treemap layout (Bruls–Huizing–van Wijk, canonical greedy-row formulation) + pearson + alignSeries for matrices — pure functions, 13 new unit tests (area/no-overlap coverage, degenerate inputs, perfect/inverse/null correlation, common-timestamp alignment)
+- Market breadth (src/lib/quant/breadth.ts + GET /api/quant/market/breadth): the whole USDT-perp universe in ONE fapi sweep (ticker/24hr weight 40 + premiumIndex weight 10) → 64 tiles sized by 24h turnover with change/funding/volume-share colors + breadth stats (advancers/decliners, median change, turnover, BTC/ETH dominance, volume-weighted avg funding APR); 15 s server cache
+- Cross-asset correlation (src/lib/quant/correlation.ts + GET /api/quant/market/correlation?window=7d|30d|90d): Pearson on log returns of timestamp-aligned closes, 8 majors; STORE FIRST (the A1 backfill KlineBar mirror — never re-hits the venue) with a staggered live sweep fallback (batches of 3, 150 ms gaps) when the store is cold; RESILIENCE: a single failed sweep (rate-limit burst) drops that one asset from the matrix instead of poisoning every pairwise cell (caught live: 7d window returned an all-null matrix because one transient klines failure emptied alignSeries' common timeline); degenerate results are never cached — next poll retries; 5 min TTL
+- Market Map tab (src/components/terminal/quantlab/panels-map.tsx): the breadth treemap as custom canvas (squarify layout — no new chart dependency, one visual language with the depth heatmap core), hover tooltips with live numbers (spot/change/volume/funding), click-to-focus refocuses the whole Quant Lab on that market; metric switcher 24h change / funding APR / volume share with ROBUST p90 domains (one +55% outlier no longer washes every major to neutral slate — caught via VLM screenshot review); viridis sequential scale for volume share; correlation matrix reuses the existing HeatMatrix primitive with the shared color fn; shared HeatLegend everywhere
+- Design tokens (globals.css): the --volos-* layer (4 surfaces, hairline edges, focus ring, pos/neg/neut numerals, warn) + density CSS vars + volos-table/volos-pad density utilities + flash-up/flash-down + skeleton-shimmer keyframes, all respecting prefers-reduced-motion; topbar migrated onto the tokens
+- Density control (src/stores/density-store.ts + topbar toggle): persisted compact|comfortable switch, data-density on <html>, row heights/cell padding/padding via CSS vars — verified live end-to-end (21px↔26px rows, localStorage volos-density, button label)
+- LiveNum/LivePct (src/components/ui/live-num.tsx): tabular numerals with teal-up/rose-down flash on change, key-remount so back-to-back same-direction moves restart the animation, no layout shift — live on the topbar ticker (verified: volos-flash-down classes animating during real price ticks)
+- PanelState (src/components/ui/panel-state.tsx): shared loading (content-sized skeletons)/empty/error+retry surface — wired into both Market Map panels
+- Verified live end-to-end: breadth endpoint (64 tiles, $51B turnover, funding merge after a transient first-miss), all three correlation windows real (BTC-ETH 0.90-0.93), treemap canvas 98.7% colored, hover tooltip (ETH spot/vol $7.8B/funding), click-to-focus (BTC→ETH), metric switching, density toggle persistence, zero page/console errors; VLM screenshot review of every state; 147/147 vitest, eslint clean, tsc clean on every new/changed file (repo baseline untouched)
+- PR: two commits (design tokens / heatmap system + market map) on feat/heatmap-market-map, pushed and merged via create-pr-v7 flow
+
+Stage Summary:
+- The V2 roadmap's P1 is shipped: the terminal gained its shared visual token layer (surfaces, numerals, density, flash, states) and the headline Market Map — a whole-market breadth treemap plus a correlation matrix built on our own stored history — with zero new chart dependencies and one color language.

@@ -127,6 +127,47 @@
 
 html {
   color-scheme: dark;
+
+  /* ── VolOS design tokens · one surface/numeral language ─────────── */
+  /* surfaces (zinc-950/900/850 family, calmer than ad-hoc hexes)      */
+  --volos-bg: #05070a; /* app background — deepest */
+  --volos-surface-1: #0a0d12; /* panels, tab strips */
+  --volos-surface-2: #0f131a; /* raised cards, inputs */
+  --volos-surface-3: #161b24; /* hover / active chrome */
+  /* hairlines & focus */
+  --volos-edge: rgb(255 255 255 / 0.07);
+  --volos-edge-strong: rgb(255 255 255 / 0.12);
+  --volos-focus: rgb(45 212 191 / 0.45);
+  /* numerals — same semantics everywhere */
+  --volos-pos: #2dd4bf; /* teal-400 — gains / positive */
+  --volos-neg: #fb7185; /* rose-400 — losses / negative */
+  --volos-neut: #94a3b8; /* slate-400 — neutral */
+  --volos-accent: #2dd4bf;
+  --volos-warn: #fbbf24; /* amber-400 — caution */
+  /* type ladder (8/9/10/11px terminal scale) */
+  --text-2xs: 9px;
+  --text-2xs--line-height: 12px;
+}
+
+/* Density — compact (default) | comfortable. Toggled from the topbar, persisted.
+   Compact values live on plain html{} so first paint is correct before JS. */
+html {
+  --volos-row-h: 21px;
+  --volos-cell-py: 1px;
+  --volos-panel-pad: 8px;
+  --volos-panel-gap: 6px;
+}
+html[data-density='compact'] {
+  --volos-row-h: 21px;
+  --volos-cell-py: 1px;
+  --volos-panel-pad: 8px;
+  --volos-panel-gap: 6px;
+}
+html[data-density='comfortable'] {
+  --volos-row-h: 26px;
+  --volos-cell-py: 4px;
+  --volos-panel-pad: 12px;
+  --volos-panel-gap: 8px;
 }
 
 /* Slim dark scrollbars for the terminal panels. */
@@ -162,7 +203,8 @@ input[type='number'] {
 
 /* Tabular numerals everywhere numbers matter. */
 .font-mono,
-table {
+table,
+.tabular {
   font-variant-numeric: tabular-nums;
 }
 
@@ -170,5 +212,62 @@ table {
 body {
   background-image:
     radial-gradient(ellipse 80% 50% at 50% -20%, rgba(45, 212, 191, 0.06), transparent);
+}
+
+/* ------------------------------------------------------------------ */
+/* VolOS component utilities (token-driven)                            */
+/* ------------------------------------------------------------------ */
+
+/* Density-aware table rows & panel padding. */
+.volos-table tbody tr {
+  height: var(--volos-row-h);
+}
+.volos-table tbody td {
+  padding-block: var(--volos-cell-py);
+}
+.volos-pad {
+  padding: var(--volos-panel-pad);
+}
+
+/* Live-number flash — teal up, rose down, ~700ms decay, no layout shift. */
+@keyframes volos-flash-up {
+  0% { background-color: rgb(45 212 191 / 0.22); color: var(--volos-pos); }
+  100% { background-color: transparent; }
+}
+@keyframes volos-flash-down {
+  0% { background-color: rgb(251 113 133 / 0.22); color: var(--volos-neg); }
+  100% { background-color: transparent; }
+}
+.volos-flash-up {
+  animation: volos-flash-up 700ms ease-out;
+}
+.volos-flash-down {
+  animation: volos-flash-down 700ms ease-out;
+}
+
+/* Skeleton shimmer for panel loading states. */
+@keyframes volos-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.volos-skeleton {
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--volos-surface-2) 25%,
+    var(--volos-surface-3) 50%,
+    var(--volos-surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: volos-shimmer 1.4s linear infinite;
+}
+
+/* Motion discipline — respect reduced-motion everywhere above. */
+@media (prefers-reduced-motion: reduce) {
+  .volos-flash-up,
+  .volos-flash-down,
+  .volos-skeleton {
+    animation: none;
+  }
 }
 

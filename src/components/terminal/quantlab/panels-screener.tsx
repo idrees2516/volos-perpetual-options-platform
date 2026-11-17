@@ -242,7 +242,7 @@ export function ScreenerPanel({ onFocusSymbol }: { onFocusSymbol?: (symbol: stri
             right={<Pill tone="teal">{rows.length} markets</Pill>}
           >
             <div className="overflow-x-auto">
-              <table className="w-full text-[9.5px]">
+              <table className="volos-table w-full text-[9.5px]">
                 <thead>
                   <tr className="border-b border-zinc-800/70 text-[7.5px] uppercase tracking-[0.1em] text-zinc-600">
                     {COLUMNS.map((c) => (

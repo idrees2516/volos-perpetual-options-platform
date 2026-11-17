@@ -26,7 +26,7 @@
 // -----------------------------------------------------------------------------
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Atom, LayoutGrid, Activity, Link2, Sigma, Layers3, Waves, Radio, LineChart, Landmark, BookOpen, Compass, Globe2, ShieldAlert, Gauge, FlaskConical } from 'lucide-react';
+import { Atom, LayoutGrid, Activity, Link2, Sigma, Layers3, Waves, Radio, LineChart, Landmark, BookOpen, Compass, Globe2, ShieldAlert, Gauge, FlaskConical, Grid3x3 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Pill } from './quant-viz';
 import { useAgeLabel, useQuant } from './use-quant';
@@ -41,6 +41,7 @@ import { MacroPanel } from './panels-macro';
 import { CatalogPanel } from './panels-catalog';
 import { SignalsPanel } from './panels-signals';
 import { ScreenerPanel } from './panels-screener';
+import { MarketMapPanel } from './panels-map';
 import { VolRegimePanel } from './panels-volregime';
 import { RiskPanel } from './panels-risk';
 import { ResearchPanel } from './panels-research';
@@ -58,6 +59,7 @@ const TABS = [
   { id: 'overview', label: 'Overview', icon: <LayoutGrid className="h-3 w-3" /> },
   { id: 'signals', label: 'Signals & Decisions', icon: <Compass className="h-3 w-3" /> },
   { id: 'screener', label: 'Whole Market', icon: <Globe2 className="h-3 w-3" /> },
+  { id: 'map', label: 'Market Map', icon: <Grid3x3 className="h-3 w-3" /> },
   { id: 'gex', label: 'GEX & Positioning', icon: <Activity className="h-3 w-3" /> },
   { id: 'chain', label: 'Chain & OPEX', icon: <Link2 className="h-3 w-3" /> },
   { id: 'iv', label: 'IV Analytics', icon: <Sigma className="h-3 w-3" /> },
@@ -155,6 +157,9 @@ export function QuantLabView() {
         </TabsContent>
         <TabsContent value="screener" className="mt-2">
           <ScreenerPanel onFocusSymbol={focusSymbol} />
+        </TabsContent>
+        <TabsContent value="map" className="mt-2">
+          <MarketMapPanel onFocusSymbol={focusSymbol} />
         </TabsContent>
         <TabsContent value="gex" className="mt-2">
           <GexPanel symbol={symbol} hasOptions={hasOptions} />
