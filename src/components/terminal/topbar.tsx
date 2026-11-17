@@ -3,9 +3,9 @@
 // Terminal top bar: brand, live asset ticker with REAL exchange prices,
 // AI Copilot and engine status.
 //
-// The old MAIN tab strip is RETIRED — navigation moved into the two-sided
-// collapsible Workbench (left Analytics rail · right Strategy Lab rail),
-// so the header stays a clean, slim command bar.
+// The old MAIN tab strip is RETIRED — navigation moved into the unified
+// collapsible Workbench rail (Strategies pinned on top, everything else
+// below), so the header stays a clean, slim command bar.
 
 import React from 'react';
 import { Waves, Sparkles, Radio } from 'lucide-react';

@@ -1,22 +1,23 @@
 'use client';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DUAL WORKBENCH — the terminal's two-sided collapsible navigation shell.
+// UNIFIED WORKBENCH — single collapsible navigation shell.
 //
-//   LEFT  RAIL · ANALYTICS     Gamma & Flow · Option Chain · Trading
-//                             (market internals, live chains, execution data)
-//   RIGHT RAIL · STRATEGY LAB  Strategies · Paper Desk
-//                             (understanding & creation of strategies)
+//   ONE RAIL · Strategies pinned on TOP, then everything else below:
+//     Strategy Lab  — Strategies · Paper Desk
+//     Analytics     — Gamma & Flow · Order Flow · Forecast · Quant Lab ·
+//                     Option Chain · Trading
 //
-// The former top MAIN tab strip is RETIRED — all navigation now lives in the
-// two side panels, each independently collapsible to a slim icon rail
-// (keyboard: `[` toggles Analytics, `]` toggles Strategy Lab). The center
-// column renders the active view under a professional breadcrumb header.
+// The former two-sided shell (LEFT Analytics rail + RIGHT Strategy Lab rail)
+// is RETIRED — both panels are collapsed into this single rail (keyboard `[`
+// or `]` toggles it). The center column renders the active view under a
+// professional breadcrumb header; the AI Copilot keeps its own drawer on the
+// far right.
 //
-// Each rail also carries a live footer: the Analytics rail shows the live
-// market pulse (real exchange prices), the Strategy Lab rail shows the
-// currently loaded strategy — so both sides stay informative even as pure
-// navigation. Collapse states persist across reloads.
+// The rail also carries two live footers: the loaded strategy (from the old
+// Strategy Lab rail) and the live market pulse (real exchange prices, from
+// the old Analytics rail) — so the merged rail stays informative even as
+// pure navigation. Collapse state persists across reloads.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect } from 'react';
@@ -41,7 +42,13 @@ interface RailItem {
   hint: string;
 }
 
-/** Analytics side — market internals & data views. */
+/** Strategy Lab group — pinned to the TOP of the unified rail. */
+const LAB_ITEMS: RailItem[] = [
+  { id: 'strategies', label: 'Strategies', icon: <Layers className="h-4 w-4" />, hint: '131 catalog · payoff up front · intelligence · builder · backtests' },
+  { id: 'paper', label: 'Paper Desk', icon: <FlaskConical className="h-4 w-4" />, hint: 'deploy strategy packages · fills at real venue BBO' },
+];
+
+/** Analytics group — everything else, below the Strategy Lab group. */
 const ANALYTICS_ITEMS: RailItem[] = [
   { id: 'gamma', label: 'Gamma & Flow', icon: <Activity className="h-4 w-4" />, hint: 'GEX · dealer positioning · heatmaps · options flow · 0DTE · skew' },
   { id: 'orderflow', label: 'Order Flow', icon: <Flame className="h-4 w-4" />, hint: 'resting-liquidity heatmap · absorption & icebergs · tape · venues · liquidations · OI & funding · whole market' },
@@ -49,12 +56,6 @@ const ANALYTICS_ITEMS: RailItem[] = [
   { id: 'quant', label: 'Quant Lab', icon: <Atom className="h-4 w-4" />, hint: 'native realtime engine · GEX levels · IV/PDF/greeks · live SSE tape · perps · ETF/COT/SEC · /api/quant' },
   { id: 'chain', label: 'Option Chain', icon: <CircleDot className="h-4 w-4" />, hint: 'live chains with per-strike BUY / SELL' },
   { id: 'trade', label: 'Trading', icon: <LineChart className="h-4 w-4" />, hint: 'engine CLOB · L2 book · $1M demo equity' },
-];
-
-/** Strategy Lab side — understanding & creation of strategies. */
-const LAB_ITEMS: RailItem[] = [
-  { id: 'strategies', label: 'Strategies', icon: <Layers className="h-4 w-4" />, hint: '131 catalog · payoff up front · intelligence · builder · backtests' },
-  { id: 'paper', label: 'Paper Desk', icon: <FlaskConical className="h-4 w-4" />, hint: 'deploy strategy packages · fills at real venue BBO' },
 ];
 
 export const SIDE_OF_VIEW: Record<ViewId, SideId> = {
@@ -87,57 +88,36 @@ const VIEW_LABEL: Record<ViewId, string> = {
 interface WorkbenchProps {
   view: ViewId;
   onView: (v: ViewId) => void;
-  /** Analytics rail collapsed state. */
-  analyticsCollapsed: boolean;
-  onToggleAnalytics: () => void;
-  /** Strategy Lab rail collapsed state. */
-  labCollapsed: boolean;
-  onToggleLab: () => void;
+  /** Unified rail collapsed state. */
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   children: React.ReactNode;
 }
 
-export function Workbench({
-  view,
-  onView,
-  analyticsCollapsed,
-  onToggleAnalytics,
-  labCollapsed,
-  onToggleLab,
-  children,
-}: WorkbenchProps) {
-  const side = SIDE_OF_VIEW[view];
-
+export function Workbench({ view, onView, collapsed, onToggleCollapsed, children }: WorkbenchProps) {
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
-      {/* ── LEFT · ANALYTICS rail ─────────────────────────────────────────── */}
+      {/* ── UNIFIED RAIL · Strategies on top, then everything else ─────────── */}
       <Rail
-        side="analytics"
-        items={ANALYTICS_ITEMS}
         view={view}
         onView={onView}
-        collapsed={analyticsCollapsed}
-        onToggleCollapsed={onToggleAnalytics}
-        footer={<AnalyticsPulse collapsed={analyticsCollapsed} />}
+        collapsed={collapsed}
+        onToggleCollapsed={onToggleCollapsed}
+        footer={
+          <>
+            <StrategyCard collapsed={collapsed} />
+            <AnalyticsPulse collapsed={collapsed} />
+          </>
+        }
       />
 
       {/* ── CENTER · active workspace ─────────────────────────────────────── */}
       <section className="flex min-w-0 flex-1 flex-col">
-        <BreadcrumbHeader side={side} view={view} />
+        <BreadcrumbHeader view={view} />
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-[1600px] px-4 py-3">{children}</div>
         </div>
       </section>
-
-      {/* ── RIGHT · STRATEGY LAB rail ─────────────────────────────────────── */}
-      <Rail
-        side="lab"
-        items={LAB_ITEMS}
-        view={view}
-        onView={onView}
-        collapsed={labCollapsed}
-        onToggleCollapsed={onToggleLab}
-        footer={<StrategyCard collapsed={labCollapsed} />}
-      />
     </div>
   );
 }
@@ -145,8 +125,6 @@ export function Workbench({
 // ── rail ─────────────────────────────────────────────────────────────────────
 
 interface RailProps {
-  side: SideId;
-  items: RailItem[];
   view: ViewId;
   onView: (v: ViewId) => void;
   collapsed: boolean;
@@ -154,91 +132,112 @@ interface RailProps {
   footer?: React.ReactNode;
 }
 
-function Rail({ side, items, view, onView, collapsed, onToggleCollapsed, footer }: RailProps) {
-  const meta = SIDE_META[side];
-  const isAnalytics = side === 'analytics';
-
+function Rail({ view, onView, collapsed, onToggleCollapsed, footer }: RailProps) {
   return (
     <nav
-      aria-label={meta.label}
-      className={`flex shrink-0 flex-col border-zinc-800/80 bg-zinc-950/70 transition-[width] duration-200 ${
-        isAnalytics ? 'border-r' : 'border-l'
-      } ${collapsed ? 'w-[52px]' : 'w-[52px] md:w-[228px]'}`}
+      aria-label="Terminal navigation"
+      className={`flex shrink-0 flex-col border-r border-zinc-800/80 bg-zinc-950/70 transition-[width] duration-200 ${
+        collapsed ? 'w-[52px]' : 'w-[52px] md:w-[228px]'
+      }`}
     >
       {/* header */}
       <div className={`flex items-center gap-2 px-2 py-2.5 ${collapsed ? 'justify-center' : ''}`}>
         {!collapsed && (
-          <span
-            className={`flex items-center gap-1.5 px-1 text-[9px] font-bold uppercase tracking-[0.18em] ${
-              isAnalytics ? 'text-teal-400' : 'text-violet-400'
-            }`}
-          >
-            {meta.icon}
-            <span className="hidden md:inline">{meta.label}</span>
+          <span className="flex items-center gap-1.5 px-1 text-[9px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+            <Layers className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">volos · workbench</span>
           </span>
         )}
         <button
           onClick={onToggleCollapsed}
-          title={
-            collapsed
-              ? `Expand ${meta.label}${isAnalytics ? ' — keyboard [ ' : ' — keyboard ] '}`
-              : `Collapse ${meta.label} to icons${isAnalytics ? ' — keyboard [ ' : ' — keyboard ] '}`
-          }
-          aria-label={collapsed ? `Expand ${meta.label}` : `Collapse ${meta.label}`}
-          className={`ml-auto flex items-center justify-center rounded-md p-1 text-zinc-600 transition hover:bg-zinc-900 hover:text-zinc-300 ${
-            collapsed ? 'ml-0' : ''
+          title={collapsed ? 'Expand navigation — keyboard [ or ]' : 'Collapse navigation to icons — keyboard [ or ]'}
+          aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          className={`flex items-center justify-center rounded-md p-1 text-zinc-600 transition hover:bg-zinc-900 hover:text-zinc-300 ${
+            collapsed ? 'ml-0' : 'ml-auto'
           }`}
         >
-          {isAnalytics ? (
-            collapsed ? <ChevronsRight className="h-3.5 w-3.5" /> : <ChevronsLeft className="h-3.5 w-3.5" />
-          ) : collapsed ? (
-            <ChevronsLeft className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronsRight className="h-3.5 w-3.5" />
-          )}
+          {collapsed ? <ChevronsRight className="h-3.5 w-3.5" /> : <ChevronsLeft className="h-3.5 w-3.5" />}
         </button>
       </div>
 
-      {/* items */}
+      {/* items — Strategy Lab group pinned on top, Analytics group below */}
       <div className="flex flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden px-1.5 pb-2">
-        {items.map((n) => {
-          const active = view === n.id;
-          return (
-            <button
-              key={n.id}
-              onClick={() => onView(n.id)}
-              title={`${n.label} — ${n.hint}`}
-              className={`group flex shrink-0 items-center rounded-lg text-left transition md:w-full ${
-                collapsed ? 'justify-center px-0 py-2.5' : 'gap-2.5 px-2.5 py-2'
-              } ${
-                active
-                  ? isAnalytics
-                    ? 'bg-teal-950/50 text-teal-300 ring-1 ring-teal-500/30'
-                    : 'bg-violet-950/40 text-violet-300 ring-1 ring-violet-500/30'
-                  : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
-              }`}
-            >
-              <span
-                className={`shrink-0 ${
-                  active ? (isAnalytics ? 'text-teal-400' : 'text-violet-400') : 'text-zinc-500 group-hover:text-zinc-300'
-                }`}
-              >
-                {n.icon}
-              </span>
-              {!collapsed && (
-                <span className="hidden min-w-0 flex-col md:flex">
-                  <span className="text-[11px] font-medium leading-tight">{n.label}</span>
-                  <span className="truncate text-[8px] leading-tight text-zinc-600">{n.hint}</span>
-                </span>
-              )}
-            </button>
-          );
-        })}
+        <GroupLabel side="lab" collapsed={collapsed} />
+        {LAB_ITEMS.map((n) => (
+          <RailButton key={n.id} item={n} side="lab" view={view} onView={onView} collapsed={collapsed} />
+        ))}
+
+        <GroupLabel side="analytics" collapsed={collapsed} />
+        {ANALYTICS_ITEMS.map((n) => (
+          <RailButton key={n.id} item={n} side="analytics" view={view} onView={onView} collapsed={collapsed} />
+        ))}
       </div>
 
-      {/* live footer */}
+      {/* live footers */}
       {footer}
     </nav>
+  );
+}
+
+/** Tiny group divider — a hairline when collapsed, an uppercase label when expanded. */
+function GroupLabel({ side, collapsed }: { side: SideId; collapsed: boolean }) {
+  const meta = SIDE_META[side];
+  if (collapsed) {
+    return <div aria-hidden className="mx-auto my-1.5 h-px w-6 shrink-0 bg-zinc-800" />;
+  }
+  return (
+    <p
+      className={`hidden px-1 pb-0.5 pt-1 text-[8px] font-bold uppercase tracking-[0.18em] md:block ${
+        side === 'lab' ? 'text-violet-400' : 'text-teal-400'
+      }`}
+    >
+      <span className="flex items-center gap-1">
+        {meta.icon}
+        {meta.label}
+      </span>
+    </p>
+  );
+}
+
+interface RailButtonProps {
+  item: RailItem;
+  side: SideId;
+  view: ViewId;
+  onView: (v: ViewId) => void;
+  collapsed: boolean;
+}
+
+function RailButton({ item, side, view, onView, collapsed }: RailButtonProps) {
+  const active = view === item.id;
+  const isLab = side === 'lab';
+  return (
+    <button
+      onClick={() => onView(item.id)}
+      title={`${item.label} — ${item.hint}`}
+      className={`group flex shrink-0 items-center rounded-lg text-left transition md:w-full ${
+        collapsed ? 'justify-center px-0 py-2.5' : 'gap-2.5 px-2.5 py-2'
+      } ${
+        active
+          ? isLab
+            ? 'bg-violet-950/40 text-violet-300 ring-1 ring-violet-500/30'
+            : 'bg-teal-950/50 text-teal-300 ring-1 ring-teal-500/30'
+          : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
+      }`}
+    >
+      <span
+        className={`shrink-0 ${
+          active ? (isLab ? 'text-violet-400' : 'text-teal-400') : 'text-zinc-500 group-hover:text-zinc-300'
+        }`}
+      >
+        {item.icon}
+      </span>
+      {!collapsed && (
+        <span className="hidden min-w-0 flex-col md:flex">
+          <span className="text-[11px] font-medium leading-tight">{item.label}</span>
+          <span className="truncate text-[8px] leading-tight text-zinc-600">{item.hint}</span>
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -283,7 +282,7 @@ function AnalyticsPulse({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-/** Strategy Lab rail footer — the currently loaded strategy. */
+/** Strategy Lab footer — the currently loaded strategy. */
 function StrategyCard({ collapsed }: { collapsed: boolean }) {
   const { strategyName, legs, size, underlying, catalogId } = useStrategy();
 
@@ -317,7 +316,8 @@ function StrategyCard({ collapsed }: { collapsed: boolean }) {
 
 // ── center breadcrumb header ─────────────────────────────────────────────────
 
-function BreadcrumbHeader({ side, view }: { side: SideId; view: ViewId }) {
+function BreadcrumbHeader({ view }: { view: ViewId }) {
+  const side = SIDE_OF_VIEW[view];
   const meta = SIDE_META[side];
   const isAnalytics = side === 'analytics';
   const item =
@@ -344,9 +344,7 @@ function BreadcrumbHeader({ side, view }: { side: SideId; view: ViewId }) {
       {/* keyboard hints — professional touch */}
       <span className="ml-auto hidden items-center gap-2 font-mono text-[8.5px] text-zinc-700 md:flex">
         <span className="rounded border border-zinc-800 px-1 py-0.5">[</span>
-        <span>analytics</span>
-        <span className="rounded border border-zinc-800 px-1 py-0.5">]</span>
-        <span>strategy lab</span>
+        <span>navigation rail</span>
       </span>
     </div>
   );
@@ -354,8 +352,8 @@ function BreadcrumbHeader({ side, view }: { side: SideId; view: ViewId }) {
 
 // ── keyboard shortcuts ───────────────────────────────────────────────────────
 
-/** `[` toggles the Analytics rail, `]` toggles the Strategy Lab rail. */
-export function useRailHotkeys(onToggleAnalytics: () => void, onToggleLab: () => void) {
+/** `[` (or `]`) toggles the unified navigation rail. */
+export function useRailHotkeys(onToggleRail: () => void) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -363,10 +361,9 @@ export function useRailHotkeys(onToggleAnalytics: () => void, onToggleLab: () =>
         t &&
         (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable || t.getAttribute('data-copilot-input') !== null);
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === '[') onToggleAnalytics();
-      if (e.key === ']') onToggleLab();
+      if (e.key === '[' || e.key === ']') onToggleRail();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onToggleAnalytics, onToggleLab]);
+  }, [onToggleRail]);
 }
