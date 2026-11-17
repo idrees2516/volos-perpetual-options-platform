@@ -26,12 +26,13 @@ import { ForecastView } from '@/components/terminal/forecast/forecast-view';
 import { ChainView } from '@/components/terminal/chain-view';
 import { TradeView } from '@/components/terminal/trade-view';
 import { PaperView } from '@/components/terminal/paper-view';
+import { ScriptLabView } from '@/components/terminal/scriptlab/scriptlab-view';
 import { CopilotPanel, MarketSpotBridge, CopilotContextBridge } from '@/components/terminal/copilot/copilot-panel';
 import { useCopilot } from '@/stores/copilot-store';
 import { rehydrateStrategy } from '@/stores/strategy-store';
 import { usePersistedFlag } from '@/hooks/use-persisted-flag';
 
-const VALID_VIEWS: ViewId[] = ['strategies', 'gamma', 'quant', 'orderflow', 'forecast', 'chain', 'trade', 'paper'];
+const VALID_VIEWS: ViewId[] = ['strategies', 'gamma', 'quant', 'orderflow', 'forecast', 'chain', 'trade', 'paper', 'scriptlab'];
 
 function Terminal() {
   const [view, setView] = useState<ViewId>('strategies');
@@ -72,6 +73,7 @@ function Terminal() {
           {view === 'chain' && <ChainView onOpenBuilder={() => setView('strategies')} />}
           {view === 'trade' && <TradeView onOpenBuilder={() => setView('strategies')} />}
           {view === 'paper' && <PaperView />}
+          {view === 'scriptlab' && <ScriptLabView />}
         </Workbench>
         <CopilotPanel view={view} onView={setView} />
       </div>
@@ -81,7 +83,7 @@ function Terminal() {
             VolOS — perpetual options terminal. Real prices: Binance · Bybit · OKX · Deribit index. Research prototype, not investment advice.
           </p>
           <p className="font-mono">
-            rust engine: axum · clob · svi · everlasting · 131 strategies/25 legs &nbsp;|&nbsp; quant lab: volquant native ·
+            rust engine: axum · clob · svi · everlasting · 131 strategies/25 legs &nbsp;|&nbsp; script lab: volscript · pine-style indicators & strategies · backtests · ai codegen &nbsp;|&nbsp; quant lab: volquant native ·
             deribit chain · gex · iv/pdf · sse tape · perps &nbsp;|&nbsp; gamma lab: gex ·
             vex · dealer positioning · flow · 0dte &nbsp;|&nbsp; order flow: heatmap · absorption/iceberg · venue comparison ·
             session levels · liquidations &nbsp;|&nbsp; forecast: conformal intervals on flow bars · flowx/ensemble/ar/theta ·

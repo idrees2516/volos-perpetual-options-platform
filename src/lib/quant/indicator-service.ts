@@ -262,23 +262,36 @@ function computeStats(bars: Bar[], series: Record<string, (number | null)[]>): I
   };
 }
 
-/** Full indicator snapshot for one symbol/timeframe (server-cached 60 s). */
-export async function indicatorSnapshot(symbol: string, tf: TfKey, limit = 240): Promise<IndicatorSnapshot> {
-  const cacheKey = `${symbol}:${tf}:${limit}`;
-  const hit = cache.get(cacheKey);
-  if (hit && Date.now() - hit.ts < TTL_MS) return hit.hit;
+export interface BarsResult {
+  bars: Bar[];
+  source: IndicatorSnapshot['source'];
+  aggBase: number | null;
+}
+
+const g2 = globalThis as unknown as { __volquantBars?: Map<string, { hit: BarsResult; ts: number }> };
+const barsCache = g2.__volquantBars ?? new Map();
+g2.__volquantBars = barsCache;
+const BARS_TTL_MS = 30_000;
+
+/**
+ * The store-first bar ladder WITHOUT the indicator battery — the Script Lab
+ * data source (VolScript runs client-side, UI and AI see the same bars).
+ * Ladder identical to indicatorSnapshot: native tf → 30m/1m aggregation →
+ * ONE live sweep fallback, contiguous-run trim, never fake.
+ */
+export async function loadBars(symbol: string, tf: TfKey, limit = 500): Promise<BarsResult> {
+  const maxBars = Math.max(60, Math.min(1000, limit));
+  const cacheKey = `${symbol}:${tf}:${maxBars}`;
+  const hit = barsCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < BARS_TTL_MS) return hit.hit;
 
   const tfSec = TF_SECONDS[tf];
-  const maxBars = Math.max(60, Math.min(500, limit));
-
-  // 1 — native timeframe in the store
   let bars = await storedBars(symbol, tfSec, maxBars).catch(() => [] as Bar[]);
   let source: IndicatorSnapshot['source'] = 'store';
   let aggBase: number | null = null;
   const minUsable = Math.min(maxBars, 60);
   const staleMs = Math.max(tfSec * 3 * 1000, 120_000);
 
-  // 2 — aggregate up from a finer stored base (30m backfill mirror first, 1m live-mirror second)
   if (bars.length < minUsable) {
     for (const baseSec of [1800, 60]) {
       if (tfSec <= baseSec || tfSec % baseSec !== 0) continue;
@@ -293,26 +306,19 @@ export async function indicatorSnapshot(symbol: string, tf: TfKey, limit = 240):
     }
   }
 
-  // ── selection ladder (store-first, degrade honestly, never fake) ────────
-  // 2a — only the newest CONTIGUOUS run is indicator-safe (a mirror hole
-  //      spanning the gap would fabricate -14% dumps and RSI 1.6)
+  // only the newest CONTIGUOUS run is indicator-safe (holes fabricate moves)
   const trimmed = trimContiguous(bars, tfSec);
   const fresh = trimmed.length > 0 && Date.now() - trimmed[trimmed.length - 1].ts <= staleMs;
 
   if (trimmed.length >= minUsable && fresh) {
-    // deep-enough fresh mirror → serve it, never re-hit the venue
     bars = trimmed;
   } else {
-    // 2.5/3 — short or stale mirror (cold store, recycled sandbox, backfill
-    // still filling) → ONE live klines call
     const live = await liveBars(symbol, tf, maxBars).catch(() => [] as Bar[]);
     if (live.length >= 30) {
       bars = live;
       source = 'live';
       aggBase = null;
     } else if (trimmed.length >= 30) {
-      // live flaked — degrade to the contiguous stored window (aged or short,
-      // but REAL) rather than blanking the chart
       bars = trimmed;
       source = 'store-stale';
     } else {
@@ -321,6 +327,21 @@ export async function indicatorSnapshot(symbol: string, tf: TfKey, limit = 240):
       );
     }
   }
+
+  const result: BarsResult = { bars, source, aggBase };
+  if (bars.length >= 30) barsCache.set(cacheKey, { hit: result, ts: Date.now() });
+  return result;
+}
+
+/** Full indicator snapshot for one symbol/timeframe (server-cached 60 s). */
+export async function indicatorSnapshot(symbol: string, tf: TfKey, limit = 240): Promise<IndicatorSnapshot> {
+  const cacheKey = `${symbol}:${tf}:${limit}`;
+  const hit = cache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < TTL_MS) return hit.hit;
+
+  const maxBars = Math.max(60, Math.min(500, limit));
+  const tfSec = TF_SECONDS[tf];
+  const { bars, source, aggBase } = await loadBars(symbol, tf, maxBars);
 
   const series = computeBattery(bars);
   const stats = computeStats(bars, series);
