@@ -11,6 +11,9 @@
 //   Overview        brief: spot vs dealer levels, IV/VRP, EM, perps, tape
 //   Signals         decision battery: regime gauge, playbook, watchlist
 //   Whole Market    cross-symbol screener: z-scores, leaderboards
+//   Market Map      breadth treemap + cross-asset correlation matrix
+//   Indicators      candlestick chart + technical battery (EMA/BB/VWAP/
+//                   SuperTrend/Ichimoku overlays; RSI/MACD/Stoch/ADX/Δ+CVD)
 //   GEX & Positioning   levels, strike profile, heatmap, ladder, history
 //   Chain & OPEX    per-expiry summary, dual-sided chain, OPEX calendar
 //   IV Analytics    term, skew, smile, IV-vs-RV, expected move, 3D surface
@@ -26,7 +29,7 @@
 // -----------------------------------------------------------------------------
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Atom, LayoutGrid, Activity, Link2, Sigma, Layers3, Waves, Radio, LineChart, Landmark, BookOpen, Compass, Globe2, ShieldAlert, Gauge, FlaskConical, Grid3x3 } from 'lucide-react';
+import { Atom, LayoutGrid, Activity, Link2, Sigma, Layers3, Waves, Radio, LineChart, Landmark, BookOpen, Compass, Globe2, ShieldAlert, Gauge, FlaskConical, Grid3x3, CandlestickChart } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Pill } from './quant-viz';
 import { useAgeLabel, useQuant } from './use-quant';
@@ -42,6 +45,7 @@ import { CatalogPanel } from './panels-catalog';
 import { SignalsPanel } from './panels-signals';
 import { ScreenerPanel } from './panels-screener';
 import { MarketMapPanel } from './panels-map';
+import { IndicatorsPanel } from './panels-indicators';
 import { VolRegimePanel } from './panels-volregime';
 import { RiskPanel } from './panels-risk';
 import { ResearchPanel } from './panels-research';
@@ -60,6 +64,7 @@ const TABS = [
   { id: 'signals', label: 'Signals & Decisions', icon: <Compass className="h-3 w-3" /> },
   { id: 'screener', label: 'Whole Market', icon: <Globe2 className="h-3 w-3" /> },
   { id: 'map', label: 'Market Map', icon: <Grid3x3 className="h-3 w-3" /> },
+  { id: 'indicators', label: 'Indicators', icon: <CandlestickChart className="h-3 w-3" /> },
   { id: 'gex', label: 'GEX & Positioning', icon: <Activity className="h-3 w-3" /> },
   { id: 'chain', label: 'Chain & OPEX', icon: <Link2 className="h-3 w-3" /> },
   { id: 'iv', label: 'IV Analytics', icon: <Sigma className="h-3 w-3" /> },
@@ -160,6 +165,9 @@ export function QuantLabView() {
         </TabsContent>
         <TabsContent value="map" className="mt-2">
           <MarketMapPanel onFocusSymbol={focusSymbol} />
+        </TabsContent>
+        <TabsContent value="indicators" className="mt-2">
+          <IndicatorsPanel symbol={symbol} />
         </TabsContent>
         <TabsContent value="gex" className="mt-2">
           <GexPanel symbol={symbol} hasOptions={hasOptions} />

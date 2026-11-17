@@ -1,11 +1,11 @@
 # VolOS V2 — Aesthetics, Heatmaps, Indicators & Copilot Deep-Integration Roadmap
 
-> **Status: PLAN + P1 SHIPPED.** This is the agreed next-steps roadmap for the
-> VolOS perpetual-options terminal. Three items landed so far:
+> **Status: PLAN + P0/P1/P2 SHIPPED.** This is the agreed next-steps roadmap for the
+> VolOS perpetual-options terminal. Landed so far:
 > 1. *(shipped earlier)* The left (Analytics) and right (Strategy Lab) nav rails
 >    were **merged into ONE unified rail** with **Strategies pinned on top**;
 >    InstaBox deployment retired — localhost + preview only.
-> 2. *(shipped — P1, this round)* **`feat/design-tokens`**: the `--volos-*` token
+> 2. *(shipped — P1)* **`feat/design-tokens`**: the `--volos-*` token
 >    layer (surfaces / edges / pos-neg-neut numerals / focus) in `globals.css`,
 >    a persisted **compact|comfortable density toggle** (row heights / cell
 >    padding via CSS vars, wired through the topbar), **LiveNum/LivePct**
@@ -13,7 +13,7 @@
 >    live on the topbar ticker, and the shared **PanelState** primitive
 >    (skeletons sized to content / empty / error+retry) with shimmer +
 >    reduced-motion discipline.
-> 3. *(shipped — P1, this round)* **`feat/heatmap-system`**: shared
+> 3. *(shipped — P1)* **`feat/heatmap-system`**: shared
 >    `src/lib/quant/heatmap.ts` (rose↔slate↔teal diverging scale, viridis-class
 >    sequential scale, legend ticks, squarified-treemap layout — 13 unit tests),
 >    the **Market Map tab** in Quant Lab with the **market-breadth treemap**
@@ -23,6 +23,19 @@
 >    the **cross-asset correlation matrix** (8 majors × 7d/30d/90d Pearson on
 >    log returns from the backfill store with a live fallback, per-asset
 >    drop-resilience), and the shared **HeatLegend**.
+> 4. *(shipped — P2)* **`feat/indicator-core`**: the technical battery end-to-end —
+>    `src/lib/quant/indicators.ts` (pure kernels: SMA/EMA/WMA, RSI, MACD,
+>    Stochastic, ADX/DMI, Aroon, Supertrend, Ichimoku, Bollinger, ATR, Keltner,
+>    Donchian, historical vol, BB-vs-KC squeeze, OBV, anchored VWAP, per-bar
+>    delta, CVD, taker ratio — **25 unit tests**), the store-first
+>    `indicator-service.ts` (native tf → 30m/1m aggregation → live fallback,
+>    **contiguity trim** so mirror holes can't fabricate moves, staleness
+>    guard, store-stale degrade ladder, escalating venue backoff),
+>    `GET /api/quant/indicators` (39 aligned series + decision stats), the
+>    **Indicators tab** in Quant Lab with `<IndicatorChart>` — canvas candles
+>    + volume shadow + EMA/BB/VWAP/Supertrend/Ichimoku-cloud/Donchian overlays,
+>    Δ+CVD / RSI / MACD / Stoch / ADX / OBV sub-panes, crosshair + OHLCV tooltip,
+>    and every control persisted (new `usePersistedState` external-store hook).
 >
 > Everything else below is design + research + phasing for future PRs.
 
@@ -127,7 +140,7 @@ sub-panels, cards, even the footer strips — with persisted state.
 
 ---
 
-## 4. Indicator library (research done — decision proposed)
+## 4. Indicator library (P2 core SHIPPED — kernels in-house)
 
 **What "openalgocharts" is**: the user-referenced library is
 [openalgo-charts](https://github.com/marketcalls/openalgo-charts) (npm
@@ -149,11 +162,21 @@ Comparison (researched):
 | ECharts | Apache-2.0 | n/a (viz primitives: treemap, heatmap, matrix) | n/a | ★★★ already the heat/viz layer choice |
 | technicalindicators / Trading-Lib | MIT | 30-127 | none | ★ stale / early-stage, TS-only compute |
 
-**Proposed stack (decision to confirm before build):**
-`openalgo-charts` as the interactive candlestick/indicator chart core +
-`PineTS` as the server-side indicator runtime (Pine ecosystem + MTF +
-streaming recalc on our SSE tape) + ECharts for heatmaps/treemaps/correlations.
-All Apache-2.0/MIT-class, zero license risk, no vendor lock.
+**Decision as shipped (P2): the compute layer went IN-HOUSE.** The kernel
+library (`src/lib/quant/indicators.ts`, pure TS, zero dependencies, 25 unit
+tests) + store-first service + `/api/quant/indicators` + `<IndicatorChart>`
+landed with no new chart dependencies — same doctrine as the heatmap phase
+(one visual language, no bundle weight). openalgo-charts and PineTS remain
+candidates for LATER phases where they earn their keep:
+
+- **openalgo-charts** — if/when we want drawing tools, the exotic bar types
+  (Renko, P&F, Kagi) and the long-tail indicator catalog (112), wired as a
+  SECOND chart core for the Indicators tab behind a dynamic import.
+- **PineTS** — if/when the copilot needs to run Pine Script logic
+  (`request.security()` MTF context) as server-side indicator feeds.
+
+Until then the shipped kernels cover families 1/2/3 and the options-native
+family 4 hooks into our own GEX/IV engines (see §5).
 
 **Indicator families to expose** (progressive):
 
@@ -172,15 +195,17 @@ All Apache-2.0/MIT-class, zero license risk, no vendor lock.
 6. **Multi-timeframe**: 1m→1d via our stored history; PineTS
    `request.security()` for higher-TF context on live tape.
 
-**Architecture** (when implemented):
-- Server-side compute first (`src/lib/quant/indicators.ts` calling PineTS /
-  openalgo indicator kernels over stored + live bars), cached with the
-  existing TTL-cache pattern, exposed via `/api/quant/indicators`.
-- Chart component `<IndicatorChart symbol venue timeframe overlays…>` wrapping
-  openalgo-charts; overlays declared in URL/search-param state so views are
-  shareable.
-- Per-user defaults persisted (`ui-store`), and every indicator value stream
-  is readable by the copilot (see §5).
+**Architecture (as implemented in P2):**
+- Server-side compute first: `src/lib/quant/indicators.ts` (pure kernels) +
+  `src/lib/quant/indicator-service.ts` (store-first bar loader: native tf →
+  30m/1m aggregation → live fallback, contiguity trim, staleness guard,
+  60 s cache), exposed via `GET /api/quant/indicators` — 39 aligned series +
+  decision stats per snapshot.
+- Chart component `<IndicatorChart symbol-bars overlays subpane>` — canvas
+  core in the terminal's visual language; overlay choices persisted per user
+  (`usePersistedState`, localStorage, external-store pattern).
+- Every indicator value stream is readable by the copilot (see §5 — P3).
+- openalgo-charts / PineTS enter only as later additions (see decision above).
 
 ---
 
@@ -240,16 +265,16 @@ Planned next:
 
 | Phase | PR | Scope | Depends on |
 |---|---|---|---|
-| P0 | `feat/unified-rail` | shipped (this round) | — |
-| P0 | `chore/retire-instabox` | shipped (this round): remove deploy scripts/docs; preview+localhost only | — |
+| P0 | `feat/unified-rail` | shipped | — |
+| P0 | `chore/retire-instabox` | shipped: deploy tooling removed; preview+localhost only | — |
 | P1 | `feat/design-tokens` | **SHIPPED** — `--volos-*` token layer, density toggle, LiveNum flash, PanelState | — |
 | P1 | `feat/heatmap-system` | **SHIPPED** — shared color/legend module + breadth treemap + correlation matrix (Market Map tab) | stored history |
-| P2 | `feat/indicator-core` | §4: openalgo-charts + PineTS wiring, `/api/quant/indicators`, `<IndicatorChart>` with family-1/2/3 overlays | P1 tokens |
-| P2 | `feat/depth-heatmap-v2` + IV/GEX heatmaps | §1 remaining visual set | heatmap-system |
+| P2 | `feat/indicator-core` | **SHIPPED** — indicator kernels (25 tests) + store-first `/api/quant/indicators` + `<IndicatorChart>` + Indicators tab (families 1/2/3) | P1 tokens |
+| P2b | `feat/depth-heatmap-v2` + IV/GEX heatmaps | §1 remaining visual set | heatmap-system |
 | P3 | `feat/collapsible-everywhere` | §3 primitive + registry + migration order | P1 |
 | P3 | `feat/copilot-indicator-integration` | §5 tools + bridges + scheduled Firecrawl pulls + RAG journaling | indicator-core |
 | P4 | `feat/navigation-v2` | command palette, URL state, responsive, keyboard map | collapsible |
-| P5 | `chore/ci-hardening` | typecheck baseline (323 pre-existing errors → 0), lint gates, Playwright smoke of the golden paths, dev.log hygiene | all |
+| P5 | `chore/ci-hardening` | typecheck baseline (251 pre-existing errors → 0), lint gates, Playwright smoke of the golden paths, dev.log hygiene | all |
 
 Acceptance per phase: browser-verified golden path, existing vitest suite
 green, no console errors, `bun run lint` clean on touched files, screenshots
