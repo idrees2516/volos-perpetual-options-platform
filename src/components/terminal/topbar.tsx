@@ -1,20 +1,26 @@
 'use client';
 
 // Terminal top bar: brand, live asset ticker with REAL exchange prices,
-// AI Copilot and engine status.
+// density control, AI Copilot and engine status.
 //
 // The old MAIN tab strip is RETIRED — navigation moved into the unified
 // collapsible Workbench rail (Strategies pinned on top, everything else
 // below), so the header stays a clean, slim command bar.
+//
+// v2 chrome pass: token-driven surfaces (bg-volos-bg …), tabular flashing
+// numerals (LiveNum — teal up / rose down), and the persisted density
+// toggle (compact | comfortable) that resizes every density-aware panel.
 
 import React from 'react';
-import { Waves, Sparkles, Radio } from 'lucide-react';
+import { Waves, Sparkles, Radio, Rows3 } from 'lucide-react';
 import type { UnderlyingId } from '@/lib/types';
 import { ASSET_META } from '@/lib/types';
 import { useMarket } from '@/hooks/use-market';
 import { useStrategy } from '@/stores/strategy-store';
 import { useCopilot } from '@/stores/copilot-store';
-import { fmtNum, fmtPctSigned } from '@/lib/format';
+import { useDensity } from '@/stores/density-store';
+import { fmtNum } from '@/lib/format';
+import { LiveNum, LivePct } from '@/components/ui/live-num';
 
 export type ViewId = 'strategies' | 'gamma' | 'chain' | 'trade' | 'paper' | 'quant' | 'orderflow' | 'forecast';
 
@@ -22,9 +28,10 @@ export function TopBar() {
   const { market, smooth, connected, live, retry } = useMarket();
   const { underlying, setUnderlying } = useStrategy();
   const { open: copilotOpen, toggle: toggleCopilot } = useCopilot();
+  const { density, toggleDensity } = useDensity();
 
   return (
-    <header className="sticky top-0 z-40 border-b border-zinc-800/80 bg-[#05070a]/95 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-[var(--volos-edge)] bg-[var(--volos-bg)]/95 backdrop-blur">
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
         {/* Brand */}
         <div className="flex items-center gap-2">
@@ -39,8 +46,8 @@ export function TopBar() {
           </div>
         </div>
 
-        {/* Asset selector — REAL live exchange prices */}
-        <div className="ml-auto flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900/50 p-0.5">
+        {/* Asset selector — REAL live exchange prices, flash-on-change */}
+        <div className="ml-auto flex items-center gap-1 rounded-lg border border-[var(--volos-edge)] bg-[var(--volos-surface-1)]/60 p-0.5">
           {(Object.keys(ASSET_META) as UnderlyingId[]).map((a) => {
             const st = smooth[a] ?? market.assets[a];
             const active = underlying === a;
@@ -53,10 +60,12 @@ export function TopBar() {
                 }`}
               >
                 <span className="text-[9px] text-zinc-500">{ASSET_META[a].symbol}</span>
-                {fmtNum(st.spot, st.spot >= 1000 ? 0 : 1)}
-                <span className={`text-[9px] ${(st.change24h ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {fmtPctSigned(st.change24h ?? 0, 2)}
-                </span>
+                <LiveNum
+                  value={st.spot}
+                  format={(v) => fmtNum(v, v >= 1000 ? 0 : 1)}
+                  title={`${a} spot — flashes teal up / rose down`}
+                />
+                <LivePct value={st.change24h ?? 0} digits={2} />
               </button>
             );
           })}
@@ -71,6 +80,20 @@ export function TopBar() {
           )}
         </div>
 
+        {/* Density — compact | comfortable (persisted, resizes every panel) */}
+        <button
+          onClick={toggleDensity}
+          title={`density: ${density} — click to switch (${density === 'compact' ? 'more rows on screen' : 'roomier rows, easier scanning'})`}
+          className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition ${
+            density === 'compact'
+              ? 'border-teal-700/50 bg-teal-950/40 text-teal-200'
+              : 'border-[var(--volos-edge-strong)] bg-[var(--volos-surface-2)] text-zinc-300'
+          }`}
+        >
+          <Rows3 className="h-3.5 w-3.5" />
+          {density === 'compact' ? 'compact' : 'comfort'}
+        </button>
+
         {/* AI Copilot toggle */}
         <button
           onClick={toggleCopilot}
@@ -78,7 +101,7 @@ export function TopBar() {
           className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition ${
             copilotOpen
               ? 'border-violet-500/50 bg-violet-950/60 text-violet-200 shadow-[0_0_14px_rgba(139,92,246,0.25)]'
-              : 'border-zinc-800 bg-zinc-900/50 text-zinc-400 hover:border-violet-800/60 hover:text-violet-300'
+              : 'border-[var(--volos-edge)] bg-[var(--volos-surface-1)]/60 text-zinc-400 hover:border-violet-800/60 hover:text-violet-300'
           }`}
         >
           <Sparkles className="h-3.5 w-3.5" />
