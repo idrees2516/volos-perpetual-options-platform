@@ -2,15 +2,17 @@
 
 // VolOS — perpetual options strategy terminal.
 //
-// TWO-SIDED COLLAPSIBLE WORKBENCH shell:
-//   • Left rail  — ANALYTICS     (Gamma & Flow · Option Chain · Trading)
-//   • Right rail — STRATEGY LAB  (Strategies · Paper Desk)
+// UNIFIED COLLAPSIBLE WORKBENCH shell:
+//   • One rail   — STRATEGIES pinned on top, then Paper Desk and every
+//                  analytics view below (the old left/right panels merged)
 //   • Center     — the active workspace under a breadcrumb header
+//   • Right      — the AI Copilot drawer (grounded in live terminal context)
 //
-// The former top MAIN tab strip is retired; each rail collapses to a slim
-// icon strip (keyboard `[` / `]`), and the active view, rail states and the
-// selected strategy all persist across reloads. The AI Copilot is grounded
-// in the live terminal context via CopilotContextBridge.
+// The former two-sided shell (left Analytics rail + right Strategy Lab rail)
+// is retired; the merged rail collapses to a slim icon strip (keyboard `[` / `]`),
+// and the active view, rail state and the selected strategy all persist across
+// reloads. The AI Copilot is grounded in the live terminal context via
+// CopilotContextBridge.
 
 import { useEffect, useState } from 'react';
 import { MarketProvider } from '@/hooks/use-market';
@@ -33,10 +35,9 @@ const VALID_VIEWS: ViewId[] = ['strategies', 'gamma', 'quant', 'orderflow', 'for
 
 function Terminal() {
   const [view, setView] = useState<ViewId>('strategies');
-  const [analyticsCollapsed, toggleAnalytics] = usePersistedFlag('volos-rail-analytics-collapsed', false);
-  const [labCollapsed, toggleLab] = usePersistedFlag('volos-rail-lab-collapsed', false);
+  const [railCollapsed, toggleRail] = usePersistedFlag('volos-rail-collapsed', false);
   const copilotOpen = useCopilot((s) => s.open);
-  useRailHotkeys(toggleAnalytics, toggleLab);
+  useRailHotkeys(toggleRail);
 
   // Restore the persisted view + strategy selection after mount.
   useEffect(() => {
@@ -62,14 +63,7 @@ function Terminal() {
     <div className="flex min-h-screen flex-col bg-[#05070a] text-zinc-200">
       <TopBar />
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <Workbench
-          view={view}
-          onView={setView}
-          analyticsCollapsed={analyticsCollapsed}
-          onToggleAnalytics={toggleAnalytics}
-          labCollapsed={labCollapsed}
-          onToggleLab={toggleLab}
-        >
+        <Workbench view={view} onView={setView} collapsed={railCollapsed} onToggleCollapsed={toggleRail}>
           {view === 'strategies' && <StrategiesView onOpenTrade={() => setView('trade')} />}
           {view === 'gamma' && <GammaLabView />}
           {view === 'quant' && <QuantLabView />}
