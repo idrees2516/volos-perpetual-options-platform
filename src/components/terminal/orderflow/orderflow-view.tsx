@@ -67,7 +67,17 @@ function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(key);
-      if (raw !== null) setValue(JSON.parse(raw) as T);
+      if (raw !== null) {
+        const parsed = JSON.parse(raw) as T;
+        // merge over defaults when BOTH are plain objects, so NEW keys
+        // (e.g. showWalls) default-on for sessions that persisted options
+        // before the key existed — scalars pass through untouched
+        const merge =
+          initial !== null && typeof initial === 'object' && parsed !== null && typeof parsed === 'object'
+            ? ({ ...(initial as object), ...(parsed as object) } as T)
+            : parsed;
+        setValue(merge);
+      }
     } catch {
       /* private mode */
     }

@@ -439,7 +439,13 @@ function FundingPanel() {
             <HeatMatrix
               rows={data.assets}
               cols={data.times.map((t) => new Date(t).toLocaleDateString(undefined, { month: 'numeric', day: '2-digit' }))}
-              values={data.aprPct.map((row) => row.map((v) => (v == null || !Number.isFinite(v) ? NaN : v)))}
+              // HeatMatrix indexes values[col][row]; our grid is [asset][time] — transpose
+              values={data.times.map((_, ci) =>
+                data.assets.map((_, ri) => {
+                  const v = data.aprPct[ri][ci];
+                  return v == null || !Number.isFinite(v) ? NaN : v;
+                }),
+              )}
               format={(v) => (Number.isFinite(v) ? `${v >= 0 ? '+' : ''}${v.toFixed(0)}` : '·')}
               // NEGATED on purpose: positive funding (longs pay) reads rose =
               // crowded leverage, negative (shorts pay) reads teal — the
