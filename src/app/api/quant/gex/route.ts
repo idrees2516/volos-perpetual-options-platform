@@ -1,5 +1,6 @@
-// GET /api/quant/gex?symbol=BTC&view=levels|strike|expiry|heatmap|ladder|multi
+// GET /api/quant/gex?symbol=BTC&view=levels|strike|expiry|heatmap|ladder|session|multi
 import { getChainSnapshot } from '@/lib/quant/engine';
+import { getGexSession } from '@/lib/quant/gex-session';
 import { multiSymbolLevels } from '@/lib/quant/quant';
 import { guard, qErr, qOk, searchParams } from '@/lib/quant/http';
 
@@ -52,6 +53,15 @@ export async function GET(req: Request) {
     })();
 
     switch (view) {
+      case 'session': {
+        const minutes = Math.max(15, Math.min(240, Number(sp.get('minutes')) || 120));
+        const data = await getGexSession(symbol, minutes);
+        return qOk(data, {
+          computeMs: Date.now() - t0,
+          note: 'net dealer gamma per strike through the session — sampled ≤1/min off the shared chain snapshot',
+          sources: ['deribit'],
+        });
+      }
       case 'strike':
         return qOk(
           {
