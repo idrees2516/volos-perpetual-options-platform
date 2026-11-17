@@ -25,48 +25,12 @@ import { PanelState } from '@/components/ui/panel-state';
 import { correlationColor, divergingColor, legendTicks, sequentialColor, squarify, type TreemapRect } from '@/lib/quant/heatmap';
 import type { BreadthResult, BreadthTile } from '@/lib/quant/breadth';
 import type { CorrelationResult } from '@/lib/quant/correlation';
+import type { FundingGridResult } from '@/lib/quant/funding-grid';
 import { useQuant, useAgeLabel } from './use-quant';
-import { Panel, Pill, LiveDot, Segmented, HeatMatrix } from './quant-viz';
+import { Panel, Pill, LiveDot, Segmented, HeatMatrix, HeatLegend } from './quant-viz';
 
-// ── shared legend ───────────────────────────────────────────────────────────
-
-export function HeatLegend({
-  min,
-  max,
-  label,
-  n = 7,
-  fixed,
-  scale = 'diverging',
-}: {
-  min: number;
-  max: number;
-  label: string;
-  n?: number;
-  /** fixed [min,max] domain — skips tick scaling (e.g. correlation −1..1) */
-  fixed?: [number, number];
-  scale?: 'diverging' | 'sequential';
-}) {
-  const dom = fixed ?? [min, max];
-  const ticks = legendTicks(dom[0], dom[1], n);
-  const stops = [0, 0.2, 0.35, 0.5, 0.65, 0.8, 1];
-  const grad =
-    scale === 'sequential'
-      ? `linear-gradient(90deg, ${stops.map((t) => sequentialColor(t)).join(', ')})`
-      : `linear-gradient(90deg, ${stops.map((t) => correlationColor(dom[0] + (dom[1] - dom[0]) * t)).join(', ')})`;
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-[8px] font-semibold uppercase tracking-[0.12em] text-zinc-600">{label}</span>
-      <div className="flex items-center gap-1.5">
-        <div className="h-2 w-32 rounded-full ring-1 ring-white/10" style={{ background: grad }} />
-        <div className="flex justify-between text-[8px] font-mono text-zinc-500">
-          {ticks.map((t, i) => (
-            <span key={i} className="min-w-[26px] text-center">{t.label}</span>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+// re-exported for existing import sites — the legend now lives in quant-viz
+export { HeatLegend };
 
 // ── breadth treemap (canvas) ────────────────────────────────────────────────
 
@@ -414,6 +378,91 @@ function CorrelationPanel() {
   );
 }
 
+// ── funding heat panel — the leverage map ────────────────────────────────────
+
+function FundingPanel() {
+  const [window, setWindow] = useState<'7d' | '30d'>('7d');
+  const scan = useQuant<FundingGridResult>('/market/funding', { window }, { pollMs: 300_000 });
+  const age = useAgeLabel(scan.fetchedAt);
+  const data = scan.data;
+
+  // robust symmetric domain: p90 of |APR| — one +300% APR outlier must not
+  // wash every major to neutral slate
+  const domain = useMemo<[number, number]>(() => {
+    const vals = (data?.aprPct ?? []).flat().filter((v): v is number => v != null && Number.isFinite(v)).map(Math.abs).sort((a, b) => a - b);
+    if (!vals.length) return [-10, 10];
+    const q = vals[Math.min(vals.length - 1, Math.floor(vals.length * 0.9))];
+    const m = Math.max(q, 5);
+    return [-m, m];
+  }, [data]);
+
+  const s = data?.stats;
+  return (
+    <Panel
+      title="Funding Heat — where is the leverage"
+      sub="8h funding events × desk majors · APR annualized · rose = longs pay (crowded) · teal = shorts pay (cheap)"
+      right={
+        <>
+          <Segmented
+            value={window}
+            onChange={(v) => setWindow(v as '7d' | '30d')}
+            options={[{ id: '7d', label: '7d' }, { id: '30d', label: '30d' }]}
+          />
+          {data && <LiveDot ok={!scan.error} label={`${data.source} · ${age}`} />}
+        </>
+      }
+    >
+      <PanelState
+        loading={!data && scan.loading}
+        error={scan.error}
+        onRetry={scan.refresh}
+        skeletonRows={8}
+        skeletonCols={14}
+        empty={data && data.assets.length === 0 ? 'no funding history yet — backfill filling' : undefined}
+      >
+        {data && (
+          <div className="space-y-2.5">
+            {s && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[9px]">
+                <span className="font-mono text-zinc-400">avg latest <span className="text-zinc-200">{s.avgAprPct != null ? `${s.avgAprPct >= 0 ? '+' : ''}${s.avgAprPct.toFixed(1)}%` : '—'}</span></span>
+                <span className="font-mono text-zinc-400">longs pay <span className="text-rose-300">{s.longsPay}</span></span>
+                <span className="font-mono text-zinc-400">shorts pay <span className="text-teal-300">{s.shortsPay}</span></span>
+                {s.hottest && (
+                  <span className="font-mono text-zinc-400">crowded <span className="text-rose-300">{s.hottest.symbol} +{s.hottest.aprPct.toFixed(1)}%</span></span>
+                )}
+                {s.coldest && (
+                  <span className="font-mono text-zinc-400">cheapest <span className="text-teal-300">{s.coldest.symbol} {s.coldest.aprPct.toFixed(1)}%</span></span>
+                )}
+                <Pill tone="zinc">{data.assets.length} × {data.times.length} events</Pill>
+              </div>
+            )}
+            <HeatMatrix
+              rows={data.assets}
+              cols={data.times.map((t) => new Date(t).toLocaleDateString(undefined, { month: 'numeric', day: '2-digit' }))}
+              values={data.aprPct.map((row) => row.map((v) => (v == null || !Number.isFinite(v) ? NaN : v)))}
+              format={(v) => (Number.isFinite(v) ? `${v >= 0 ? '+' : ''}${v.toFixed(0)}` : '·')}
+              // NEGATED on purpose: positive funding (longs pay) reads rose =
+              // crowded leverage, negative (shorts pay) reads teal — the
+              // desk's funding semantics, same color scale everywhere else
+              colorFn={(v) => divergingColor(Number.isFinite(v) ? -v : 0, domain[1])}
+              height={24}
+              titleFn={(v, r, c) =>
+                Number.isFinite(v)
+                  ? `${data.assets[r]} · ${new Date(data.times[c]).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit' })}: ${v >= 0 ? '+' : ''}${v.toFixed(2)}% APR (8h ${(v / (3 * 365 * 100)).toFixed(5)})`
+                  : 'no observation'
+              }
+            />
+            <div className="flex items-center justify-between">
+              <HeatLegend min={domain[0]} max={domain[1]} label="apr %" />
+              <p className="text-[8.5px] text-zinc-600">{data.note}</p>
+            </div>
+          </div>
+        )}
+      </PanelState>
+    </Panel>
+  );
+}
+
 // ── the MARKET MAP tab ───────────────────────────────────────────────────────
 
 export function MarketMapPanel({ onFocusSymbol }: { onFocusSymbol?: (symbol: string) => void }) {
@@ -422,7 +471,7 @@ export function MarketMapPanel({ onFocusSymbol }: { onFocusSymbol?: (symbol: str
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-zinc-800/70 bg-zinc-900/30 px-3 py-1.5">
         <LayoutGrid className="h-3.5 w-3.5 text-teal-400" />
         <p className="text-[11px] font-semibold tracking-tight text-zinc-200">Market Map</p>
-        <p className="text-[9px] text-zinc-600">whole-market breadth + cross-asset correlation — the two "where are we" pictures</p>
+        <p className="text-[9px] text-zinc-600">whole-market breadth + cross-asset correlation + funding heat — the "where are we, where is the leverage" pictures</p>
         <span className="ml-auto flex items-center gap-1 text-[8.5px] text-zinc-600">
           <Info className="h-3 w-3" />
           heat: teal = positive · rose = negative
@@ -430,6 +479,7 @@ export function MarketMapPanel({ onFocusSymbol }: { onFocusSymbol?: (symbol: str
       </div>
       <BreadthPanel onFocusSymbol={onFocusSymbol} />
       <CorrelationPanel />
+      <FundingPanel />
     </div>
   );
 }
