@@ -15,7 +15,7 @@
 // ---------------------------------------------------------------------------
 
 import { tool, jsonSchema } from 'ai';
-import { researchWeb, scrapePage, webIntelProvider } from './web-intel';
+import { researchWeb, scrapePage, webIntelProvider, discoverAlexandriaTools, callAlexandriaTool } from './web-intel';
 import { alexandriaCatalogBrief, routeAlexandriaSources } from './alexandria-sources';
 
 export const webIntelTools = {
@@ -108,6 +108,69 @@ export const webIntelTools = {
       ],
       sources: alexandriaCatalogBrief(),
     }),
+  }),
+
+  pull_web_data: tool({
+    description:
+      'Pull STRUCTURED data from the open web through Firecrawl Alexandria provider tools (needs FIRECRAWL_API_KEY — the desk otherwise answers via z-ai search fallback). Discovers the available provider tools for a data domain (e.g. "bitcoin funding rates", "options open interest", "crypto news", "ETF flows") and executes one as a structured JSON pull. Use it when you need NUMBERS from the web rather than prose: funding/OI snapshots, news API listings, market stats. When Firecrawl is not configured it says so — then fall back to research_web + scrape_page and say plainly that structured web data is unavailable.',
+    parameters: jsonSchema<{
+      domain: string;
+      provider?: string;
+      capability?: string;
+    }>({
+      type: 'object',
+      properties: {
+        domain: {
+          type: 'string',
+          description: 'What data is needed, as a short phrase — e.g. "bitcoin funding rates", "BTC options open interest", "latest crypto macro news"',
+        },
+        provider: {
+          type: 'string',
+          description: 'Optional: a specific Firecrawl Alexandria provider id (from a previous discovery) — skip to auto-discover',
+        },
+        capability: {
+          type: 'string',
+          description: 'Optional: a specific capability of that provider — skip to auto-discover',
+        },
+      },
+      required: ['domain'],
+    }),
+    execute: async ({ domain, provider, capability }) => {
+      if (webIntelProvider() !== 'firecrawl') {
+        return {
+          configured: false,
+          note: 'Firecrawl is not configured on this desk — set FIRECRAWL_API_KEY in .env.local to unlock structured web-data pulls (Alexandria provider tools). Use research_web / scrape_page meanwhile.',
+        };
+      }
+
+      // Discover provider tools for the domain when a specific one was not given.
+      let chosen = provider && capability ? { provider, capability } : null;
+      let discovered: Awaited<ReturnType<typeof discoverAlexandriaTools>> = [];
+      if (!chosen) {
+        discovered = await discoverAlexandriaTools(domain);
+        const first = discovered[0];
+        if (!first) {
+          return {
+            configured: true,
+            discovered: [],
+            note: `No Firecrawl Alexandria provider tool matched "${domain}". Try a broader domain, or use research_web for prose results.`,
+          };
+        }
+        chosen = { provider: first.provider, capability: first.capability };
+      }
+
+      const data = await callAlexandriaTool(chosen.provider, chosen.capability);
+      return {
+        configured: true,
+        discovered: discovered.slice(0, 8),
+        executed: chosen,
+        data,
+        note:
+          data === null
+            ? 'The provider tool ran but returned no usable payload — retry with a different provider/capability or fall back to research_web.'
+            : 'Structured web data pulled via Firecrawl Alexandria.',
+      };
+    },
   }),
 };
 
