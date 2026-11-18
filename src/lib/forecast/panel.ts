@@ -22,6 +22,10 @@
 // FlowX features (delta, volume, buy share, CVD slope) are built aligned
 // index-for-index with y — FlowX consumes them lagged, so calibration never
 // sees look-ahead.
+//
+// The merged-bar loader (loadMergedBars) is cached per (asset, tf, backfill,
+// withKlines) and SHARED by every target panel and the projected-state
+// builder — one venue fetch serves the whole forecast stack.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { db } from '@/lib/db';
@@ -40,7 +44,7 @@ const TF_TO_BINANCE: Record<number, string> = {
 };
 
 /** Normalized bar used to build every target series. */
-interface RawBar {
+export interface RawBar {
   ds: number;
   open: number;
   high: number;
@@ -200,9 +204,215 @@ function candleToBar(c: OfCandle): RawBar {
   };
 }
 
-// ── series construction ──────────────────────────────────────────────────────
+// ── merged-bar loader (shared: one fetch serves every target / state build) ────
 
-/** Panel cache — one in-flight promise per key + TTL result cache. */
+export interface MergedBarSet {
+  /** kline history ∪ engine tail (engine wins bucket-for-bucket), ascending */
+  bars: RawBar[];
+  /** kline bars the loader used (0 for engine-only loads) */
+  klinesBars: number;
+  /** engine bars that overrode klines bucket-for-bucket */
+  engineCount: number;
+  klineError: string | null;
+  klineSource: 'store' | 'store+live' | 'binance' | 'none';
+  /** first engine-bar ds — where the engine tail begins (null: no engine bars) */
+  liveTailFrom: number | null;
+  /** engine OHLC candles actually used (slice(-backfill)) — venue maps derive */
+  engineCandles: OfCandle[];
+  /** engine open-interest history */
+  oiPoints: { time: number; openInterest: number }[];
+}
+
+interface BarCacheEntry {
+  key: string;
+  promise: Promise<MergedBarSet> | null;
+  set: MergedBarSet | null;
+  at: number;
+}
+const barCache = new Map<string, BarCacheEntry>();
+const BARS_TTL_MS = 15_000;
+
+/**
+ * Load the merged bar history for one (asset, tf): stored klines → live
+ * bridge → direct fetch fallback, then the engine's footprint-candle tail
+ * overriding bucket-for-bucket. `withKlines=false` skips exchange history
+ * entirely (engine-only targets). Result cached 15 s and shared by every
+ * caller — a panel for close, volume, delta and the projected-state build
+ * all hit the venue at most once per TTL window.
+ */
+export async function loadMergedBars(
+  asset: OfAsset,
+  tf: number,
+  backfill: number,
+  opts: { withKlines?: boolean } = {},
+): Promise<MergedBarSet> {
+  const cap = Math.max(60, Math.min(1500, backfill));
+  const withKlines = opts.withKlines ?? true;
+  const interval = TF_TO_BINANCE[tf];
+  const key = `${asset}|${tf}|${cap}|${withKlines ? 'k' : 'e'}`;
+  const now = Date.now();
+  const hit = barCache.get(key);
+  if (hit && hit.set && now - hit.at < BARS_TTL_MS) return hit.set;
+  if (hit && hit.promise) return hit.promise;
+
+  const promise = (async (): Promise<MergedBarSet> => {
+    const manager = getOrderFlowManager();
+    manager.touch(asset);
+    const state = manager.stateOf(asset);
+    const engine = state?.engine;
+
+    let klinesBars: RawBar[] = [];
+    let klineError: string | null = null;
+    let klineSource: 'store' | 'store+live' | 'binance' | 'none' = 'none';
+    if (withKlines && interval) {
+      const tfSec = tf / 1000;
+      // 1) stored history (the backfill worker's mirror) — no venue call
+      klinesBars = await fetchStoredKlines(asset, tfSec, cap);
+      if (klinesBars.length >= Math.min(240, cap * 0.6)) {
+        klineSource = 'store';
+        // 2) bridge the gap to now with one small live request (write-through)
+        try {
+          const bridge = await fetchKlines(`${asset}USDT`, interval, 30);
+          const known = new Set(klinesBars.map((b) => b.ds));
+          const fresh = bridge.filter((b) => !known.has(b.ds));
+          if (fresh.length) {
+            const cut = bridge[0]?.ds ?? Infinity;
+            klinesBars = [...klinesBars.filter((b) => b.ds < cut), ...bridge]
+              .sort((a, b) => a.ds - b.ds)
+              .slice(-cap);
+            klineSource = 'store+live';
+          }
+          void persistKlines(asset, tfSec, bridge);
+        } catch {
+          /* live bridge optional — stored history + engine tail still valid */
+        }
+      } else {
+        // store cold: direct fetch (the old 418-risk path, now write-through)
+        klinesBars = [];
+        try {
+          klinesBars = await fetchKlines(`${asset}USDT`, interval, cap);
+          klineSource = 'binance';
+          void persistKlines(asset, tfSec, klinesBars);
+        } catch (e) {
+          klineError = e instanceof Error ? e.message : 'kline fetch failed';
+          // last resort: whatever the store had (possibly partial)
+          const stored = await fetchStoredKlines(asset, tfSec, cap);
+          if (stored.length) {
+            klinesBars = stored;
+            klineSource = 'store';
+            klineError = `${klineError} (served from partial store)`;
+          }
+        }
+      }
+    }
+
+    let engineCount = 0;
+    let engineCandles: OfCandle[] = [];
+    let oiPoints: { time: number; openInterest: number }[] = [];
+    if (engine) {
+      engineCandles = engine.candlesFor(tf).slice(-cap);
+      oiPoints = engine.oiSeries();
+    }
+
+    // merge: kline history + engine tail (engine wins bucket-for-bucket)
+    const byTime = new Map<number, RawBar>();
+    for (const b of klinesBars) byTime.set(b.ds, b);
+    for (const c of engineCandles) {
+      const b = candleToBar(c);
+      if (byTime.has(b.ds)) engineCount++;
+      byTime.set(b.ds, b);
+    }
+    const bars = [...byTime.values()].sort((a, b) => a.ds - b.ds);
+
+    return {
+      bars,
+      klinesBars: klinesBars.length,
+      engineCount,
+      klineError,
+      klineSource,
+      liveTailFrom: engineCandles.length ? engineCandles[0].openTime : null,
+      engineCandles,
+      oiPoints,
+    };
+  })();
+
+  const entry: BarCacheEntry = { key, promise, set: null, at: now };
+  barCache.set(key, entry);
+  try {
+    const set = await promise;
+    entry.set = set;
+    entry.at = Date.now();
+    return set;
+  } finally {
+    entry.promise = null;
+  }
+}
+
+// ── series construction (pure, shared with the projected-state builder) ──────
+
+/** Aggregate target series from the merged bar history (pure). */
+export function aggregateSeries(
+  bars: RawBar[],
+  target: 'close' | 'volume' | 'delta' | 'cvd' | 'imbalance' | 'trades',
+): { points: { ds: number; y: number }[]; bounds: { lo?: number; hi?: number } | null } {
+  let cvd = 0;
+  const points: { ds: number; y: number }[] = [];
+  for (const b of bars) {
+    const delta = 2 * b.buyVolume - b.volume;
+    cvd += delta;
+    let y: number;
+    switch (target) {
+      case 'close':
+        y = b.close;
+        break;
+      case 'volume':
+        y = b.volume;
+        break;
+      case 'delta':
+        y = delta;
+        break;
+      case 'cvd':
+        y = cvd;
+        break;
+      case 'imbalance':
+        y = b.volume > 0 ? b.buyVolume / b.volume : NaN;
+        break;
+      case 'trades':
+      default:
+        y = b.trades;
+        break;
+    }
+    points.push({ ds: b.ds, y });
+  }
+  return { points, bounds: target === 'imbalance' ? { lo: 0, hi: 1 } : null };
+}
+
+/** FlowX feature columns (delta, log-volume, buy share, CVD slope) — pure. */
+export function flowFeatures(bars: RawBar[]): Float64Array[] {
+  const n = bars.length;
+  if (n <= 8) return [];
+  const fDelta = new Float64Array(n);
+  const fVolume = new Float64Array(n);
+  const fShare = new Float64Array(n);
+  const fCvdSlope = new Float64Array(n);
+  let cv = 0;
+  const cvdHist = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const b = bars[i];
+    const delta = 2 * b.buyVolume - b.volume;
+    cv += delta;
+    cvdHist[i] = cv;
+    fDelta[i] = delta;
+    fVolume[i] = b.volume > 0 ? Math.log1p(b.volume) : 0;
+    fShare[i] = b.volume > 0 ? b.buyVolume / b.volume : 0.5;
+  }
+  const k = Math.max(1, Math.min(5, Math.floor(n / 24)));
+  for (let i = 0; i < n; i++) fCvdSlope[i] = i >= k ? cvdHist[i] - cvdHist[i - k] : 0;
+  return [fDelta, fVolume, fShare, fCvdSlope];
+}
+
+// ── panel cache — one in-flight promise per key + TTL result cache ────────────
+
 interface PanelCacheEntry {
   key: string;
   promise: Promise<FcPanel> | null;
@@ -234,105 +444,34 @@ export async function buildForecastPanel(
   if (hit && hit.promise) return hit.promise;
 
   const promise = (async (): Promise<FcPanel> => {
-    const interval = TF_TO_BINANCE[tf];
-    const manager = getOrderFlowManager();
-    manager.touch(asset);
-    const state = manager.stateOf(asset);
-    const engine = state?.engine;
-
-    let klinesBars: RawBar[] = [];
-    let klineError: string | null = null;
-    let klineSource: 'store' | 'store+live' | 'binance' | 'none' = 'none';
-    if (interval && target !== 'oi' && target !== 'venueVolumeShare' && target !== 'venueDelta') {
-      const tfSec = tf / 1000;
-      // 1) stored history (the backfill worker's mirror) — no venue call
-      klinesBars = await fetchStoredKlines(asset, tfSec, backfill);
-      if (klinesBars.length >= Math.min(240, backfill * 0.6)) {
-        klineSource = 'store';
-        // 2) bridge the gap to now with one small live request (write-through)
-        try {
-          const bridge = await fetchKlines(`${asset}USDT`, interval, 30);
-          const known = new Set(klinesBars.map((b) => b.ds));
-          const fresh = bridge.filter((b) => !known.has(b.ds));
-          if (fresh.length) {
-            const cut = bridge[0]?.ds ?? Infinity;
-            klinesBars = [...klinesBars.filter((b) => b.ds < cut), ...bridge]
-              .sort((a, b) => a.ds - b.ds)
-              .slice(-backfill);
-            klineSource = 'store+live';
-          }
-          void persistKlines(asset, tfSec, bridge);
-        } catch {
-          /* live bridge optional — stored history + engine tail still valid */
-        }
-      } else {
-        // store cold: direct fetch (the old 418-risk path, now write-through)
-        klinesBars = [];
-        try {
-          klinesBars = await fetchKlines(`${asset}USDT`, interval, backfill);
-          klineSource = 'binance';
-          void persistKlines(asset, tfSec, klinesBars);
-        } catch (e) {
-          klineError = e instanceof Error ? e.message : 'kline fetch failed';
-          // last resort: whatever the store had (possibly partial)
-          const stored = await fetchStoredKlines(asset, tfSec, backfill);
-          if (stored.length) {
-            klinesBars = stored;
-            klineSource = 'store';
-            klineError = `${klineError} (served from partial store)`;
-          }
-        }
-      }
-    }
-
-    let engineBars: RawBar[] = [];
-    let venueVolumesByBar: Map<number, Partial<Record<OfVenueId, number>>> = new Map();
-    let oiPoints: { time: number; openInterest: number }[] = [];
-    let tape: { t: number; venue: string; qty: number; buy: boolean }[] = [];
-    if (engine) {
-      const candles = engine.candlesFor(tf).slice(-backfill);
-      engineBars = candles.map(candleToBar);
-      venueVolumesByBar = new Map(candles.map((c) => [c.openTime, c.venueVolumes]));
-      oiPoints = engine.oiSeries();
-      if (state) {
-        // per-venue aggressor delta from the raw tape (session scope)
-        tape = state.tape.map((t) => ({ t: t.timestamp, venue: t.venue, qty: t.quantity, buy: t.side === 'buy' }));
-      }
-    }
-
-    // merge: kline history + engine tail (engine wins bucket-for-bucket)
-    const byTime = new Map<number, RawBar>();
-    for (const b of klinesBars) byTime.set(b.ds, b);
-    let engineCount = 0;
-    for (const b of engineBars) {
-      if (byTime.has(b.ds)) engineCount++;
-      byTime.set(b.ds, b);
-    }
-    const bars = [...byTime.values()].sort((a, b) => a.ds - b.ds);
+    const engineOnly = target === 'oi' || target === 'venueVolumeShare' || target === 'venueDelta';
+    const withKlines = !engineOnly;
+    const { bars, klinesBars, engineCount, klineError, klineSource, liveTailFrom, engineCandles, oiPoints } =
+      await loadMergedBars(asset, tf, backfill, { withKlines });
 
     const series: FcSeries[] = [];
     const features: Float64Array[][] = [];
     let bounds: { lo?: number; hi?: number } | null = null;
-    const engineOnly = target === 'oi' || target === 'venueVolumeShare' || target === 'venueDelta';
 
     if (target === 'venueVolumeShare' || target === 'venueDelta') {
       // per-venue panel: one series per venue, engine session scope
+      const tape = getOrderFlowManager().stateOf(asset)?.tape ?? [];
       for (const venue of OF_VENUES) {
         const label = `${asset} · ${venue} ${target === 'venueVolumeShare' ? 'volume share' : 'delta'} · ${tf / 60_000}m`;
         const pts: { ds: number; y: number }[] = [];
         if (target === 'venueVolumeShare') {
-          for (const c of [...venueVolumesByBar.entries()].sort((a, b) => a[0] - b[0])) {
-            const v = c[1][venue as OfVenueId] ?? 0;
-            const total = Object.values(c[1]).reduce((a, b) => a + (b ?? 0), 0);
-            if (total > 0) pts.push({ ds: c[0], y: v / total });
+          for (const c of [...engineCandles].sort((a, b) => a.openTime - b.openTime)) {
+            const v = c.venueVolumes[venue as OfVenueId] ?? 0;
+            const total = Object.values(c.venueVolumes).reduce((a, b) => a + (b ?? 0), 0);
+            if (total > 0) pts.push({ ds: c.openTime, y: v / total });
           }
           bounds = { lo: 0, hi: 1 };
         } else {
           const buckets = new Map<number, number>();
           for (const p of tape) {
             if (p.venue !== venue) continue;
-            const b = Math.floor(p.t / tf) * tf;
-            buckets.set(b, (buckets.get(b) ?? 0) + (p.buy ? p.qty : -p.qty));
+            const b = Math.floor(p.timestamp / tf) * tf;
+            buckets.set(b, (buckets.get(b) ?? 0) + (p.side === 'buy' ? p.quantity : -p.quantity));
           }
           for (const [ds, delta] of [...buckets.entries()].sort((a, b) => a[0] - b[0])) pts.push({ ds, y: delta });
         }
@@ -355,62 +494,15 @@ export async function buildForecastPanel(
       }
     } else {
       // aggregate targets from the merged bar history
-      let cvd = 0;
-      const pts: { ds: number; y: number }[] = [];
-      for (const b of bars) {
-        const delta = 2 * b.buyVolume - b.volume;
-        cvd += delta;
-        let y: number;
-        switch (target) {
-          case 'close':
-            y = b.close;
-            break;
-          case 'volume':
-            y = b.volume;
-            break;
-          case 'delta':
-            y = delta;
-            break;
-          case 'cvd':
-            y = cvd;
-            break;
-          case 'imbalance':
-            y = b.volume > 0 ? b.buyVolume / b.volume : NaN;
-            break;
-          case 'trades':
-          default:
-            y = b.trades;
-            break;
-        }
-        pts.push({ ds: b.ds, y });
-      }
-      if (target === 'imbalance') bounds = { lo: 0, hi: 1 };
-      const liveTailFrom = engineBars.length ? engineBars[0].ds : undefined;
-      series.push({ uniqueId: `${asset}-${target}`, label: `${asset} · ${target} · ${tf / 60_000}m`, points: pts, liveTailFrom });
-      // FlowX features aligned index-for-index with points
-      const n = pts.length;
-      if (n > 8) {
-        const fDelta = new Float64Array(n);
-        const fVolume = new Float64Array(n);
-        const fShare = new Float64Array(n);
-        const fCvdSlope = new Float64Array(n);
-        let cv = 0;
-        const cvdHist = new Float64Array(n);
-        for (let i = 0; i < n; i++) {
-          const b = bars[i];
-          const delta = 2 * b.buyVolume - b.volume;
-          cv += delta;
-          cvdHist[i] = cv;
-          fDelta[i] = delta;
-          fVolume[i] = b.volume > 0 ? Math.log1p(b.volume) : 0;
-          fShare[i] = b.volume > 0 ? b.buyVolume / b.volume : 0.5;
-        }
-        const k = Math.max(1, Math.min(5, Math.floor(n / 24)));
-        for (let i = 0; i < n; i++) fCvdSlope[i] = i >= k ? cvdHist[i] - cvdHist[i - k] : 0;
-        features.push([fDelta, fVolume, fShare, fCvdSlope]);
-      } else {
-        features.push([]);
-      }
+      const { points, bounds: b } = aggregateSeries(bars, target);
+      bounds = b;
+      series.push({
+        uniqueId: `${asset}-${target}`,
+        label: `${asset} · ${target} · ${tf / 60_000}m`,
+        points,
+        liveTailFrom: liveTailFrom ?? undefined,
+      });
+      features.push(flowFeatures(bars));
     }
 
     const primary = series[0]?.points.map((p) => p.y) ?? [];
@@ -425,7 +517,7 @@ export async function buildForecastPanel(
       bounds,
       seasonLength,
       provenance: {
-        klinesBars: klinesBars.length,
+        klinesBars,
         engineBars: engineCount,
         engineOnly,
         klineError,

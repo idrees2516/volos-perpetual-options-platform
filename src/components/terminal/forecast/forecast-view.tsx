@@ -18,10 +18,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from 'react';
-import { Activity, Gauge, LineChart, Radar, RefreshCw, Sigma } from 'lucide-react';
+import { Activity, Crosshair, Gauge, LineChart, Radar, RefreshCw, Sigma } from 'lucide-react';
 import { useForecast, FORECAST_TARGETS, type FcConfig, type FcTargetId } from './use-forecast';
 import { ForecastChart } from './forecast-chart';
 import { CalibPanel, EvaluatePanel, ForecastKpiStrip, LiveCoveragePanel, ModelsPanel, RiskPanel } from './panels';
+import { ProjectionPanel } from './projection-panel';
 import type { OfAsset } from '@/lib/orderflow/types';
 
 const ASSETS: OfAsset[] = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'LINK', 'AVAX'];
@@ -39,6 +40,7 @@ const LEVELSETS: number[][] = [
 ];
 const WINDOWS: number[] = [5, 10, 20];
 const RIGHT_TABS = [
+  { id: 'outlook', label: 'outlook', icon: <Crosshair className="h-3 w-3" /> },
   { id: 'models', label: 'models', icon: <Sigma className="h-3 w-3" /> },
   { id: 'evaluate', label: 'evaluate', icon: <Activity className="h-3 w-3" /> },
   { id: 'calib', label: 'calibration', icon: <Gauge className="h-3 w-3" /> },
@@ -79,7 +81,7 @@ export function ForecastView() {
   const [overlays, setOverlays] = useState<string[]>(['Ensemble-error']);
   const [showBands, setShowBands] = useState(true);
   const [historyBars, setHistoryBars] = useState(160);
-  const [rightTab, setRightTab] = useState<(typeof RIGHT_TABS)[number]['id']>('models');
+  const [rightTab, setRightTab] = useState<(typeof RIGHT_TABS)[number]['id']>('outlook');
 
   const config: FcConfig = {
     asset,
@@ -287,6 +289,11 @@ export function ForecastView() {
           </div>
 
           <div className="mt-1.5 max-h-[560px] overflow-y-auto rounded-lg border border-zinc-800/80 bg-zinc-950/40 p-1.5">
+            {rightTab === 'outlook' && (
+              <ProjectionPanel
+                ownConfig={{ asset, tf, h, levels: LEVELSETS[Math.min(levelsIdx, LEVELSETS.length - 1)], nWindows }}
+              />
+            )}
             {rightTab === 'models' && (
               <ModelsPanel
                 models={state.models}

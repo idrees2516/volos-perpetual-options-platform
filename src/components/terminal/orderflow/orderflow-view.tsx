@@ -29,10 +29,12 @@ import {
   Waves,
 } from 'lucide-react';
 import { useOrderFlow } from './use-orderflow';
-import { FlowChart, type FlowChartOptions } from './flow-chart';
+import { FlowChart, type FlowChartOptions, type FlowForecast } from './flow-chart';
 import { AlertsPanel, BookPanel, CvdStrip, DerivativesPanel, KpiStrip, LiquidationMiniChart, MarkersPanel, TapePanel, VenuesPanel } from './panels';
 import { MarketOverview } from './market-overview';
 import { OrderDrawer } from './order-drawer';
+import { ProjectionPanel } from '@/components/terminal/forecast/projection-panel';
+import { useProjection } from '@/components/terminal/forecast/use-projection';
 import type { OfAlertSettings, OfAsset, OfVenueId } from '@/lib/orderflow/types';
 
 const ASSETS: OfAsset[] = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'LINK', 'AVAX'];
@@ -108,6 +110,7 @@ export function OrderFlowView() {
     showLiquidations: true,
     showMarkers: true,
     showLevels: true,
+    showForecast: true,
     follow: true,
   });
   const [alertSettings, setAlertSettings] = usePersisted<OfAlertSettings>('volos-of-alerts', {
@@ -124,6 +127,30 @@ export function OrderFlowView() {
   const { store, state } = useOrderFlow(asset, { tf, alertSettings, minutes: 15 });
   const alerts = state.alerts;
   const cascade = state.liqBuckets?.length ? undefined : undefined;
+
+  // the forward projection: one fetch feeds BOTH the chart's ahead-of-price
+  // fan and the projected-state panel ("what everything will be")
+  const projection = useProjection(
+    { asset, tf, h: 30, levels: [80, 95], nWindows: 10 },
+    options.showForecast,
+  );
+  const forecastOverlay: FlowForecast | null = projection.data
+    ? {
+        h: projection.data.h,
+        tf: projection.data.tf,
+        builtAt: projection.data.builtAt,
+        primary: projection.data.price.primary,
+        anchor: projection.data.cutoff,
+        rows: projection.data.price.rows.map((r) => ({
+          step: r.step,
+          ds: r.ds,
+          point: r.point,
+          lo: r.lo,
+          hi: r.hi,
+          levels: r.levels,
+        })),
+      }
+    : null;
 
   // critical-alert toasts (top-right, auto-fade)
   const [toast, setToast] = useState<{ id: string; title: string; detail?: string } | null>(null);
@@ -148,6 +175,7 @@ export function OrderFlowView() {
     { key: 'showLiquidations', label: 'liq bubbles', title: 'forced-close bubbles (L = longs, S = shorts)' },
     { key: 'showMarkers', label: 'ABS/ICE', title: 'absorption bands and iceberg diamonds' },
     { key: 'showLevels', label: 'levels', title: 'prior-day POC/VAH/VAL/VWAP, naked POCs, session VWAP ±1σ' },
+    { key: 'showForecast', label: 'forecast', title: 'conformal price fan projected h=30 steps AHEAD of the live price + projected-state panel (values of every related metric at that price)' },
   ];
 
   return (
@@ -250,9 +278,17 @@ export function OrderFlowView() {
             tf={tf}
             options={options}
             height={440}
+            forecast={forecastOverlay}
             onPrintClick={(id) => setPrintId(id)}
             onFollowChange={(follow) => setOptions({ ...options, follow })}
           />
+          {options.showForecast && (
+            <ProjectionPanel
+              data={projection.data}
+              loading={projection.loading}
+              error={projection.error}
+            />
+          )}
           <KpiStrip store={store} />
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
             <CvdStrip store={store} />
