@@ -32,7 +32,7 @@ import { Slider } from '@/components/ui/slider';
 import {
   Search, Layers, TrendingUp, Shield, Banknote, Zap, Split,
   Infinity as InfinityIcon, Network, Timer, Send, Star, Compass, Coins, Waves,
-  Loader2, Sparkles, ArrowLeft, BookOpen, BarChart3, ListTree, Gauge,
+  Loader2, Sparkles, ArrowLeft, BookOpen, BarChart3, ListTree,
   ChevronDown, ChevronRight, Pencil, Sigma, Globe2, Rows3, Table2, Cpu, Landmark, History,
   PanelLeftClose, PanelLeftOpen, ChevronsUp, ChevronsDown,
 } from 'lucide-react';
@@ -52,6 +52,7 @@ import { TEMPLATES } from '@/lib/templates';
 import { PayoffChart } from '@/components/terminal/payoff-chart';
 import { BuilderView } from '@/components/terminal/builder-view';
 import { BuilderDock } from '@/components/terminal/dock/builder-dock';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 import { StrategyIntelligence } from './strategy-intelligence';
 import { StrategyLiveData } from './strategy-live-data';
 import { StrategyMetrics } from './strategy-metrics';
@@ -743,30 +744,34 @@ export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
         </div>
 
         {/* PAYOFF UP FRONT — the risk profile is always the first thing you
-            see for any strategy, live and interactive, before any prose. */}
-        <div className="shrink-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/60">
-          <div className="px-4 pt-2">
-            <h2 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-              <Gauge className="h-3.5 w-3.5 text-teal-400" /> Payoff &amp; Risk Profile
-              <span className="ml-2 font-mono text-[9px] font-normal normal-case tracking-normal text-zinc-600">
-                always on · hover for P&amp;L · {previewAnalysis.isCredit ? 'credit' : 'debit'}{' '}
-                {fmtUsd(Math.abs(previewAnalysis.netPremium))} · POP {(previewAnalysis.pop * 100).toFixed(0)}%
+            see for any strategy, live and interactive, before any prose.
+            A DockPanel: collapse it away, pixel-resize, or fullscreen it. */}
+        <Dock viewId="strategies-payoff" className="shrink-0">
+          <DockPanel
+            id="payoff"
+            title="Payoff & Risk Profile"
+            sub="always on · hover for P&L"
+            right={
+              <span className="font-mono text-[9px] text-zinc-500">
+                {previewAnalysis.isCredit ? 'credit' : 'debit'} {fmtUsd(Math.abs(previewAnalysis.netPremium))} · POP{' '}
+                {(previewAnalysis.pop * 100).toFixed(0)}%
               </span>
-            </h2>
-          </div>
-          <PayoffChart
-            analysis={previewAnalysis}
-            legs={previewLegs}
-            spot={spot}
-            overrides={NO_OVERRIDE}
-            showCone
-            showDecay
-            showNow
-            horizonDays={previewAnalysis.horizonDays}
-            onStrikeDrag={() => {}}
-            height={300}
-          />
-        </div>
+            }
+          >
+            <PayoffChart
+              analysis={previewAnalysis}
+              legs={previewLegs}
+              spot={spot}
+              overrides={NO_OVERRIDE}
+              showCone
+              showDecay
+              showNow
+              horizonDays={previewAnalysis.horizonDays}
+              onStrikeDrag={() => {}}
+              height={300}
+            />
+          </DockPanel>
+        </Dock>
 
         {/* tabs */}
         <div className="flex items-center gap-1 border-b border-zinc-800/70 px-1">
@@ -912,17 +917,26 @@ function StructureTab({
   onLoad: () => void;
 }) {
   return (
-    <div className="space-y-3">
-      <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
-            <ListTree className="h-3.5 w-3.5" />
-            Legs — resolved on live spot
-          </h3>
-          <span className="font-mono text-[9px] text-zinc-600">
-            {underlying} @ {fmtNum(spot, spot >= 1000 ? 0 : 2)} · {legs.length} legs
-          </span>
-        </div>
+    <Dock viewId="strategies-structure" layout="stack">
+      <DockPanel
+        id="structure-legs"
+        title="Legs — resolved on live spot"
+        right={
+          <>
+            <span className="font-mono text-[9px] text-zinc-600">
+              {underlying} @ {fmtNum(spot, spot >= 1000 ? 0 : 2)} · {legs.length} legs
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 border-zinc-700 bg-zinc-900 px-3 text-[10px] text-zinc-200 hover:bg-zinc-800"
+              onClick={onLoad}
+            >
+              <Star className="h-3 w-3" /> Load into Builder
+            </Button>
+          </>
+        }
+      >
         <div className="overflow-x-auto">
           <table className="w-full min-w-[520px] text-left">
             <thead>
@@ -977,11 +991,10 @@ function StructureTab({
             </tbody>
           </table>
         </div>
-      </section>
+      </DockPanel>
 
       {/* leg chips */}
-      <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-        <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Structure chips</h3>
+      <DockPanel id="structure-chips" title="Structure chips">
         <div className="flex flex-wrap gap-1">
           {spec.legs.map((l, i) => (
             <span
@@ -1000,19 +1013,8 @@ function StructureTab({
           Strikes are multipliers of live spot — the same catalog resolves to tradable levels on BTC, ETH or SOL.
           Load the strategy into the builder to drag strikes and watch every metric update at 60fps.
         </p>
-      </section>
-
-      <div className="flex justify-end gap-2 pb-1">
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 gap-1 border-zinc-700 bg-zinc-900 px-3 text-[10px] text-zinc-200 hover:bg-zinc-800"
-          onClick={onLoad}
-        >
-          <Star className="h-3 w-3" /> Load into Builder
-        </Button>
-      </div>
-    </div>
+      </DockPanel>
+    </Dock>
   );
 }
 

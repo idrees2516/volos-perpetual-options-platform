@@ -9,7 +9,8 @@
 import React, { useState } from 'react';
 import { fmtNum } from '@/lib/format';
 import { useQuant } from './use-quant';
-import { ChartLegend, EmptyNote, ErrNote, HeatMatrix, LineChart, Panel, Pill, Segmented, StatGrid } from './quant-viz';
+import { ChartLegend, EmptyNote, ErrNote, HeatMatrix, LineChart, Pill, Segmented, StatGrid } from './quant-viz';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 interface ProbSlice {
   expiry: string;
@@ -50,8 +51,12 @@ function interpCdf(slice: ProbSlice, x: number): number {
   return c[lo] + t * (c[hi] - c[lo]);
 }
 
-export function ProbabilityPanel({ symbol, hasOptions }: { symbol: string; hasOptions: boolean }) {
-  if (!hasOptions) return <EmptyNote>{symbol} has no options chain — the risk-neutral PDF needs live marks (BTC/ETH).</EmptyNote>;
+export function ProbabilityPanel(props: { symbol: string; hasOptions: boolean }) {
+  if (!props.hasOptions) return <EmptyNote>{props.symbol} has no options chain — the risk-neutral PDF needs live marks (BTC/ETH).</EmptyNote>;
+  return <ProbabilityPanelInner {...props} />;
+}
+
+function ProbabilityPanelInner({ symbol }: { symbol: string; hasOptions: boolean }) {
   const [expiry, setExpiry] = useState('');
   const { data, loading, error } = useQuant<ProbData>('/probability', { symbol }, { pollMs: 10000 });
   const slices = data?.perExpiry ?? [];
@@ -78,8 +83,10 @@ export function ProbabilityPanel({ symbol, hasOptions }: { symbol: string; hasOp
           ))}
         </div>
       )}
+      <Dock viewId="quant-prob">
       {active && (
-        <Panel
+        <DockPanel
+          id="pdf"
           title={`Risk-Neutral PDF · ${active.expiry}`}
           sub={`${active.dte.toFixed(1)}d · Breeden–Litzenberger on live marks`}
           right={<Pill tone="teal">market-implied</Pill>}
@@ -121,11 +128,11 @@ export function ProbabilityPanel({ symbol, hasOptions }: { symbol: string; hasOp
             ]}
           />
           <p className="mt-2 text-[8.5px] leading-relaxed text-zinc-600">{data?.method}</p>
-        </Panel>
+        </DockPanel>
       )}
       {!active && <EmptyNote>{loading ? 'computing density…' : 'no probability slice'}</EmptyNote>}
       {data?.surface?.slices?.length ? (
-        <Panel title="Probability Surface" sub="density across expiries (darker = higher density)">
+        <DockPanel id="surface" title="Probability Surface" sub="density across expiries (darker = higher density)">
           <HeatMatrix
             rows={data.surface.strikes.slice(0, 24).map((s) => fmtNum(s, 0))}
             cols={data.surface.slices.slice(0, 8).map((s) => s.expiry.slice(5))}
@@ -136,8 +143,9 @@ export function ProbabilityPanel({ symbol, hasOptions }: { symbol: string; hasOp
               return `rgba(167, 139, 250, ${(0.05 + t * 0.8).toFixed(3)})`;
             }}
           />
-        </Panel>
+        </DockPanel>
       ) : null}
+      </Dock>
     </div>
   );
 }
@@ -153,10 +161,14 @@ const GREEK_OPTS = [
   { id: 'delta', label: 'Δ Delta' },
 ] as const;
 
-export function GreeksPanel({ symbol, hasOptions }: { symbol: string; hasOptions: boolean }) {
+export function GreeksPanel(props: { symbol: string; hasOptions: boolean }) {
+  if (!props.hasOptions) return <EmptyNote>{props.symbol} has no options chain — greeks need the Deribit chain (BTC/ETH).</EmptyNote>;
+  return <GreeksPanelInner {...props} />;
+}
+
+function GreeksPanelInner({ symbol }: { symbol: string; hasOptions: boolean }) {
   const [greek, setGreek] = useState<'gamma' | 'vanna' | 'charm' | 'vega' | 'theta' | 'delta'>('gamma');
   const [view, setView] = useState<'profile' | 'trace' | 'surface'>('profile');
-  if (!hasOptions) return <EmptyNote>{symbol} has no options chain — greeks need the Deribit chain (BTC/ETH).</EmptyNote>;
   const profile = useQuant<{ greek: string; spot: number; profile: { strike: number; call: number; put: number; net: number }[]; unit: string }>('/greeks', { symbol, greek, view: 'profile' }, { pollMs: 12000, enabled: view === 'profile' });
   const trace = useQuant<{ greek: string; spot: number; spotGrid: number[]; timeShiftsPct: number[]; net: number[][]; flips: (number | null)[]; note: string }>('/greeks', { symbol, greek: 'gamma', view: 'trace' }, { pollMs: 20000, enabled: view === 'trace' });
   const surface = useQuant<{ greek: string; spot: number; strikes: number[]; expiries: string[]; grid: number[][] }>('/greeks', { symbol, greek, view: 'surface' }, { pollMs: 25000, enabled: view === 'surface' });
@@ -168,8 +180,9 @@ export function GreeksPanel({ symbol, hasOptions }: { symbol: string; hasOptions
         <Segmented value={view} onChange={setView} options={[{ id: 'profile', label: 'Profile' }, { id: 'trace', label: 'TRACE Map' }, { id: 'surface', label: 'Surface' }]} />
       </div>
 
+      <Dock viewId="quant-greeks">
       {view === 'profile' && (
-        <Panel title={`Dealer ${greek} Exposure by Strike`} sub="calls + / puts − (customer-flow convention)" right={<Pill tone="teal">live</Pill>}>
+        <DockPanel id="profile" title={`Dealer ${greek} Exposure by Strike`} sub="calls + / puts − (customer-flow convention)" right={<Pill tone="teal">live</Pill>}>
           <ErrNote error={profile.error} />
           {profile.data?.profile?.length ? (
             <div className="space-y-0.5">
@@ -201,11 +214,11 @@ export function GreeksPanel({ symbol, hasOptions }: { symbol: string; hasOptions
           ) : (
             <EmptyNote>{profile.loading ? 'computing…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
 
       {view === 'trace' && (
-        <Panel title="Greek TRACE · Gamma Forward Map" sub="net dealer gamma (USD / 1% move) across spot ±12% × time decay" right={<Pill tone="violet">projection</Pill>}>
+        <DockPanel id="trace" title="Greek TRACE · Gamma Forward Map" sub="net dealer gamma (USD / 1% move) across spot ±12% × time decay" right={<Pill tone="violet">projection</Pill>}>
           <ErrNote error={trace.error} />
           {trace.data?.spotGrid?.length ? (
             <>
@@ -229,11 +242,11 @@ export function GreeksPanel({ symbol, hasOptions }: { symbol: string; hasOptions
           ) : (
             <EmptyNote>{trace.loading ? 'projecting…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
 
       {view === 'surface' && (
-        <Panel title={`Dealer ${greek} Surface`} sub="strike × expiry exposure grid">
+        <DockPanel id="surface" title={`Dealer ${greek} Surface`} sub="strike × expiry exposure grid">
           <ErrNote error={surface.error} />
           {surface.data?.strikes?.length ? (
             <HeatMatrix
@@ -245,8 +258,9 @@ export function GreeksPanel({ symbol, hasOptions }: { symbol: string; hasOptions
           ) : (
             <EmptyNote>{surface.loading ? 'computing…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
+      </Dock>
       <ChartLegend series={[{ label: 'teal = dealers long (stabilizing)', color: '#2dd4bf' }, { label: 'rose = dealers short (amplifying)', color: '#fb7185' }]} />
     </div>
   );

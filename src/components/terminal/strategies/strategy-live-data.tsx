@@ -3,18 +3,21 @@
 // Strategy Live Data tab — pulls the data FOR the selected strategy:
 // live market snapshot of the underlying, the strategy's own analytics
 // (premium, risk, greeks, carry), per-leg quotes, and the authoritative
-// numbers from the Rust engine on demand.
+// numbers from the Rust engine on demand. Every card is a DockPanel
+// (drag-reorder · pixel-resize · fullscreen · collapse) under the
+// strategies-data dock view.
 
 import React, { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Cpu, Loader2, Activity, Flame, Waves, Landmark, BarChart3, Sigma } from 'lucide-react';
+import { Loader2, Sigma } from 'lucide-react';
 import type { AssetMarket, Leg, LegAnalytics, StrategyAnalysis, UnderlyingId } from '@/lib/types';
 import { fmtUsd, fmtNum, fmtPctSigned } from '@/lib/format';
 import { atmVol, VOL_CONFIG } from '@/lib/pricing';
 import { expectedMove, skewMetrics } from '@/lib/metrics';
 import { engine, RustAnalysis } from '@/lib/api';
 import { kindLabel } from '@/lib/types';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 interface LiveDataProps {
   analysis: StrategyAnalysis;
@@ -77,18 +80,18 @@ export function StrategyLiveData({ analysis, legs, underlying, market, legCount 
   const g = analysis.greeks;
 
   return (
-    <div className="space-y-3">
+    <Dock viewId="strategies-data" layout="grid">
       {/* Live market snapshot */}
-      <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-teal-300">
-            <Activity className="h-3.5 w-3.5" />
-            Live market data · {underlying}
-          </h3>
+      <DockPanel
+        id="live-market"
+        title={`Live market data · ${underlying}`}
+        span={2}
+        right={
           <Badge variant="outline" className="border-teal-500/30 bg-teal-950/30 text-[8px] font-normal text-teal-300">
             streaming
           </Badge>
-        </div>
+        }
+      >
         <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
           <Stat label="Spot" value={fmtNum(market.spot, market.spot >= 1000 ? 0 : 2)} />
           <Stat
@@ -133,15 +136,14 @@ export function StrategyLiveData({ analysis, legs, underlying, market, legCount 
           <Sigma className="h-2.5 w-2.5 shrink-0" />
           Deeper surface analytics — second-order greeks, VaR/CVaR, stress grid, execution economics — live on the Metrics tab.
         </p>
-      </section>
+      </DockPanel>
 
       {/* Strategy metrics — pulled from the pricing engine */}
-      <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-300">
-            <BarChart3 className="h-3.5 w-3.5" />
-            Strategy analytics · {legCount} legs resolved on live spot
-          </h3>
+      <DockPanel
+        id="strategy-analytics"
+        title={`Strategy analytics · ${legCount} legs resolved on live spot`}
+        span={2}
+        right={
           <Badge
             variant="outline"
             className={`text-[8px] font-normal ${
@@ -152,7 +154,8 @@ export function StrategyLiveData({ analysis, legs, underlying, market, legCount 
           >
             {analysis.isCredit ? 'net credit' : 'net debit'} · {fmtUsd(Math.abs(analysis.netPremium))}
           </Badge>
-        </div>
+        }
+      >
         <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-6">
           <Stat
             label="Max profit"
@@ -189,15 +192,10 @@ export function StrategyLiveData({ analysis, legs, underlying, market, legCount 
             <span className="ml-auto text-[8px] text-zinc-600">spot {fmtNum(market.spot, market.spot >= 1000 ? 0 : 2)}</span>
           </div>
         )}
-      </section>
+      </DockPanel>
 
       {/* Greeks + carry */}
-      <section className="grid gap-3 lg:grid-cols-2">
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-          <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
-            <Waves className="h-3.5 w-3.5" />
-            Net Greeks (size 1)
-          </h3>
+      <DockPanel id="net-greeks" title="Net Greeks (size 1)" span={1}>
           <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
             <Stat label="Delta" value={fmtNum(g.delta, 3)} />
             <Stat label="Gamma" value={fmtNum(g.gamma, 4)} />
@@ -206,14 +204,10 @@ export function StrategyLiveData({ analysis, legs, underlying, market, legCount 
             <Stat label="Rho" value={fmtUsd(g.rho)} />
             <Stat label="Δ exposure" value={fmtUsd(g.deltaExposureUsd, { compact: true })} />
           </div>
-        </div>
+      </DockPanel>
 
         {analysis.carry ? (
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-            <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-300">
-              <Flame className="h-3.5 w-3.5" />
-              Carry budget
-            </h3>
+          <DockPanel id="carry" title="Carry budget" span={1}>
             <div className="grid grid-cols-3 gap-1.5">
               <Stat
                 label="Daily"
@@ -241,13 +235,9 @@ export function StrategyLiveData({ analysis, legs, underlying, market, legCount 
                 </div>
               ))}
             </div>
-          </div>
+          </DockPanel>
         ) : (
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-            <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-300">
-              <Flame className="h-3.5 w-3.5" />
-              Liquidity
-            </h3>
+          <DockPanel id="liquidity" title="Liquidity" span={1}>
             <div className="grid grid-cols-2 gap-1.5">
               <Stat label="Structure liquidity" value={fmtNum(analysis.liquidity * 100, 0) + '%'} />
               <Stat
@@ -256,16 +246,11 @@ export function StrategyLiveData({ analysis, legs, underlying, market, legCount 
                 tone={g.delta > 0.1 ? 'text-emerald-400' : g.delta < -0.1 ? 'text-rose-400' : 'text-zinc-300'}
               />
             </div>
-          </div>
+          </DockPanel>
         )}
-      </section>
 
       {/* Per-leg quotes */}
-      <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-        <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
-          <Landmark className="h-3.5 w-3.5" />
-          Per-leg quotes (client mirror · 60fps)
-        </h3>
+      <DockPanel id="per-leg" title="Per-leg quotes (client mirror · 60fps)" span={2}>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-left">
             <thead>
@@ -309,25 +294,25 @@ export function StrategyLiveData({ analysis, legs, underlying, market, legCount 
             </tbody>
           </table>
         </div>
-      </section>
+      </DockPanel>
 
       {/* Rust engine verification — the authoritative data pull */}
-      <section className="rounded-lg border border-zinc-800 bg-gradient-to-br from-zinc-900/80 to-zinc-950 p-3">
-        <div className="flex items-center gap-2">
-          <Cpu className="h-4 w-4 text-teal-400" />
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
-            Rust engine verification
-          </h3>
+      <DockPanel
+        id="engine-verify"
+        title="Rust engine verification"
+        span={2}
+        right={
           <Button
             size="sm"
             variant="outline"
             onClick={runEngine}
             disabled={engineState === 'loading'}
-            className="ml-auto h-6 border-teal-500/40 bg-teal-950/30 px-2 text-[10px] font-medium text-teal-300 hover:bg-teal-900/40"
+            className="h-6 border-teal-500/40 bg-teal-950/30 px-2 text-[10px] font-medium text-teal-300 hover:bg-teal-900/40"
           >
             {engineState === 'loading' ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Pull authoritative data'}
           </Button>
-        </div>
+        }
+      >
         {engineState === 'idle' && (
           <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
             The numbers above stream from the client-side mirror (identical math, 60fps). Pull the Rust engine for
@@ -353,7 +338,7 @@ export function StrategyLiveData({ analysis, legs, underlying, market, legCount 
             <Stat label="Compute" value={`${engineResult.diagnostics.computeUs} µs`} sub={`v${engineResult.diagnostics.serverVersion}`} />
           </div>
         )}
-      </section>
-    </div>
+      </DockPanel>
+    </Dock>
   );
 }

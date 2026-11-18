@@ -122,7 +122,7 @@ export function toOpenAIMessages(prompt: LanguageModelV1Prompt): Array<Record<st
         const toolCalls = (msg.content as Array<{ type: string }>)
           .filter((p) => p.type === 'tool-call')
           .map((p) => {
-            const tc = p as { toolCallId: string; toolName: string; args: unknown };
+            const tc = p as unknown as { toolCallId: string; toolName: string; args: unknown };
             return {
               id: tc.toolCallId,
               type: 'function',
@@ -262,7 +262,11 @@ function closeTruncated(s: string): string | null {
   }
 }
 
-export function mapToolChoice(choice: LanguageModelV1CallOptions['toolChoice']): string | undefined {
+type RegularCallMode = Extract<LanguageModelV1CallOptions['mode'], { type: 'regular' }>;
+
+export function mapToolChoice(
+  choice: RegularCallMode['toolChoice'],
+): string | { type: 'function'; function: { name: string } } | undefined {
   if (!choice) return undefined;
   switch (choice.type) {
     case 'auto':
@@ -372,7 +376,7 @@ export function createZaiModel(modelId = 'glm-4-plus'): LanguageModelV1 {
         body.tools = tools
           .filter((t) => t.type === 'function')
           .map((t) => {
-            const ft = t as { name: string; description?: string; parameters: Record<string, unknown> };
+            const ft = t as { name: string; description?: string; parameters: unknown };
             return {
               type: 'function',
               function: {
@@ -424,7 +428,7 @@ export function createZaiModel(modelId = 'glm-4-plus'): LanguageModelV1 {
         body.tools = tools
           .filter((t) => t.type === 'function')
           .map((t) => {
-            const ft = t as { name: string; description?: string; parameters: Record<string, unknown> };
+            const ft = t as { name: string; description?: string; parameters: unknown };
             return {
               type: 'function',
               function: {
@@ -551,7 +555,7 @@ export function createZaiModel(modelId = 'glm-4-plus'): LanguageModelV1 {
         },
       });
 
-      return { stream };
+      return { stream, rawCall: { rawPrompt: body, rawSettings: {} } };
     },
   };
 

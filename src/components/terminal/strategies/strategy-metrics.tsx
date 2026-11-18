@@ -5,11 +5,11 @@
 // second-order (vanna / charm / vomma / speed), distributional risk
 // (VaR · CVaR · probability-of-touching), the spot×IV stress grid, and
 // execution economics (capital, ROC, theta yield, slippage).
+// Every card is a DockPanel (drag-reorder · pixel-resize · fullscreen ·
+// collapse — content stays mounted) under the strategies-metrics view.
 
 import React from 'react';
-import {
-  Waves, TrendingUp, ShieldAlert, Landmark, Gauge, Activity, Percent, Sigma,
-} from 'lucide-react';
+import { Waves, Activity, Percent, Sigma } from 'lucide-react';
 import type { AssetMarket, Leg, StrategyAnalysis, UnderlyingId } from '@/lib/types';
 import { fmtNum, fmtUsd, fmtPctSigned, heatColor } from '@/lib/format';
 import {
@@ -21,6 +21,7 @@ import {
   termStructure,
 } from '@/lib/metrics';
 import { kindLabel } from '@/lib/types';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 interface MetricsProps {
   analysis: StrategyAnalysis;
@@ -50,18 +51,6 @@ function Stat({
   );
 }
 
-function SectionTitle({ icon, title, accent, right }: { icon: React.ReactNode; title: string; accent: string; right?: React.ReactNode }) {
-  return (
-    <div className="mb-2 flex items-center justify-between">
-      <h3 className={`flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${accent}`}>
-        {icon}
-        {title}
-      </h3>
-      {right}
-    </div>
-  );
-}
-
 export function StrategyMetrics({ analysis, legs, underlying, market, specName }: MetricsProps) {
   const spot = market.spot;
 
@@ -85,19 +74,17 @@ export function StrategyMetrics({ analysis, legs, underlying, market, specName }
   const maxAbs = Math.max(...flat.map(Math.abs), 1);
 
   return (
-    <div className="space-y-3">
+    <Dock viewId="strategies-metrics" layout="stack">
       {/* ── Volatility surface ─────────────────────────────────────────── */}
-      <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-        <SectionTitle
-          icon={<Waves className="h-3.5 w-3.5" />}
-          title={`Volatility surface · ${underlying}`}
-          accent="text-teal-300"
-          right={
-            <span className="font-mono text-[8px] text-zinc-600">
-              horizon {analysis.horizonDays}d · σH {(risk.sigmaH * 100).toFixed(1)}% log-space
-            </span>
-          }
-        />
+      <DockPanel
+        id="vol-surface"
+        title={`Volatility surface · ${underlying}`}
+        right={
+          <span className="font-mono text-[8px] text-zinc-600">
+            horizon {analysis.horizonDays}d · σH {(risk.sigmaH * 100).toFixed(1)}% log-space
+          </span>
+        }
+      >
         <div className="grid gap-3 lg:grid-cols-[1.1fr_1fr]">
           {/* term structure bars */}
           <div className="rounded-md border border-zinc-800/70 bg-zinc-950/50 p-2.5">
@@ -161,16 +148,14 @@ export function StrategyMetrics({ analysis, legs, underlying, market, specName }
             </div>
           </div>
         </div>
-      </section>
+      </DockPanel>
 
       {/* ── Greeks matrix — first + second order ────────────────────────── */}
-      <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-        <SectionTitle
-          icon={<TrendingUp className="h-3.5 w-3.5" />}
-          title="Greeks matrix — first & second order (size 1)"
-          accent="text-amber-300"
-          right={<span className="font-mono text-[8px] text-zinc-600">FD on the live BS / everlasting engines</span>}
-        />
+      <DockPanel
+        id="greeks-matrix"
+        title="Greeks matrix — first & second order (size 1)"
+        right={<span className="font-mono text-[8px] text-zinc-600">FD on the live BS / everlasting engines</span>}
+      >
         <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
           <Stat label="Delta ∂V/∂S" value={fmtNum(g.delta, 3)} sub={`Δ$ ${fmtUsd(g.deltaExposureUsd, { compact: true })}`} tone={g.delta >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
           <Stat label="Gamma ∂Δ/∂S" value={fmtNum(g.gamma, 4)} sub="convexity" />
@@ -248,16 +233,14 @@ export function StrategyMetrics({ analysis, legs, underlying, market, specName }
             </p>
           </div>
         )}
-      </section>
+      </DockPanel>
 
       {/* ── Distributional risk ─────────────────────────────────────────── */}
-      <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-        <SectionTitle
-          icon={<ShieldAlert className="h-3.5 w-3.5" />}
-          title={`Distributional risk · horizon ${analysis.horizonDays}d`}
-          accent="text-rose-300"
-          right={<span className="font-mono text-[8px] text-zinc-600">lognormal P&amp;L law · driftless</span>}
-        />
+      <DockPanel
+        id="distributional-risk"
+        title={`Distributional risk · horizon ${analysis.horizonDays}d`}
+        right={<span className="font-mono text-[8px] text-zinc-600">lognormal P&amp;L law · driftless</span>}
+      >
         <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
           <Stat label="VaR 95%" value={fmtUsd(risk.var95, { compact: true })} tone="text-rose-400" sub="5th pct P&L" />
           <Stat label="VaR 99%" value={fmtUsd(risk.var99, { compact: true })} tone="text-rose-400" sub="1st pct P&L" />
@@ -280,16 +263,14 @@ export function StrategyMetrics({ analysis, legs, underlying, market, specName }
             ))}
           </div>
         )}
-      </section>
+      </DockPanel>
 
       {/* ── Stress grid: spot × IV ───────────────────────────────────────── */}
-      <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-        <SectionTitle
-          icon={<Gauge className="h-3.5 w-3.5" />}
-          title="Stress grid — P&L by spot shock × IV shock"
-          accent="text-sky-300"
-          right={<span className="font-mono text-[8px] text-zinc-600">instantaneous · {specName}</span>}
-        />
+      <DockPanel
+        id="stress-grid"
+        title="Stress grid — P&L by spot shock × IV shock"
+        right={<span className="font-mono text-[8px] text-zinc-600">instantaneous · {specName}</span>}
+      >
         <div className="overflow-x-auto">
           <table className="w-full min-w-[520px] text-center">
             <thead>
@@ -328,20 +309,18 @@ export function StrategyMetrics({ analysis, legs, underlying, market, specName }
         <p className="mt-1.5 text-[8px] leading-relaxed text-zinc-600">
           Ringed cell = current market. The left edge maps the short-vol crash scenario; the right edge the melt-up.
         </p>
-      </section>
+      </DockPanel>
 
       {/* ── Execution economics ─────────────────────────────────────────── */}
-      <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-        <SectionTitle
-          icon={<Landmark className="h-3.5 w-3.5" />}
-          title="Execution & capital economics"
-          accent="text-violet-300"
-          right={
-            <span className="font-mono text-[8px] text-zinc-600">
-              structure liquidity {fmtNum(analysis.liquidity * 100, 0)}%
-            </span>
-          }
-        />
+      <DockPanel
+        id="execution-economics"
+        title="Execution & capital economics"
+        right={
+          <span className="font-mono text-[8px] text-zinc-600">
+            structure liquidity {fmtNum(analysis.liquidity * 100, 0)}%
+          </span>
+        }
+      >
         <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
           <Stat
             label="Capital required"
@@ -390,7 +369,7 @@ export function StrategyMetrics({ analysis, legs, underlying, market, specName }
             </p>
           </div>
         </div>
-      </section>
-    </div>
+      </DockPanel>
+    </Dock>
   );
 }

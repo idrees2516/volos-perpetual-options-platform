@@ -4,15 +4,18 @@
 // from the registry (perpetual-native modern venues + legacy crypto CEXs +
 // TradFi exchanges + brokers) gets a verdict for the selected strategy:
 // native / synthetic / partial / not listed, with the adaptation recipe and
-// an estimated round-trip taker fee.
+// an estimated round-trip taker fee. Every block is a DockPanel
+// (drag-reorder · pixel-resize · fullscreen · collapse — content stays
+// mounted) under the strategies-platforms view.
 
 import React from 'react';
-import { Building2, Landmark, Globe2, Cpu, CheckCircle2, RefreshCw, AlertTriangle, XCircle, Coins, Route } from 'lucide-react';
+import { CheckCircle2, RefreshCw, AlertTriangle, XCircle, Coins } from 'lucide-react';
 import type { StrategySpec } from '@/lib/strategies';
 import type { UnderlyingId } from '@/lib/types';
 import { fmtNum, fmtUsd } from '@/lib/format';
 import { ERA_META, PLATFORMS, SUPPORT_META, platformSummary, platformsForStrategy } from '@/lib/platforms';
 import { StrategyRouting } from './strategy-routing';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 interface PlatformsProps {
   spec: StrategySpec;
@@ -125,29 +128,23 @@ export function StrategyPlatforms({ spec, underlying, premiumUsd }: PlatformsPro
       {/* smart order routing & creation */}
       <StrategyRouting spec={spec} underlying={underlying} premiumUsd={premiumUsd} />
 
-      {/* summary strip */}
-      <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <div className="flex items-center gap-2">
-            <Globe2 className="h-4 w-4 text-teal-400" />
-            <div>
-              <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-200">
-                {spec.name} — venue map
-              </h3>
-              <p className="text-[9px] text-zinc-500">
-                {summary.native + summary.synthetic} of {summary.total} venues can run it · {PLATFORMS.length} platforms across modern &amp; legacy eras
-              </p>
+      <Dock viewId="strategies-platforms" layout="stack">
+        {/* summary strip */}
+        <DockPanel
+          id="platforms-summary"
+          title={`${spec.name} — venue map`}
+          sub={`${summary.native + summary.synthetic} of ${summary.total} venues can run it · ${PLATFORMS.length} platforms across modern & legacy eras`}
+          right={
+            <div className="flex flex-wrap gap-1.5">
+              {(['native', 'synthetic', 'partial', 'unavailable'] as const).map((s) => (
+                <div key={s} className={`rounded-md border px-2 py-1 text-center ${SUPPORT_META[s].chip}`}>
+                  <p className="font-mono text-sm font-semibold leading-none tabular-nums">{summary[s]}</p>
+                  <p className="mt-0.5 text-[7px] uppercase tracking-wide opacity-80">{SUPPORT_META[s].label}</p>
+                </div>
+              ))}
             </div>
-          </div>
-          <div className="ml-auto flex flex-wrap gap-1.5">
-            {(['native', 'synthetic', 'partial', 'unavailable'] as const).map((s) => (
-              <div key={s} className={`rounded-md border px-2 py-1 text-center ${SUPPORT_META[s].chip}`}>
-                <p className="font-mono text-sm font-semibold leading-none tabular-nums">{summary[s]}</p>
-                <p className="mt-0.5 text-[7px] uppercase tracking-wide opacity-80">{SUPPORT_META[s].label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+          }
+        >
         <p className="mt-2 text-[9px] leading-relaxed text-zinc-500">
           <span className="text-teal-300">Native</span> — one ticket as listed ·{' '}
           <span className="text-sky-300">Synthetic</span> — replicable via rolls / split tickets / futures hedge ·{' '}
@@ -155,45 +152,32 @@ export function StrategyPlatforms({ spec, underlying, premiumUsd }: PlatformsPro
           <span className="text-rose-300">Not listed</span> — core legs absent. Fee lines are estimates on the live premium of{' '}
           <span className="font-mono text-zinc-300">{fmtUsd(Math.abs(premiumUsd))}</span> at size 1.
         </p>
-      </section>
+      </DockPanel>
 
       {/* modern era */}
-      <section>
-        <div className="mb-1.5 flex items-center gap-1.5">
-          <Cpu className="h-3.5 w-3.5 text-teal-400" />
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-teal-300">
-            {ERA_META.modern.label}
-          </h3>
-          <span className="text-[8px] text-zinc-600">{ERA_META.modern.hint}</span>
-        </div>
+      <DockPanel id="platforms-modern" title={ERA_META.modern.label} sub={ERA_META.modern.hint}>
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {modern.map((f) => <PlatformCard key={f.platform.id} fit={f} />)}
         </div>
-      </section>
+      </DockPanel>
 
       {/* legacy crypto */}
-      <section>
-        <div className="mb-1.5 flex items-center gap-1.5">
-          <Building2 className="h-3.5 w-3.5 text-amber-400" />
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
-            Legacy · crypto dated-options venues
-          </h3>
-          <span className="text-[8px] text-zinc-600">{underlying} books — expiries, serials, 0DTE dailies</span>
-        </div>
+      <DockPanel
+        id="platforms-legacy-crypto"
+        title="Legacy · crypto dated-options venues"
+        sub={`${underlying} books — expiries, serials, 0DTE dailies`}
+      >
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {legacyCrypto.map((f) => <PlatformCard key={f.platform.id} fit={f} />)}
         </div>
-      </section>
+      </DockPanel>
 
       {/* legacy tradfi */}
-      <section>
-        <div className="mb-1.5 flex items-center gap-1.5">
-          <Landmark className="h-3.5 w-3.5 text-violet-400" />
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-300">
-            Legacy · TradFi options exchanges &amp; brokers
-          </h3>
-          <span className="text-[8px] text-zinc-600">the same archetypes on index, futures &amp; single-name books</span>
-        </div>
+      <DockPanel
+        id="platforms-tradfi"
+        title="Legacy · TradFi options exchanges &amp; brokers"
+        sub="the same archetypes on index, futures &amp; single-name books"
+      >
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {legacyTradfi.map((f) => <PlatformCard key={f.platform.id} fit={f} />)}
         </div>
@@ -204,7 +188,8 @@ export function StrategyPlatforms({ spec, underlying, premiumUsd }: PlatformsPro
           leg math so one spec prices across every era at once — {fmtNum(spec.legs.length, 0)} legs resolved on{' '}
           {underlying} here, on SPX there.
         </p>
-      </section>
+      </DockPanel>
+      </Dock>
     </div>
   );
 }

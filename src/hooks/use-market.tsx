@@ -5,6 +5,12 @@
 // public exchange APIs (Binance → Bybit → OKX → Deribit index) overlaid on
 // every frame, so every place the terminal shows a price is live.
 // Exposes smooth interpolated spot for buttery chart motion.
+//
+// NOTE: this is the ONLY use-market module. A stale use-market.ts used to
+// shadow this file for TypeScript resolution (tsc resolves .ts before .tsx,
+// the Next bundler the other way) — it and the dead v1 views that imported
+// its legacy surface (src/components/volos/*, superseded by terminal/*)
+// were removed in the v2 structural cleanup.
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { AssetMarket, MarketData } from '@/lib/types';
@@ -53,23 +59,6 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
   // Overlaid on whichever market frame is current (engine SSE or sim), so
   // every displayed spot — ticker, payoff, chains, gamma lab, trading,
   // paper desk — is the real traded price.
-  const push = (m: MarketData) => {
-    const m2 = applyLive(m);
-    latestRef.current = m2;
-    setMarket(m2);
-  };
-
-  useEffect(() => {
-    const unsubscribe = subscribeLivePrices((snap) => {
-      liveRef.current = snap;
-      setLive(snap);
-      // re-apply the fresh quotes on top of the latest frame
-      push(latestRef.current);
-    });
-    return unsubscribe;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const applyLive = (m: MarketData): MarketData => {
     const snap = liveRef.current;
     if (!snap?.ok) return m;
@@ -91,6 +80,24 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
     }
     return touched ? { ...m, assets } : m;
   };
+
+  const push = (m: MarketData) => {
+    const m2 = applyLive(m);
+    latestRef.current = m2;
+    setMarket(m2);
+  };
+
+  useEffect(() => {
+    const unsubscribe = subscribeLivePrices((snap) => {
+      liveRef.current = snap;
+      setLive(snap);
+      // re-apply the fresh quotes on top of the latest frame
+      push(latestRef.current);
+    });
+    return unsubscribe;
+     
+  }, []);
+
 
   useEffect(() => {
     let closed = false;
@@ -146,7 +153,7 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
       closeStream?.();
       stopFallback();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [nonce]);
 
   // Smooth interpolation at 30fps for chart motion.

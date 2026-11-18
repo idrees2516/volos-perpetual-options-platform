@@ -3,9 +3,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Script Lab — the view. A fully adjustable workspace: every panel is a
 // floating window (drag by title bar, resize from any edge/corner, maximize,
-// minimize, close & reopen, z-order on focus), with a dock strip, tiling and
-// a persisted layout. The toolbar drives the dataset; the status strip shows
-// provenance + compile health.
+// collapse with mounted content, fullscreen focus with Esc restore, minimize,
+// close & reopen, z-order on focus), with a dock strip, tiling and a persisted
+// layout. The toolbar drives the dataset; the status strip shows provenance +
+// compile health.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -266,7 +267,7 @@ export function ScriptLabView() {
           </button>
         ))}
         <span className="ml-auto flex items-center gap-2 font-mono text-[8px] text-zinc-600">
-          <span className="rounded border border-zinc-800 px-1 py-0.5">drag title bars · resize edges · double-click = maximize</span>
+          <span className="rounded border border-zinc-800 px-1 py-0.5">drag title bars · resize edges · collapse ▾ · fullscreen ⤢ · dbl-click = maximize</span>
           <span>{running ? 'running…' : 'idle'}</span>
         </span>
       </div>

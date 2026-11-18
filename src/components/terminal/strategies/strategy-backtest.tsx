@@ -8,14 +8,17 @@
 //   • legs re-struck at every cycle's entry spot, BS daily mark-to-market,
 //     settled at intrinsic on expiry, fees + slippage per leg
 // and renders the full record: equity curve, stats, sample trades, the
-// vol model and every assumption that produced the numbers.
+// vol model and every assumption that produced the numbers. Every block is
+// a DockPanel (drag-reorder · pixel-resize · fullscreen · collapse —
+// content stays mounted) under the strategies-backtest view.
 
 import React from 'react';
-import { History, Play, Loader2, TriangleAlert, Database, Info } from 'lucide-react';
+import { Play, Loader2, TriangleAlert, Database, Info } from 'lucide-react';
 import type { StrategySpec } from '@/lib/strategies';
 import type { UnderlyingId } from '@/lib/types';
 import { fmtNum, fmtUsd } from '@/lib/format';
 import type { BacktestLegSpec, BacktestResult } from '@/lib/ai/backtest';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 interface BacktestProps {
   spec: StrategySpec;
@@ -164,23 +167,14 @@ export function StrategyBacktest({ spec, underlying }: BacktestProps) {
   const s = result?.stats;
 
   return (
-    <div className="space-y-3">
+    <Dock viewId="strategies-backtest" layout="stack">
       {/* header / controls */}
-      <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <DockPanel
+        id="backtest-controls"
+        title={`${spec.name} — historical performance`}
+        sub={`real exchange history · ${prepared.legs.length} option legs · cycle length ${prepared.maxExpiry}d${result ? ` · ${result.stats.cycles} completed cycles on ${ranFor}` : ''}`}
+        right={
           <div className="flex items-center gap-2">
-            <History className="h-4 w-4 text-teal-400" />
-            <div>
-              <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-200">
-                {spec.name} — historical performance
-              </h3>
-              <p className="text-[9px] text-zinc-500">
-                real exchange history · {prepared.legs.length} option legs · cycle length {prepared.maxExpiry}d
-                {result ? ` · ${result.stats.cycles} completed cycles on ${ranFor}` : ''}
-              </p>
-            </div>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
             <div className="flex overflow-hidden rounded-md border border-zinc-700">
               {WINDOWS.map((w) => (
                 <button
@@ -204,7 +198,8 @@ export function StrategyBacktest({ spec, underlying }: BacktestProps) {
               {running ? 'Running…' : 'Run Backtest'}
             </button>
           </div>
-        </div>
+        }
+      >
         {prepared.notes.length > 0 && (
           <div className="mt-2 space-y-0.5">
             {prepared.notes.map((n, i) => (
@@ -214,59 +209,56 @@ export function StrategyBacktest({ spec, underlying }: BacktestProps) {
             ))}
           </div>
         )}
-      </section>
+      </DockPanel>
 
       {!canRun && (
-        <section className="rounded-lg border border-amber-500/25 bg-amber-950/20 p-3">
+        <DockPanel id="backtest-nolegs" title="No backtestable option legs in this strategy">
           <p className="flex items-center gap-1.5 text-[10px] font-medium text-amber-200">
-            <TriangleAlert className="h-3.5 w-3.5" /> No backtestable option legs in this strategy.
+            <TriangleAlert className="h-3.5 w-3.5" /> This structure is built from perpetual/spot instruments only — there is no option payoff to test against history.
           </p>
-          <p className="mt-1 text-[9px] text-amber-200/70">
-            This structure is built from perpetual/spot instruments only — there is no option payoff to test against history.
-          </p>
-        </section>
+        </DockPanel>
       )}
 
       {error && (
-        <section className="rounded-lg border border-rose-500/25 bg-rose-950/20 p-3">
-          <p className="flex items-center gap-1.5 text-[10px] font-medium text-rose-200">
-            <TriangleAlert className="h-3.5 w-3.5" /> Backtest failed
-          </p>
-          <p className="mt-1 font-mono text-[9px] text-rose-200/70">{error}</p>
+        <DockPanel id="backtest-error" title="Backtest failed">
+          <p className="font-mono text-[9px] text-rose-200/70">{error}</p>
           <p className="mt-1 text-[8.5px] text-rose-200/60">
             The engine pulls real klines from Bybit — if the feed is unreachable from this network, retry in a moment.
           </p>
-        </section>
+        </DockPanel>
       )}
 
       {result && s && (
         <>
           {/* stats grid */}
-          <section className="grid grid-cols-3 gap-1.5 sm:grid-cols-4 lg:grid-cols-6">
-            <Stat label="total P&L" value={fmtUsd(s.totalPnl, { sign: true })} tone={s.totalPnl >= 0 ? 'up' : 'down'} hint={`${fmtNum(s.cycles, 0)} cycles`} />
-            <Stat label="return on risk" value={`${fmtNum(s.returnPct, 1)}%`} tone={s.returnPct >= 0 ? 'up' : 'down'} hint={`CAGR ${fmtNum(s.cagrPct, 1)}%`} />
-            <Stat label="win rate" value={`${fmtNum(s.winRate, 1)}%`} hint={`avg win ${fmtUsd(s.avgWin)} · loss ${fmtUsd(s.avgLoss)}`} />
-            <Stat label="profit factor" value={fmtNum(s.profitFactor, 2)} tone={s.profitFactor >= 1 ? 'up' : 'down'} hint={`expectancy ${fmtUsd(s.expectancy, { sign: true })}/cycle`} />
-            <Stat label="max drawdown" value={`${fmtNum(s.maxDrawdownPct, 1)}%`} tone="down" hint={`worst cycle ${fmtUsd(s.worstTrade)}`} />
-            <Stat label="sharpe · sortino" value={`${fmtNum(s.sharpe, 2)} · ${fmtNum(s.sortino, 2)}`} hint={`avg hold ${s.avgHoldDays}d`} />
-          </section>
+          <DockPanel id="backtest-stats" title="Backtest stats" variant="bare">
+            <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4 lg:grid-cols-6">
+              <Stat label="total P&L" value={fmtUsd(s.totalPnl, { sign: true })} tone={s.totalPnl >= 0 ? 'up' : 'down'} hint={`${fmtNum(s.cycles, 0)} cycles`} />
+              <Stat label="return on risk" value={`${fmtNum(s.returnPct, 1)}%`} tone={s.returnPct >= 0 ? 'up' : 'down'} hint={`CAGR ${fmtNum(s.cagrPct, 1)}%`} />
+              <Stat label="win rate" value={`${fmtNum(s.winRate, 1)}%`} hint={`avg win ${fmtUsd(s.avgWin)} · loss ${fmtUsd(s.avgLoss)}`} />
+              <Stat label="profit factor" value={fmtNum(s.profitFactor, 2)} tone={s.profitFactor >= 1 ? 'up' : 'down'} hint={`expectancy ${fmtUsd(s.expectancy, { sign: true })}/cycle`} />
+              <Stat label="max drawdown" value={`${fmtNum(s.maxDrawdownPct, 1)}%`} tone="down" hint={`worst cycle ${fmtUsd(s.worstTrade)}`} />
+              <Stat label="sharpe · sortino" value={`${fmtNum(s.sharpe, 2)} · ${fmtNum(s.sortino, 2)}`} hint={`avg hold ${s.avgHoldDays}d`} />
+            </div>
+          </DockPanel>
 
           {/* equity curve */}
-          <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-            <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-300">Cumulative P&L curve</h4>
-              <span className="font-mono text-[8.5px] text-zinc-500">
-                {result.asset} · {result.windowDays}d window · cycle = {prepared.maxExpiry}d hold · capital base = worst-case loss
-              </span>
-              <span className="ml-auto flex items-center gap-1 text-[8px] text-zinc-500">
+          <DockPanel
+            id="backtest-equity"
+            title="Cumulative P&L curve"
+            sub={`${result.asset} · ${result.windowDays}d window · cycle = ${prepared.maxExpiry}d hold · capital base = worst-case loss`}
+            right={
+              <span className="flex items-center gap-1 text-[8px] text-zinc-500">
                 <Database className="h-2.5 w-2.5" /> {result.dataSource}
               </span>
-            </div>
+            }
+          >
             <EquityCurve data={result.equityCurve} />
-          </section>
+          </DockPanel>
 
           {/* vol model + recent trades */}
-          <section className="grid gap-2 lg:grid-cols-5">
+          <DockPanel id="backtest-record" title="Vol model & recent cycles" variant="bare">
+            <div className="grid gap-2 lg:grid-cols-5">
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2.5 lg:col-span-2">
               <h4 className="text-[9.5px] font-semibold uppercase tracking-wider text-zinc-300">Vol model</h4>
               <div className="mt-1.5 space-y-1 font-mono text-[9px] tabular-nums text-zinc-400">
@@ -312,16 +304,16 @@ export function StrategyBacktest({ spec, underlying }: BacktestProps) {
                 </tbody>
               </table>
             </div>
-          </section>
-
-          <p className="text-[8px] leading-relaxed text-zinc-600">
-            Backtests re-strike the structure at every cycle&apos;s entry spot on real daily closes — the strikes you see above
-            (as % moneyness) are applied to each historical price level, then priced with Black-Scholes on a realized-vol
-            surface calibrated to today&apos;s live Deribit IV, marked daily and settled at intrinsic. Past performance of a
-            replication is indicative, not a guarantee; execution costs are modeled ({result.assumptions[1] ?? ''}).
-          </p>
+            </div>
+            <p className="mt-2 text-[8px] leading-relaxed text-zinc-600">
+              Backtests re-strike the structure at every cycle&apos;s entry spot on real daily closes — the strikes you see above
+              (as % moneyness) are applied to each historical price level, then priced with Black-Scholes on a realized-vol
+              surface calibrated to today&apos;s live Deribit IV, marked daily and settled at intrinsic. Past performance of a
+              replication is indicative, not a guarantee; execution costs are modeled ({result.assumptions[1] ?? ''}).
+            </p>
+          </DockPanel>
         </>
       )}
-    </div>
+    </Dock>
   );
 }

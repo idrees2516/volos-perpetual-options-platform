@@ -22,6 +22,7 @@ import { useStrategy } from '@/stores/strategy-store';
 import { MAX_LEGS } from '@/lib/strategies';
 import { VOL_CONFIG, bsGreeks, ivForStrike, forwardPrice } from '@/lib/pricing';
 import { fmtNum } from '@/lib/format';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 const VENUE_OPTIONS = [
   { id: 'auto', label: 'Auto' },
@@ -212,6 +213,8 @@ export function ChainView({ onOpenBuilder }: { onOpenBuilder: () => void }) {
   );
 
   return (
+    <Dock viewId="chain">
+    <DockPanel id="chain" title="Options Chain" variant="bare">
     <div className="rounded-xl border border-zinc-800 bg-zinc-950/60">
       {/* Header */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-zinc-800/70 px-4 py-2.5">
@@ -399,6 +402,8 @@ export function ChainView({ onOpenBuilder }: { onOpenBuilder: () => void }) {
         </Button>
       </div>
     </div>
+    </DockPanel>
+    </Dock>
   );
 }
 

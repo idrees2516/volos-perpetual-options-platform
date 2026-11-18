@@ -2,13 +2,16 @@
 
 // -----------------------------------------------------------------------------
 // backquant/bq-panels2 — Overview · Tape (live SSE) · Liquidations · Market ·
-// ETF & COT & Filings workspace panels.
+// ETF & COT & Filings workspace panels. Every tab is a <Dock
+// viewId="backquant-…"> — each card drag-reorders, pixel-resizes,
+// fullscreens and collapses (children stay mounted, polling/SSE survive).
 // -----------------------------------------------------------------------------
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Pause, Play, Radio, Fish as WhaleIcon, TrendingUp, TrendingDown } from 'lucide-react';
 import { Panel, StatTiles, BqHeatMatrix, BqSeriesChart, BqTable, panelProps, fmtUsd, fmtNum, fmtPx, fmtPct, fmtDate, fmtTime, CHART_COLORS, EmptyNote } from './bq-viz';
 import { useBq } from './use-bq';
+import { Dock } from '@/components/terminal/dock/dock';
 
 type Any = Record<string, unknown>;
 
@@ -32,8 +35,8 @@ export function BqOverviewPanel({ symbol }: { symbol: string }) {
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Panel title="Spot vs Gamma Levels" subtitle={`${symbol} dealer positioning`} {...panelProps(levels)}>
+      <Dock viewId="backquant-overview" className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <Panel id="ov-levels" span={1} title="Spot vs Gamma Levels" subtitle={`${symbol} dealer positioning`} {...panelProps(levels)}>
           {lv.all_expiry ? (
             <StatTiles
               columns={2}
@@ -51,7 +54,7 @@ export function BqOverviewPanel({ symbol }: { symbol: string }) {
           )}
         </Panel>
 
-        <Panel title="Expected Move" subtitle="the move the market is pricing" {...panelProps(expectedMove)}>
+        <Panel id="ov-em" span={1} title="Expected Move" subtitle="the move the market is pricing" {...panelProps(expectedMove)}>
           <StatTiles
             columns={1}
             stats={[
@@ -62,7 +65,7 @@ export function BqOverviewPanel({ symbol }: { symbol: string }) {
           />
         </Panel>
 
-        <Panel title="Perp Market" subtitle="price · OI · funding (72h)" {...panelProps(bundle)}>
+        <Panel id="ov-perp" span={1} title="Perp Market" subtitle="price · OI · funding (72h)" {...panelProps(bundle)}>
           <BqSeriesChart
             points={(bu.points ?? []).map((p) => ({ ts: p.ts, price: p.price, funding: (Number(p.funding_rate) * 100) }))}
             series={[
@@ -81,7 +84,7 @@ export function BqOverviewPanel({ symbol }: { symbol: string }) {
           ) : null}
         </Panel>
 
-        <Panel title="24h Options Tape" subtitle="multi-venue premium & prints" {...panelProps(tapeStats)}>
+        <Panel id="ov-tape" span={1} title="24h Options Tape" subtitle="multi-venue premium & prints" {...panelProps(tapeStats)}>
           <StatTiles
             columns={2}
             stats={[
@@ -101,9 +104,10 @@ export function BqOverviewPanel({ symbol }: { symbol: string }) {
             </div>
           ) : null}
         </Panel>
-      </div>
+      </Dock>
 
-      <Panel title="Expiry Ladder" subtitle="every active expiry · ATM IV · OI · net GEX · max pain" {...panelProps(expirySummary)}>
+      <Dock viewId="backquant-overview-ladder" layout="stack">
+      <Panel id="ov-expiry-ladder" title="Expiry Ladder" subtitle="every active expiry · ATM IV · OI · net GEX · max pain" {...panelProps(expirySummary)}>
         <BqTable
           columns={[
             { key: 'expiry', label: 'expiry', render: (r) => <span className="flex items-center gap-1">{fmtDate(r.expiry)} {r.is_anchor ? <span className="rounded bg-violet-950/60 px-1 text-[7.5px] uppercase text-violet-300">anchor</span> : null}</span> },
@@ -119,6 +123,7 @@ export function BqOverviewPanel({ symbol }: { symbol: string }) {
           maxHeight={280}
         />
       </Panel>
+      </Dock>
     </div>
   );
 }
@@ -193,8 +198,8 @@ export function TapePanel({ symbol }: { symbol: string }) {
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Panel title="Premium (24h)" subtitle="total options premium traded" {...panelProps(stats)}>
+      <Dock viewId="backquant-tape-stats" className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <Panel id="tape-premium" span={1} title="Premium (24h)" subtitle="total options premium traded" {...panelProps(stats)}>
           <StatTiles columns={2} stats={[
             { label: 'premium', value: fmtUsd(st.total_premium_usd) },
             { label: 'notional', value: fmtUsd(st.notional_volume_usd) },
@@ -202,7 +207,8 @@ export function TapePanel({ symbol }: { symbol: string }) {
             { label: 'sell side', value: fmtUsd(st.sell_premium_usd), deltaPositive: false, delta: 'aggressor sells' },
           ]} />
         </Panel>
-        <Panel title="Prints & Blocks" subtitle="24h trade counts" {...panelProps(stats)}>
+
+        <Panel id="tape-prints" span={1} title="Prints & Blocks" subtitle="24h trade counts" {...panelProps(stats)}>
           <StatTiles columns={2} stats={[
             { label: 'trades', value: fmtNum(st.trade_count, 0) },
             { label: 'whales', value: fmtNum(st.whale_count, 0) },
@@ -210,7 +216,8 @@ export function TapePanel({ symbol }: { symbol: string }) {
             { label: 'call share', value: fmtPct(st.call_share_pct) },
           ]} />
         </Panel>
-        <Panel title="Venue Split" subtitle="premium by venue" {...panelProps(stats)}>
+
+        <Panel id="tape-venue-split" span={1} title="Venue Split" subtitle="premium by venue" {...panelProps(stats)}>
           {Array.isArray(st.venue_split) ? (
             <div className="space-y-1">
               {(st.venue_split as Array<Any>).map((v, i) => {
@@ -229,7 +236,8 @@ export function TapePanel({ symbol }: { symbol: string }) {
             </div>
           ) : <EmptyNote text="no venue split" />}
         </Panel>
-        <Panel title="Aggressor Imbalance" subtitle="time-bucketed buy vs sell" {...panelProps(imbalance)}>
+
+        <Panel id="tape-imbalance" span={1} title="Aggressor Imbalance" subtitle="time-bucketed buy vs sell" {...panelProps(imbalance)}>
           <BqSeriesChart
             points={(im.buckets ?? []).map((b) => ({ ts: b.ts, imbalance: b.imbalance, cumulative: b.cumulative }))}
             series={[
@@ -242,9 +250,11 @@ export function TapePanel({ symbol }: { symbol: string }) {
             height={150}
           />
         </Panel>
-      </div>
+      </Dock>
 
+      <Dock viewId="backquant-tape" layout="grid">
       <Panel
+        id="tape-live"
         title="Live Tape"
         subtitle={`${symbol} multi-venue options prints — streaming${mode === 'demo' ? ' (demo simulator)' : mode === 'live' ? ' (BackQuant relay)' : ''}`}
         mode={mode === 'unknown' ? undefined : mode}
@@ -334,8 +344,7 @@ export function TapePanel({ symbol }: { symbol: string }) {
         </div>
       </Panel>
 
-      <div className="grid gap-3 xl:grid-cols-2">
-        <Panel title="Whale Prints (24h)" subtitle="largest options prints by premium" {...panelProps(whales)}>
+      <Panel id="tape-whales" span={1} title="Whale Prints (24h)" subtitle="largest options prints by premium" {...panelProps(whales)}>
           <BqTable
             columns={[
               { key: 'ts', label: 'time', render: (r) => fmtTime(r.ts) },
@@ -349,7 +358,8 @@ export function TapePanel({ symbol }: { symbol: string }) {
             maxHeight={260}
           />
         </Panel>
-        <Panel title="Flow by Strike" subtitle="cumulative aggressor buying / selling on open contracts" {...panelProps(flowStrike)}>
+
+      <Panel id="tape-flow" span={1} title="Flow by Strike" subtitle="cumulative aggressor buying / selling on open contracts" {...panelProps(flowStrike)}>
           <BqTable
             columns={[
               { key: 'strike', label: 'strike', align: 'right', render: (r) => fmtPx(r.strike) },
@@ -363,7 +373,7 @@ export function TapePanel({ symbol }: { symbol: string }) {
             maxHeight={260}
           />
         </Panel>
-      </div>
+      </Dock>
     </div>
   );
 }
@@ -378,8 +388,8 @@ export function LiquidationPanel({ symbol }: { symbol: string }) {
   const ds = (dist.data ?? {}) as { levels?: Array<Any>; nearest_magnet?: Any };
 
   return (
-    <div className="space-y-3">
-      <Panel title="Liquidation Heatmap" subtitle={`estimated liquidation intensity (price × time, next ${hm.horizon_hours ?? 16}h)`} {...panelProps(heat)}>
+    <Dock viewId="backquant-liquidations" layout="grid">
+      <Panel id="liq-heatmap" title="Liquidation Heatmap" subtitle={`estimated liquidation intensity (price × time, next ${hm.horizon_hours ?? 16}h)`} {...panelProps(heat)}>
         {hm.intensity_matrix ? (
           <BqHeatMatrix
             rowLabels={(hm.price_levels ?? []).map((p) => fmtPx(p))}
@@ -405,7 +415,7 @@ export function LiquidationPanel({ symbol }: { symbol: string }) {
         ) : null}
       </Panel>
 
-      <Panel title="Liquidation Distribution" subtitle="long / short volumes per level with leverage tiers" {...panelProps(dist)}>
+      <Panel id="liq-distribution" title="Liquidation Distribution" subtitle="long / short volumes per level with leverage tiers" {...panelProps(dist)}>
         <BqTable
           columns={[
             { key: 'price', label: 'price', align: 'right', render: (r) => fmtPx(r.price) },
@@ -423,7 +433,7 @@ export function LiquidationPanel({ symbol }: { symbol: string }) {
           </p>
         ) : null}
       </Panel>
-    </div>
+    </Dock>
   );
 }
 
@@ -441,8 +451,8 @@ export function MarketPanel({ symbol }: { symbol: string }) {
   const fu = (funding.data ?? {}) as { points?: Array<Any>; current?: Any };
 
   return (
-    <div className="space-y-3">
-      <Panel title="Market Bundle" subtitle="price · open interest · funding on one aligned axis (120h)" {...panelProps(bundle)}>
+    <Dock viewId="backquant-market" layout="grid">
+      <Panel id="market-bundle" title="Market Bundle" subtitle="price · open interest · funding on one aligned axis (120h)" {...panelProps(bundle)}>
         <BqSeriesChart
           points={(bu.points ?? []).map((p) => ({ ts: p.ts, price: p.price, oi: Number(p.open_interest) / 1e9, funding: Number(p.funding_rate) * 100 }))}
           series={[
@@ -457,8 +467,7 @@ export function MarketPanel({ symbol }: { symbol: string }) {
         />
       </Panel>
 
-      <div className="grid gap-3 xl:grid-cols-2">
-        <Panel title="CVD — Perp" subtitle="cumulative volume delta (aggressor flow)" {...panelProps(cvd)}>
+      <Panel id="market-cvd" span={1} title="CVD — Perp" subtitle="cumulative volume delta (aggressor flow)" {...panelProps(cvd)}>
           <BqSeriesChart
             points={(cv.points ?? []).map((p) => ({ ts: p.ts, cum: p.cumulative, delta: p.delta }))}
             series={[
@@ -470,7 +479,8 @@ export function MarketPanel({ symbol }: { symbol: string }) {
             height={185}
           />
         </Panel>
-        <Panel title="Perp Liquidations" subtitle="long / short liquidation series" {...panelProps(liquidations)}>
+
+      <Panel id="market-liquidations" span={1} title="Perp Liquidations" subtitle="long / short liquidation series" {...panelProps(liquidations)}>
           <BqSeriesChart
             points={(lq.points ?? []).map((p) => ({ ts: p.ts, long: p.long_usd, short: p.short_usd }))}
             series={[
@@ -482,9 +492,8 @@ export function MarketPanel({ symbol }: { symbol: string }) {
             height={185}
           />
         </Panel>
-      </div>
 
-      <Panel title="Funding Rate" subtitle="aggregate perpetual funding (168h)" {...panelProps(funding)}>
+      <Panel id="market-funding" title="Funding Rate" subtitle="aggregate perpetual funding (168h)" {...panelProps(funding)}>
         <BqSeriesChart
           points={(fu.points ?? []).map((p) => ({ ts: p.ts, fr: Number(p.funding_rate) * 100 }))}
           series={[{ key: 'fr', color: CHART_COLORS.amber, name: 'funding %/interval', type: 'area' }]}
@@ -506,7 +515,7 @@ export function MarketPanel({ symbol }: { symbol: string }) {
           </div>
         ) : null}
       </Panel>
-    </div>
+    </Dock>
   );
 }
 
@@ -533,9 +542,8 @@ export function MacroPanel({ symbol }: { symbol: string }) {
   const hs = (holders.data ?? {}) as { holders?: Array<Any> };
 
   return (
-    <div className="space-y-3">
-      <div className="grid gap-3 xl:grid-cols-[1.4fr_1fr]">
-        <Panel title={`Spot ${etfSymbol} ETF Flows`} subtitle={`daily creations / redemptions · settlement ${fl.as_of_settlement ?? ''} (T-1 by design)`} {...panelProps(flows)}>
+    <Dock viewId="backquant-macro" layout="grid">
+      <Panel id="macro-flows" span={1} title={`Spot ${etfSymbol} ETF Flows`} subtitle={`daily creations / redemptions · settlement ${fl.as_of_settlement ?? ''} (T-1 by design)`} {...panelProps(flows)}>
           <div className="space-y-1.5">
             {(fl.funds ?? []).map((f, i) => {
               const flow = Number(f.daily_net_flow_usd ?? 0);
@@ -567,8 +575,7 @@ export function MacroPanel({ symbol }: { symbol: string }) {
           ) : null}
         </Panel>
 
-        <div className="space-y-3">
-          <Panel title="ETF AUM" subtitle="assets under management per fund" {...panelProps(aum)}>
+      <Panel id="macro-aum" span={1} title="ETF AUM" subtitle="assets under management per fund" {...panelProps(aum)}>
             <StatTiles
               columns={1}
               stats={[
@@ -582,7 +589,8 @@ export function MacroPanel({ symbol }: { symbol: string }) {
               ]}
             />
           </Panel>
-          <Panel title="ETF Premium / Discount" subtitle="market price vs NAV" {...panelProps(premium)}>
+
+      <Panel id="macro-premium" title="ETF Premium / Discount" subtitle="market price vs NAV" {...panelProps(premium)}>
             <BqTable
               columns={[
                 { key: 'ticker', label: 'fund' },
@@ -594,10 +602,9 @@ export function MacroPanel({ symbol }: { symbol: string }) {
               maxHeight={150}
             />
           </Panel>
-        </div>
-      </div>
 
       <Panel
+        id="macro-filings"
         title="Regulatory Filings & Positioning"
         subtitle="CFTC COT · SEC Form 4 insiders · 13F institutional holders"
         right={
@@ -673,6 +680,6 @@ export function MacroPanel({ symbol }: { symbol: string }) {
           </>
         )}
       </Panel>
-    </div>
+    </Dock>
   );
 }

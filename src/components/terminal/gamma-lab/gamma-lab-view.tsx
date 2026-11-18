@@ -21,6 +21,7 @@ import { GammaOverview } from './gamma-overview';
 import { GammaHeatmaps } from './gamma-heatmaps';
 import { GammaFlow } from './gamma-flow-tape';
 import { GammaContracts } from './gamma-contracts';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 type LabTab = 'overview' | 'heatmaps' | 'flow' | 'contracts';
 
@@ -38,7 +39,8 @@ export function GammaLabView() {
   const [tab, setTab] = useState<LabTab>('overview');
   const [symbolId, setSymbolId] = useState('SPY');
   const [tick, setTick] = useState(() => Date.now());
-  const [prints, setPrints] = useState<FlowPrint[]>([]);
+  /** Flow tape keyed by symbol — resets itself on symbol change. */
+  const [tape, setTape] = useState<{ symbol: string; prints: FlowPrint[]; seq: number }>({ symbol: symbolId, prints: [], seq: 0 });
   const seqRef = useRef(0);
 
   // live clock for US symbols (crypto uses the market feed spot)
@@ -61,11 +63,12 @@ export function GammaLabView() {
     [symbolId, tick, liveSpot],
   );
 
-  // flow tape cadence — 1–3 prints every 900ms
-  useEffect(() => {
-    setPrints([]);
-    seqRef.current = 0;
-  }, [symbolId]);
+  // flow tape cadence — 1–3 prints every 900ms. The tape resets itself when
+  // the symbol changes (state adjusted during render — no reset effect).
+  if (tape.symbol !== symbolId) {
+    setTape({ symbol: symbolId, prints: [], seq: 0 });
+  }
+  const prints = tape.symbol === symbolId ? tape.prints : [];
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -77,7 +80,10 @@ export function GammaLabView() {
         seqRef.current++,
         count,
       );
-      setPrints((prev) => [...next, ...prev].slice(0, FLOW_TAPE_LEN));
+      setTape((prev) => {
+        const base = prev.symbol === symbolId ? prev.prints : [];
+        return { symbol: symbolId, prints: [...next, ...base].slice(0, FLOW_TAPE_LEN), seq: prev.seq + 1 };
+      });
     }, 900);
     return () => clearInterval(t);
   }, [symbolId, liveSpot]);
@@ -172,12 +178,30 @@ export function GammaLabView() {
         </span>
       </div>
 
-      {/* tab content */}
+      {/* tab content — each section is a dockable panel: drag-reorder, resize, fullscreen, collapse (children stay mounted) */}
       <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-        {tab === 'overview' && <GammaOverview profile={profile} />}
-        {tab === 'heatmaps' && <GammaHeatmaps profile={profile} />}
-        {tab === 'flow' && <GammaFlow profile={profile} prints={prints} summary={summary} />}
-        {tab === 'contracts' && <GammaContracts profile={profile} />}
+        <Dock viewId="gamma-lab" layout="stack">
+          {tab === 'overview' && (
+            <DockPanel id="overview" variant="bare" title="Overview · GEX & Dealers">
+              <GammaOverview profile={profile} />
+            </DockPanel>
+          )}
+          {tab === 'heatmaps' && (
+            <DockPanel id="heatmaps" variant="bare" title="Heatmaps · Strike × Expiry">
+              <GammaHeatmaps profile={profile} />
+            </DockPanel>
+          )}
+          {tab === 'flow' && (
+            <DockPanel id="flow" variant="bare" title="Options Flow · Live Tape">
+              <GammaFlow profile={profile} prints={prints} summary={summary} />
+            </DockPanel>
+          )}
+          {tab === 'contracts' && (
+            <DockPanel id="contracts" variant="bare" title="Contracts · Skew & IV">
+              <GammaContracts profile={profile} />
+            </DockPanel>
+          )}
+        </Dock>
       </div>
     </div>
   );

@@ -5,10 +5,16 @@
 // workspace: panel shells, stat tiles, heat matrices (strike × expiry grids),
 // level strips (spot vs HVL/walls), recharts series charts and mode badges.
 // Styled to match the VolOS terminal (zinc-950, teal accents, dense mono).
+//
+// The Panel shell IS a DockPanel — inside a <Dock viewId="backquant-…"> every
+// BackQuant card is drag-reorderable, pixel-resizable, fullscreen-focusable
+// and collapsible (children stay mounted, polling survives); outside a Dock
+// it renders the classic plain look (mode badge + refresh still shown).
 // -----------------------------------------------------------------------------
 
 import React from 'react';
 import { Loader2, RefreshCw, Radio, FlaskConical, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { DockPanel } from '@/components/terminal/dock/dock';
 import {
   ResponsiveContainer, LineChart as RLineChart, AreaChart as RAreaChart, ComposedChart,
   Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Bar, ReferenceLine,
@@ -62,34 +68,41 @@ export const fmtDate = (ts: unknown): string => {
 // ── panel shell ──────────────────────────────────────────────────────────────
 
 export function Panel({
+  id,
   title,
   subtitle,
   right,
   mode,
   children,
   className = '',
+  span,
   loading,
   error,
   onRefresh,
 }: {
+  /** Stable DockPanel id — persisted in the dock layout per view. */
+  id: string;
   title: string;
   subtitle?: string;
   right?: React.ReactNode;
   mode?: 'live' | 'demo' | 'unknown';
   children: React.ReactNode;
   className?: string;
+  /** grid docks: 1 = half width at xl · 2 = full width (default). */
+  span?: 1 | 2;
   loading?: boolean;
   error?: string | null;
   onRefresh?: () => void;
 }) {
   return (
-    <section className={`overflow-hidden rounded-lg border border-zinc-800/70 bg-zinc-900/30 ${className}`}>
-      <header className="flex flex-wrap items-center gap-2 border-b border-zinc-800/60 bg-zinc-900/50 px-3 py-1.5">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-300">{title}</p>
-          {subtitle ? <p className="truncate text-[9px] text-zinc-500">{subtitle}</p> : null}
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+    <DockPanel
+      id={id}
+      title={title}
+      sub={subtitle}
+      span={span}
+      className={className}
+      right={
+        <>
           {right}
           {mode ? <ModeBadge mode={mode} /> : null}
           {onRefresh ? (
@@ -101,9 +114,10 @@ export function Panel({
               <RefreshCw className="h-3 w-3" />
             </button>
           ) : null}
-        </div>
-      </header>
-      <div className="relative min-h-[60px] p-3">
+        </>
+      }
+    >
+      <div className="relative min-h-[60px]">
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-6 text-[10px] text-zinc-500">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> loading BackQuant data…
@@ -114,7 +128,7 @@ export function Panel({
           children
         )}
       </div>
-    </section>
+    </DockPanel>
   );
 }
 

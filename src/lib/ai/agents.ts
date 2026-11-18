@@ -613,9 +613,9 @@ export const loadStrategyTool = tool({
   }),
   execute: async ({ strategyId, underlying, size }) => {
     const { get_strategy_details, analyze_strategy } = marketTools;
-    const details = await get_strategy_details.execute({ strategyId, underlying });
+    const details = await get_strategy_details.execute({ strategyId, underlying }, { toolCallId: 'load_strategy', messages: [] });
     if ('error' in (details as object)) return details;
-    const analysis = await analyze_strategy.execute({ strategyId, underlying, size: size ?? 1 });
+    const analysis = await analyze_strategy.execute({ strategyId, underlying, size: size ?? 1 }, { toolCallId: 'load_strategy', messages: [] });
     return {
       action: 'load_strategy',
       strategyId,
@@ -629,5 +629,5 @@ export const loadStrategyTool = tool({
 
 export function validateAsset(v: unknown): AssetId {
   const s = String(v ?? '').toUpperCase();
-  return (ASSET_IDS as string[]).includes(s) ? (s as AssetId) : 'BTC';
+  return (ASSET_IDS as readonly string[]).includes(s) ? (s as AssetId) : 'BTC';
 }

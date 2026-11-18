@@ -12,6 +12,7 @@ import React, { useMemo, useState } from 'react';
 import { fmtUsd, fmtNum } from '@/lib/format';
 import { useQuant, useAgeLabel } from './use-quant';
 import { DataTable, EmptyNote, ErrNote, LiveDot, Panel, Pill, Segmented, StatGrid } from './quant-viz';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 import { AnimatedNumber, CrosshairChart, ScenarioHeatmap } from './viz-deep';
 
 interface RiskLeg {
@@ -82,9 +83,10 @@ export function RiskPanel({ symbol: focusSymbol }: { symbol: string }) {
       <ErrNote error={risk.error} />
       {!d && risk.loading && <EmptyNote>joining the paper account against the live chain…</EmptyNote>}
       {d && (
-        <>
+        <Dock viewId="quant-risk">
           {/* ── account + portfolio greeks ── */}
-          <Panel
+          <DockPanel
+            id="greeks"
             title="Portfolio Greeks · LIVE"
             sub={d.note}
             right={<LiveDot ok={!risk.error} label={`live · ${age}`} />}
@@ -102,10 +104,10 @@ export function RiskPanel({ symbol: focusSymbol }: { symbol: string }) {
                 { label: 'unrealized', value: fmtUsd(d.legs.reduce((s, l) => s + l.unrealizedUsd, 0), { compact: true, sign: true }), tone: d.legs.reduce((s, l) => s + l.unrealizedUsd, 0) >= 0 ? 'emerald' : 'rose', sub: 'marks vs entries' },
               ]}
             />
-          </Panel>
+          </DockPanel>
 
           {/* ── positions table ── */}
-          <Panel title="Positions · every leg, live greeks" sub="click a row for the full order drill-down (payoff, break-evens, P(ITM))" right={<Pill tone="teal">{d.legs.length} legs</Pill>}>
+          <DockPanel id="positions" title="Positions · every leg, live greeks" sub="click a row for the full order drill-down (payoff, break-evens, P(ITM))" right={<Pill tone="teal">{d.legs.length} legs</Pill>}>
             {d.legs.length ? (
               <DataTable<RiskLeg>
                 rows={d.legs}
@@ -145,14 +147,19 @@ export function RiskPanel({ symbol: focusSymbol }: { symbol: string }) {
                 {p.symbol}: {p.note}
               </p>
             ))}
-          </Panel>
+          </DockPanel>
 
           {/* ── selected position drill-down ── */}
-          {selLeg && <PositionDrill leg={selLeg} />}
+          {selLeg && (
+            <DockPanel id="drill" title="Order Drill-Down" variant="bare">
+              <PositionDrill leg={selLeg} />
+            </DockPanel>
+          )}
 
           {/* ── scenario matrix ── */}
           {scenario && scenario.pnlUsd.length > 0 && (
-            <Panel
+            <DockPanel
+              id="scenario"
               title="Scenario Matrix · full Black-76 reprice"
               sub="portfolio P&L if spot moves ±10% AND vol shifts ±8pts — every leg repriced, non-linear effects included"
               right={
@@ -165,11 +172,11 @@ export function RiskPanel({ symbol: focusSymbol }: { symbol: string }) {
             >
               <ScenarioHeatmap spot={scenario.spot} spotSteps={scenario.spotSteps} volSteps={scenario.volSteps} pnlUsd={scenario.pnlUsd} />
               <p className="mt-1.5 text-[8.5px] text-zinc-600">columns: spot % move (actual price under) · rows: parallel vol shift in points · current cell outlined</p>
-            </Panel>
+            </DockPanel>
           )}
 
           {/* ── working orders ── */}
-          <Panel title="Working Orders" sub="every resting limit order with live fill-odds (probability the market touches your level before expiry)">
+          <DockPanel id="orders" title="Working Orders" sub="every resting limit order with live fill-odds (probability the market touches your level before expiry)">
             {d.openOrders.length ? (
               <DataTable
                 rows={d.openOrders}
@@ -208,11 +215,13 @@ export function RiskPanel({ symbol: focusSymbol }: { symbol: string }) {
             ) : (
               <EmptyNote>no working orders — resting limits show up here with live fill probabilities</EmptyNote>
             )}
-          </Panel>
+          </DockPanel>
 
           {/* ── what-if lab ── */}
-          <WhatIfLab defaultSymbol={focusSymbol} />
-        </>
+          <DockPanel id="whatif" title="What-If Structure Lab" variant="bare">
+            <WhatIfLab defaultSymbol={focusSymbol} />
+          </DockPanel>
+        </Dock>
       )}
     </div>
   );
@@ -222,6 +231,7 @@ export function RiskPanel({ symbol: focusSymbol }: { symbol: string }) {
 
 function PositionDrill({ leg }: { leg: RiskLeg }) {
   const spotRef = leg.strike; // strike-anchored grid
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- grid is a pure function of the leg
   const payoff = useMemo(() => {
     const pts: { x: number; y: number }[] = [];
     const lo = spotRef * 0.7;

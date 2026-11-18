@@ -471,7 +471,7 @@ export function buildGammaProfile(symbolId: string, tickMs: number, liveSpot?: n
 
 // ── options flow tape ────────────────────────────────────────────────────────
 
-export type FlowSide = 'buy' | 'sell';
+export type FlowSide = 'buy' | 'sell' | 'mid';
 export type FlowAggress = 'ask' | 'bid' | 'mid';
 
 export interface FlowPrint {
@@ -537,7 +537,7 @@ export function nextPrints(
       wallPull && rnd() < 0.5
         ? rows.reduce((a, b) => (Math.abs(b.strike - profile.levels.callWall) < Math.abs(a.strike - profile.levels.callWall) ? b : a))
         : wallPull
-          ? rows.reduce((a, b) => (Math.abs(b.strike - profile.levels.putWall) < Math.abs(a.strike - profile.putWall) ? b : a))
+          ? rows.reduce((a, b) => (Math.abs(b.strike - profile.levels.putWall) < Math.abs(a.strike - profile.levels.putWall) ? b : a))
           : rows[Math.floor(rnd() * rows.length)];
     const optionType: 'call' | 'put' = rnd() < 0.545 ? 'call' : 'put';
     const iv = optionType === 'call' ? row.callIv : row.putIv;

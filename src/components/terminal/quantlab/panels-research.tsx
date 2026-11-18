@@ -10,7 +10,8 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { FlaskConical, Play, Loader2 } from 'lucide-react';
-import { DataTable, EmptyNote, ErrNote, LiveDot, Panel, Pill, Segmented, StatGrid } from './quant-viz';
+import { DataTable, EmptyNote, ErrNote, LiveDot, Pill, Segmented, StatGrid } from './quant-viz';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 interface IcStats {
   mean: number;
@@ -139,7 +140,9 @@ export function ResearchPanel({ symbol }: { symbol: string }) {
 
   return (
     <div className="space-y-2">
-      <Panel
+      <Dock viewId="quant-research">
+      <DockPanel
+        id="harness"
         title="Signal Research Harness · Stored History"
         sub="daily-block Spearman IC · quintile spreads · hit rates — every run persisted (the track record)"
         right={
@@ -235,9 +238,9 @@ export function ResearchPanel({ symbol }: { symbol: string }) {
             </p>
           </>
         )}
-      </Panel>
+      </DockPanel>
 
-      <Panel title="Persisted Run Ledger" sub="every harness run survives restarts — which factors worked, when">
+      <DockPanel id="ledger" title="Persisted Run Ledger" sub="every harness run survives restarts — which factors worked, when">
         {ledger.length === 0 ? (
           <EmptyNote>no persisted runs yet — run the harness above</EmptyNote>
         ) : (
@@ -270,7 +273,8 @@ export function ResearchPanel({ symbol }: { symbol: string }) {
             ]}
           />
         )}
-      </Panel>
+      </DockPanel>
+      </Dock>
     </div>
   );
 }

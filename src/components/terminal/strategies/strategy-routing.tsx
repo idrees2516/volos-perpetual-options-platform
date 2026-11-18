@@ -5,11 +5,13 @@
 // PRICE & PROFIT (maker capture, edge retention) and SAFETY & SECURITY
 // (custody, clearing, kill-switch), each with concrete numbers, plus the
 // concrete order-creation recipe for every routable venue.
+// Every block is a DockPanel (drag-reorder · pixel-resize · fullscreen ·
+// collapse — content stays mounted) under the strategies-routing view.
 
 import React from 'react';
 import {
-  Route, Zap, BadgeDollarSign, ShieldCheck, Timer, ChevronDown, CheckCircle2,
-  RefreshCw, XCircle, Coins, TrendingDown, Gauge, Lock,
+  Route, Zap, BadgeDollarSign, ShieldCheck, Timer, ChevronDown,
+  XCircle, Coins, TrendingDown, Lock,
 } from 'lucide-react';
 import type { StrategySpec } from '@/lib/strategies';
 import type { UnderlyingId } from '@/lib/types';
@@ -19,6 +21,7 @@ import {
   DEFAULT_WEIGHTS, routeRecommendation, routingForStrategy,
   type RoutingFit, type RoutingWeights,
 } from '@/lib/order-routing';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 interface RoutingProps {
   spec: StrategySpec;
@@ -166,12 +169,11 @@ export function StrategyRouting({ spec, underlying, premiumUsd }: RoutingProps) 
 
   if (!rec.best) {
     return (
-      <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-        <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-200">
-          <Route className="h-4 w-4 text-teal-400" /> Order routing
-        </h3>
-        <p className="mt-1 text-[9px] text-zinc-500">No venue can route this structure — see the platform verdicts below.</p>
-      </section>
+      <Dock viewId="strategies-routing" layout="stack">
+        <DockPanel id="routing-none" title="Order routing">
+          <p className="text-[9px] text-zinc-500">No venue can route this structure — see the platform verdicts below.</p>
+        </DockPanel>
+      </Dock>
     );
   }
 
@@ -183,9 +185,10 @@ export function StrategyRouting({ spec, underlying, premiumUsd }: RoutingProps) 
   ];
 
   return (
-    <section className="space-y-2.5">
+    <Dock viewId="strategies-routing" layout="stack">
       {/* recommendation banner */}
-      <div className="rounded-lg border border-teal-500/30 bg-gradient-to-r from-teal-950/40 via-zinc-900/60 to-zinc-900/40 p-3">
+      <DockPanel id="routing-recommendation" variant="bare" title="Routing recommendation">
+        <div className="rounded-lg border border-teal-500/30 bg-gradient-to-r from-teal-950/40 via-zinc-900/60 to-zinc-900/40 p-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <Route className="h-5 w-5 shrink-0 text-teal-400" />
           <div className="min-w-[200px]">
@@ -219,30 +222,30 @@ export function StrategyRouting({ spec, underlying, premiumUsd }: RoutingProps) 
           expand any venue for its full cost breakdown and order-creation recipe.
         </p>
       </div>
+      </DockPanel>
 
       {/* routing matrix */}
-      <div>
-        <p className="mb-1.5 flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
-          <Gauge className="h-3.5 w-3.5 text-teal-400" /> Routing matrix — {routable.length} routable venues, ranked
-        </p>
+      <DockPanel id="routing-matrix" title={`Routing matrix — ${routable.length} routable venues, ranked`}>
         <div className="space-y-1.5">
           {routable.map((f) => <RoutingRow key={f.platform.id} fit={f} />)}
           {fits.filter((f) => !f.routable).map((f) => <RoutingRow key={f.platform.id} fit={f} />)}
         </div>
-      </div>
+      </DockPanel>
 
       {/* the best route's creation plan, always visible */}
-      <div className="rounded-lg border border-teal-500/25 bg-zinc-900/40 p-2.5">
-        <p className="mb-1.5 flex items-center gap-1.5 text-[9.5px] font-semibold uppercase tracking-wider text-zinc-200">
-          <CheckCircle2 className="h-3.5 w-3.5 text-teal-400" />
-          Recommended order creation on {rec.best.platform.name}
-          <RefreshCw className="ml-1 h-2.5 w-2.5 text-zinc-600" />
-          <span className="font-mono text-[8px] font-normal normal-case tracking-normal text-zinc-500">
-            {spec.legs.length} legs · {spec.legs.length <= rec.best.platform.maxLegsPerTicket ? 'single ticket' : `${Math.ceil(spec.legs.length / rec.best.platform.maxLegsPerTicket)} tickets`}
-          </span>
-        </p>
+      <DockPanel
+        id="routing-creation"
+        title={`Recommended order creation on ${rec.best.platform.name}`}
+        sub={
+          `${spec.legs.length} legs · ${
+            spec.legs.length <= rec.best.platform.maxLegsPerTicket
+              ? 'single ticket'
+              : `${Math.ceil(spec.legs.length / rec.best.platform.maxLegsPerTicket)} tickets`
+          }`
+        }
+      >
         <CreationPlan fit={rec.best} />
-      </div>
-    </section>
+      </DockPanel>
+    </Dock>
   );
 }

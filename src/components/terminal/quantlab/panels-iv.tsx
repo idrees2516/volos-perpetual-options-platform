@@ -9,7 +9,8 @@ import React, { useMemo, useState } from 'react';
 import { fmtUsd, fmtNum } from '@/lib/format';
 import { sequentialColor } from '@/lib/quant/heatmap';
 import { useQuant } from './use-quant';
-import { ChartLegend, DataTable, EmptyNote, ErrNote, HeatMatrix, HeatLegend, LineChart, Panel, Pill, Segmented, StatGrid } from './quant-viz';
+import { ChartLegend, DataTable, EmptyNote, ErrNote, HeatMatrix, HeatLegend, LineChart, Pill, Segmented, StatGrid } from './quant-viz';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 import { Surface3D } from './viz-deep';
 
 export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: boolean }) {
@@ -45,8 +46,9 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
         {t?.vrp && Number.isFinite(t.vrp.vrpPct) && <Pill tone={t.vrp.vrpPct >= 0 ? 'emerald' : 'amber'}>vrp {t.vrp.vrpPct >= 0 ? '+' : ''}{t.vrp.vrpPct.toFixed(1)}pts</Pill>}
       </div>
 
+      <Dock viewId="quant-iv">
       {view === 'term' && (
-        <Panel title="ATM IV Term Structure" sub="live implied vol by tenor (OTM composite at forward)" right={<Pill tone="teal">live</Pill>}>
+        <DockPanel id="term" title="ATM IV Term Structure" sub="live implied vol by tenor (OTM composite at forward)" right={<Pill tone="teal">live</Pill>}>
           <ErrNote error={term.error} />
           {t?.termStructure?.length ? (
             <>
@@ -62,11 +64,11 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
           ) : (
             <EmptyNote>{term.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
 
       {view === 'skew' && (
-        <Panel title="Skew · 25Δ / 10Δ" sub="rr = put IV − call IV (risk reversal) · fly = mid(wings) − ATM">
+        <DockPanel id="skew" title="Skew · 25Δ / 10Δ" sub="rr = put IV − call IV (risk reversal) · fly = mid(wings) − ATM">
           <ErrNote error={skew.error} />
           {skew.data?.byExpiry?.length ? (
             <DataTable
@@ -85,11 +87,11 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
           ) : (
             <EmptyNote>{skew.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
 
       {view === 'smile' && (
-        <Panel title="OTM Composite Smile" sub={smile.data ? `${smile.data.expiry} · ${smile.data.dte.toFixed(1)}d · forward ${fmtNum(smile.data.forward ?? 0, 0)}` : 'front expiry'}>
+        <DockPanel id="smile" title="OTM Composite Smile" sub={smile.data ? `${smile.data.expiry} · ${smile.data.dte.toFixed(1)}d · forward ${fmtNum(smile.data.forward ?? 0, 0)}` : 'front expiry'}>
           <ErrNote error={smile.error} />
           {smile.data?.smile?.length ? (
             <LineChart
@@ -102,11 +104,11 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
           ) : (
             <EmptyNote>{smile.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
 
       {view === 'vrp' && (
-        <Panel title="IV vs Realized Vol · VRP" sub={t?.vrp?.rvSource ?? 'deribit 30d realized'} right={vrp.data && Number.isFinite(vrp.data.vrpPct) ? <Pill tone={vrp.data.vrpPct >= 0 ? 'emerald' : 'amber'}>{vrp.data.vrpPct >= 0 ? 'rich' : 'cheap'}</Pill> : null}>
+        <DockPanel id="vrp" title="IV vs Realized Vol · VRP" sub={t?.vrp?.rvSource ?? 'deribit 30d realized'} right={vrp.data && Number.isFinite(vrp.data.vrpPct) ? <Pill tone={vrp.data.vrpPct >= 0 ? 'emerald' : 'amber'}>{vrp.data.vrpPct >= 0 ? 'rich' : 'cheap'}</Pill> : null}>
           <ErrNote error={vrp.error} />
           {vrp.data ? (
             <>
@@ -134,11 +136,11 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
           ) : (
             <EmptyNote>{vrp.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
 
       {view === 'em' && (
-        <Panel title="Expected Move" sub="1σ lognormal + ATM straddle · calibrated = VRP-rescaled">
+        <DockPanel id="em" title="Expected Move" sub="1σ lognormal + ATM straddle · calibrated = VRP-rescaled">
           <ErrNote error={em.error} />
           {em.data?.byExpiry?.length ? (
             <DataTable
@@ -159,11 +161,12 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
           ) : (
             <EmptyNote>{em.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
 
       {view === 'surface' && (
-        <Panel
+        <DockPanel
+          id="surface"
           title="IV Surface · strike × expiry"
           sub="OTM composite IV (% annualized) · drag the 3D surface to orbit, hover any cell to probe — the spot row is outlined"
           right={
@@ -208,8 +211,9 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
           ) : (
             <EmptyNote>{surface.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
+      </Dock>
     </div>
   );
 }

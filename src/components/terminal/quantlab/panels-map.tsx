@@ -28,6 +28,7 @@ import type { CorrelationResult } from '@/lib/quant/correlation';
 import type { FundingGridResult } from '@/lib/quant/funding-grid';
 import { useQuant, useAgeLabel } from './use-quant';
 import { Panel, Pill, LiveDot, Segmented, HeatMatrix, HeatLegend } from './quant-viz';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 // re-exported for existing import sites — the legend now lives in quant-viz
 export { HeatLegend };
@@ -483,9 +484,17 @@ export function MarketMapPanel({ onFocusSymbol }: { onFocusSymbol?: (symbol: str
           heat: teal = positive · rose = negative
         </span>
       </div>
-      <BreadthPanel onFocusSymbol={onFocusSymbol} />
-      <CorrelationPanel />
-      <FundingPanel />
+      <Dock viewId="quant-map">
+        <DockPanel id="breadth" title="Market Breadth" variant="bare">
+          <BreadthPanel onFocusSymbol={onFocusSymbol} />
+        </DockPanel>
+        <DockPanel id="correlation" title="Cross-Asset Correlation" variant="bare">
+          <CorrelationPanel />
+        </DockPanel>
+        <DockPanel id="funding" title="Funding Heat" variant="bare">
+          <FundingPanel />
+        </DockPanel>
+      </Dock>
     </div>
   );
 }

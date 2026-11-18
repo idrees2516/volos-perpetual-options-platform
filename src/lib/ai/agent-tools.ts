@@ -77,7 +77,7 @@ async function ensureLive(asset?: string): Promise<'live' | 'simulated'> {
 
 function asAsset(v: unknown, fallback: AssetId = 'BTC'): AssetId {
   const s = String(v ?? '').toUpperCase();
-  return (ASSET_IDS as string[]).includes(s) ? (s as AssetId) : fallback;
+  return (ASSET_IDS as readonly string[]).includes(s) ? (s as AssetId) : fallback;
 }
 
 function asTimeframe(v: unknown, fallback: Timeframe = '4h'): Timeframe {
@@ -159,7 +159,8 @@ export function analyzeStrategyPayload(args: {
   strategyId?: string;
   name?: string;
   underlying: AssetId;
-  legs?: Array<Partial<Leg>>;
+  /** Loose legs as they arrive from AI tool schemas — normalized inside. */
+  legs?: Array<{ kind?: string; side?: string; qty?: number; strike?: number; expiryDays?: number; fundingPeriodDays?: number }>;
   size?: number;
 }): StrategyAnalysisResult | { error: string } {
   const underlying = asAsset(args.underlying);
@@ -250,7 +251,7 @@ export function analyzeStrategyPayload(args: {
     breakevens: a.breakevens,
     pop: a.pop,
     expectedValue: a.expectedValue,
-    riskReward: a.riskReward ?? (a.maxLoss.kind === 'value' && a.maxLoss.value !== 0 && a.maxProfit.kind === 'value' && a.maxProfit.value !== undefined
+    riskReward: a.riskReward ?? (a.maxLoss.kind === 'value' && a.maxLoss.value != null && a.maxLoss.value !== 0 && a.maxProfit.kind === 'value' && a.maxProfit.value != null
       ? Math.abs(a.maxProfit.value / a.maxLoss.value)
       : 0),
     greeks: {
@@ -284,7 +285,7 @@ export const marketTools = {
     execute: async ({ asset }) => {
       const source = await ensureLive(asset);
       const s = liveMarketState();
-      const pick = asset ? [asAsset(asset)] : (ASSET_IDS as AssetId[]);
+      const pick = asset ? [asAsset(asset)] : [...ASSET_IDS];
       const assets = Object.fromEntries(
         pick.map((a) => [
           a,
@@ -741,11 +742,11 @@ export const marketTools = {
           const fb = await getVenueChain(alt, a as FeedAsset, expiry);
           if (fb.chain) {
             return {
+              ...fb.chain,
               asset: a,
               requestedVenue: v,
               usedVenue: alt,
               note: `${VENUE_META[v].name} unavailable (${error}) — served from ${VENUE_META[alt].name}`,
-              ...fb.chain,
             };
           }
         }
@@ -1415,7 +1416,7 @@ export const marketTools = {
         assets: ov.assets.map((a) => ({
           asset: a.asset,
           connected: a.connected,
-          ...(Number.isFinite(a.last) && a.last > 0
+          ...(a.last != null && Number.isFinite(a.last) && a.last > 0
             ? {
                 last: +a.last.toFixed(2),
                 change1mPct: +a.change1mPct.toFixed(3),

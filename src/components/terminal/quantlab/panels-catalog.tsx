@@ -7,7 +7,8 @@
 
 import React, { useState } from 'react';
 import { useQuant } from './use-quant';
-import { DataTable, EmptyNote, ErrNote, LiveDot, Panel, Pill } from './quant-viz';
+import { DataTable, EmptyNote, ErrNote, LiveDot, Pill } from './quant-viz';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 interface EndpointSpec {
   method: string;
@@ -54,7 +55,9 @@ export function CatalogPanel() {
 
   return (
     <div className="space-y-2">
-      <Panel
+      <Dock viewId="quant-catalog">
+      <DockPanel
+        id="status"
         title="VolQuant Engine · Service Status"
         sub={status.data?.liveNotes}
         right={<LiveDot ok={status.data?.status === 'ok'} label={status.data?.engine ?? 'volquant'} />}
@@ -82,9 +85,9 @@ export function CatalogPanel() {
         ) : (
           <EmptyNote>{status.loading ? 'checking sources…' : '—'}</EmptyNote>
         )}
-      </Panel>
+      </DockPanel>
 
-      <Panel title="Try-It Console" sub="hit any native endpoint live">
+      <DockPanel id="tryit" title="Try-It Console" sub="hit any native endpoint live">
         <div className="flex flex-wrap gap-1.5">
           <input
             value={tryUrl}
@@ -102,10 +105,10 @@ export function CatalogPanel() {
         {tryResult && (
           <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-zinc-800 bg-zinc-950/80 p-2 font-mono text-[8.5px] leading-relaxed text-zinc-400">{tryResult}</pre>
         )}
-      </Panel>
+      </DockPanel>
 
       {reg.data && (
-        <Panel title="Native Endpoint Registry" sub={`${reg.data.count} endpoints · every one computes live — no vendor, no demos`} right={<Pill tone="teal">{reg.data.engine}</Pill>}>
+        <DockPanel id="registry" title="Native Endpoint Registry" sub={`${reg.data.count} endpoints · every one computes live — no vendor, no demos`} right={<Pill tone="teal">{reg.data.engine}</Pill>}>
           {groups.map((g) => (
             <div key={g} className="mb-2">
               <p className="mb-1 text-[8px] font-bold uppercase tracking-[0.16em] text-teal-500">{g}</p>
@@ -148,8 +151,9 @@ export function CatalogPanel() {
             </div>
           ))}
           <p className="text-[8.5px] leading-relaxed text-zinc-600">{reg.data.note}</p>
-        </Panel>
+        </DockPanel>
       )}
+      </Dock>
       <ErrNote error={reg.error} />
     </div>
   );

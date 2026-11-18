@@ -37,6 +37,11 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "examples",
+    "scripts",
+    "skills",
+    "external",
+    "rust-backend"
   ]
 }

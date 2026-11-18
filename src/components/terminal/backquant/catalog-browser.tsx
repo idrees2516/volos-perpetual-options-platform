@@ -14,6 +14,7 @@ import { Search, Send, Loader2, Plug, BookOpen } from 'lucide-react';
 import { BQ_GROUPS, BQ_ENDPOINTS } from '@/lib/backquant/endpoints';
 import type { BqEndpoint } from '@/lib/backquant/types';
 import { Panel, ModeBadge, fmtTime } from './bq-viz';
+import { Dock } from '@/components/terminal/dock/dock';
 
 export function CatalogBrowser({ symbol }: { symbol: string }) {
   const [query, setQuery] = useState('');
@@ -65,10 +66,11 @@ export function CatalogBrowser({ symbol }: { symbol: string }) {
   };
 
   return (
-    <div className="space-y-3">
-      <div className="grid gap-3 xl:grid-cols-[1fr_1.1fr]">
-        <Panel
-          title="v2 REST Endpoint Catalog"
+    <Dock viewId="backquant-catalog" layout="grid">
+      <Panel
+        id="catalog-endpoints"
+        span={1}
+        title="v2 REST Endpoint Catalog"
           subtitle={`${BQ_ENDPOINTS.length} endpoints across ${BQ_GROUPS.length} groups — searchable, every one callable`}
           right={
             <div className="flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900/60 px-1.5">
@@ -112,10 +114,11 @@ export function CatalogBrowser({ symbol }: { symbol: string }) {
           </div>
         </Panel>
 
-        <div className="space-y-3">
-          {selected ? (
-            <Panel
-              title={selected.title}
+      {selected ? (
+        <Panel
+          id="catalog-inspector"
+          span={1}
+          title={selected.title}
               subtitle={`GET /v2${selected.path}`}
               right={
                 <button
@@ -172,17 +175,17 @@ export function CatalogBrowser({ symbol }: { symbol: string }) {
                   <pre className="max-h-[300px] overflow-auto rounded-md border border-zinc-800/60 bg-zinc-950/60 p-2 font-mono text-[8.5px] leading-relaxed text-zinc-300">{response.json}</pre>
                 </div>
               ) : null}
-            </Panel>
-          ) : (
-            <Panel title="Endpoint Inspector" subtitle="select an endpoint from the catalog">
+        </Panel>
+      ) : (
+        <Panel id="catalog-inspector-empty" span={1} title="Endpoint Inspector" subtitle="select an endpoint from the catalog">
               <p className="py-6 text-center text-[10px] text-zinc-600">
                 <BookOpen className="mx-auto mb-1 h-4 w-4 text-zinc-700" />
                 pick any of the {BQ_ENDPOINTS.length} endpoints to inspect its parameters and fire a live request
               </p>
-            </Panel>
-          )}
+        </Panel>
+      )}
 
-          <Panel title="MCP Surface" subtitle="23 tools · VolOS MCP server at /api/backquant/mcp">
+      <Panel id="catalog-mcp" title="MCP Surface" subtitle="23 tools · VolOS MCP server at /api/backquant/mcp">
             <div className="space-y-2 text-[10px] leading-relaxed text-zinc-400">
               <p>
                 <Plug className="mr-1 inline h-3 w-3 text-violet-400" />
@@ -201,9 +204,7 @@ export function CatalogBrowser({ symbol }: { symbol: string }) {
                 The AI Copilot uses the same tools in-chat (bq_* toolbelt) — with a BackQuant API key it can also route through the real mcp.backquant.com (<code className="font-mono">bq_transport=mcp</code>).
               </p>
             </div>
-          </Panel>
-        </div>
-      </div>
-    </div>
+      </Panel>
+    </Dock>
   );
 }

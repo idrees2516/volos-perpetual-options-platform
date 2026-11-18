@@ -3,12 +3,15 @@
 // -----------------------------------------------------------------------------
 // backquant/bq-panels — GEX · Chain & OPEX · IV Analytics · Greeks & TRACE ·
 // OI & Flow workspace panels. Each panel reads its endpoint(s) through the
-// /api/backquant/* data plane and renders VolOS-styled analytics.
+// /api/backquant/* data plane and renders VolOS-styled analytics. Every tab
+// is a <Dock viewId="backquant-…"> — each card drag-reorders, pixel-resizes,
+// fullscreens and collapses (children stay mounted, polling survives).
 // -----------------------------------------------------------------------------
 
 import React, { useMemo, useState } from 'react';
 import { Panel, StatTiles, BqHeatMatrix, BqLevelStrip, BqSeriesChart, BqTable, panelProps, fmtUsd, fmtNum, fmtPx, fmtPct, fmtDate, CHART_COLORS, EmptyNote } from './bq-viz';
 import { useBq } from './use-bq';
+import { Dock } from '@/components/terminal/dock/dock';
 
 type Any = Record<string, unknown>;
 
@@ -47,9 +50,8 @@ export function GexPanel({ symbol }: { symbol: string }) {
   const maxNet = Math.max(...profilePoints.map((p) => Math.abs(p.net)), 1);
 
   return (
-    <div className="space-y-3">
-      <div className="grid gap-3 xl:grid-cols-2">
-        <Panel title="GEX Key Levels" subtitle={`${symbol} · HVL / walls / support · all-expiry + 0DTE`} {...panelProps(levels)}>
+    <Dock viewId="backquant-gex" layout="grid">
+      <Panel id="gex-levels" span={1} title="GEX Key Levels" subtitle={`${symbol} · HVL / walls / support · all-expiry + 0DTE`} {...panelProps(levels)}>
           {lv.all_expiry ? (
             <>
               <BqLevelStrip
@@ -84,7 +86,7 @@ export function GexPanel({ symbol }: { symbol: string }) {
           )}
         </Panel>
 
-        <Panel title="GEX by Strike" subtitle="net / call / put gamma exposure per strike" {...panelProps(profile)}>
+      <Panel id="gex-strikes" span={1} title="GEX by Strike" subtitle="net / call / put gamma exposure per strike" {...panelProps(profile)}>
           {profilePoints.length ? (
             <>
               <div className="space-y-[3px]">
@@ -114,9 +116,8 @@ export function GexPanel({ symbol }: { symbol: string }) {
             <EmptyNote text="no strike profile" />
           )}
         </Panel>
-      </div>
 
-      <Panel title="Strike × Expiry GEX Heatmap" subtitle="gamma exposure matrix — strikes (rows) × expiries (columns)" {...panelProps(heatmap)}>
+      <Panel id="gex-heatmap" title="Strike × Expiry GEX Heatmap" subtitle="gamma exposure matrix — strikes (rows) × expiries (columns)" {...panelProps(heatmap)}>
         {hm.matrix ? (
           <BqHeatMatrix
             rowLabels={(hm.strikes ?? []).map((s) => fmtPx(s))}
@@ -130,8 +131,7 @@ export function GexPanel({ symbol }: { symbol: string }) {
         )}
       </Panel>
 
-      <div className="grid gap-3 xl:grid-cols-2">
-        <Panel title="Strike Ladder" subtitle="dealer gamma exposure by strike × expiry" {...panelProps(ladder)}>
+      <Panel id="gex-ladder" span={1} title="Strike Ladder" subtitle="dealer gamma exposure by strike × expiry" {...panelProps(ladder)}>
           <BqTable
             columns={[
               { key: 'strike', label: 'strike', align: 'right', render: (r) => <span className={Math.abs(Number(r.strike) - spot) < spot * 0.005 ? 'font-bold text-zinc-100' : ''}>{fmtPx(r.strike)}</span> },
@@ -150,9 +150,9 @@ export function GexPanel({ symbol }: { symbol: string }) {
             rows={(lad.rows ?? []).slice().reverse()}
             maxHeight={360}
           />
-        </Panel>
+      </Panel>
 
-        <Panel title="Dealer Hedge Flow" subtitle="gamma + vanna + charm components over time" {...panelProps(dealerFlow)}>
+      <Panel id="gex-dealer-flow" span={1} title="Dealer Hedge Flow" subtitle="gamma + vanna + charm components over time" {...panelProps(dealerFlow)}>
           <BqSeriesChart
             points={(df.points ?? []).map((p) => ({ ts: p.ts, gamma: p.gamma_flow, vanna: p.vanna_flow, charm: p.charm_flow, total: p.total }))}
             series={[
@@ -167,8 +167,7 @@ export function GexPanel({ symbol }: { symbol: string }) {
             height={210}
           />
         </Panel>
-      </div>
-    </div>
+    </Dock>
   );
 }
 
@@ -187,8 +186,9 @@ export function ChainPanel({ symbol }: { symbol: string }) {
   const ox = (opex.data ?? {}) as { events?: Array<Any> };
 
   return (
-    <div className="space-y-3">
+    <Dock viewId="backquant-chain" layout="grid">
       <Panel
+        id="chain-filtered"
         title="Filtered Options Chain"
         subtitle={`${symbol} · per-contract greeks, OI, IV, quotes${ch.aggregates ? ` · total OI ${fmtNum(ch.aggregates.total_oi, 0)}` : ''}`}
         right={
@@ -226,8 +226,7 @@ export function ChainPanel({ symbol }: { symbol: string }) {
         />
       </Panel>
 
-      <div className="grid gap-3 xl:grid-cols-2">
-        <Panel title="Cross-Venue Book" subtitle="consolidated best bid / offer + dispersion" {...panelProps(venueBook)}>
+      <Panel id="chain-venue-book" span={1} title="Cross-Venue Book" subtitle="consolidated best bid / offer + dispersion" {...panelProps(venueBook)}>
           <BqTable
             columns={[
               { key: 'instrument', label: 'contract' },
@@ -239,9 +238,9 @@ export function ChainPanel({ symbol }: { symbol: string }) {
             rows={(vb.rows ?? []) as Any[]}
             maxHeight={260}
           />
-        </Panel>
+      </Panel>
 
-        <Panel title="OPEX Calendar" subtitle="upcoming expirations · OI roll-off" {...panelProps(opex)}>
+      <Panel id="chain-opex" span={1} title="OPEX Calendar" subtitle="upcoming expirations · OI roll-off" {...panelProps(opex)}>
           <BqTable
             columns={[
               { key: 'date', label: 'date', render: (r) => fmtDate(r.date) },
@@ -255,10 +254,9 @@ export function ChainPanel({ symbol }: { symbol: string }) {
             rows={(ox.events ?? []) as Any[]}
             maxHeight={260}
           />
-        </Panel>
-      </div>
+      </Panel>
 
-      <Panel title="Per-Expiry Summary" subtitle="IV / skew / PCR / OI / GEX per active expiry" {...panelProps(expirySummary)}>
+      <Panel id="chain-expiry-summary" title="Per-Expiry Summary" subtitle="IV / skew / PCR / OI / GEX per active expiry" {...panelProps(expirySummary)}>
         <BqTable
           columns={[
             { key: 'expiry', label: 'expiry', render: (r) => <span className="flex items-center gap-1">{fmtDate(r.expiry)} {r.is_anchor ? <span className="rounded bg-violet-950/60 px-1 text-[7.5px] uppercase text-violet-300">anchor</span> : null}</span> },
@@ -275,7 +273,7 @@ export function ChainPanel({ symbol }: { symbol: string }) {
           maxHeight={300}
         />
       </Panel>
-    </div>
+    </Dock>
   );
 }
 
@@ -301,9 +299,8 @@ export function IvPanel({ symbol }: { symbol: string }) {
   const sf = (surface.data ?? {}) as { expiries?: Array<{ expiry: string; dte: number; smile?: Array<{ strike: number; iv: number }> }> };
 
   return (
-    <div className="space-y-3">
-      <div className="grid gap-3 xl:grid-cols-2">
-        <Panel title="ATM Term Structure" subtitle="at-the-money IV by tenor" {...panelProps(term)}>
+    <Dock viewId="backquant-iv" layout="grid">
+      <Panel id="iv-term" span={1} title="ATM Term Structure" subtitle="at-the-money IV by tenor" {...panelProps(term)}>
           <BqSeriesChart
             points={(ts.points ?? []).map((p) => ({ dte: p.dte, iv: p.atm_iv }))}
             series={[{ key: 'iv', color: CHART_COLORS.amber, name: 'ATM IV %', type: 'area' }]}
@@ -314,7 +311,8 @@ export function IvPanel({ symbol }: { symbol: string }) {
             legend={false}
           />
         </Panel>
-        <Panel title="Expected Move & Calibrated Range" subtitle="the move the market is pricing" {...panelProps(em)}>
+
+      <Panel id="iv-em" span={1} title="Expected Move & Calibrated Range" subtitle="the move the market is pricing" {...panelProps(em)}>
           <div className="space-y-3">
             <StatTiles
               stats={[
@@ -337,10 +335,8 @@ export function IvPanel({ symbol }: { symbol: string }) {
             />
           </div>
         </Panel>
-      </div>
 
-      <div className="grid gap-3 xl:grid-cols-2">
-        <Panel title="Skew by Expiry" subtitle="25Δ risk reversal / butterfly · put wing vs call wing" {...panelProps(skew)}>
+      <Panel id="iv-skew" span={1} title="Skew by Expiry" subtitle="25Δ risk reversal / butterfly · put wing vs call wing" {...panelProps(skew)}>
           <BqTable
             columns={[
               { key: 'expiry', label: 'expiry', render: (r) => fmtDate(r.expiry) },
@@ -355,7 +351,8 @@ export function IvPanel({ symbol }: { symbol: string }) {
             maxHeight={240}
           />
         </Panel>
-        <Panel title="Constant-Maturity Vol" subtitle="ATM / RR / butterfly at fixed tenors (7d → 1y)" {...panelProps(cm)}>
+
+      <Panel id="iv-cm" span={1} title="Constant-Maturity Vol" subtitle="ATM / RR / butterfly at fixed tenors (7d → 1y)" {...panelProps(cm)}>
           <BqTable
             columns={[
               { key: 'tenor_days', label: 'tenor', align: 'right', render: (r) => `${r.tenor_days}d` },
@@ -368,10 +365,8 @@ export function IvPanel({ symbol }: { symbol: string }) {
             maxHeight={240}
           />
         </Panel>
-      </div>
 
-      <div className="grid gap-3 xl:grid-cols-2">
-        <Panel title="IV vs Realized Vol" subtitle="implied − realized · the vol risk premium in motion" {...panelProps(ivrv)}>
+      <Panel id="iv-ivrv" span={1} title="IV vs Realized Vol" subtitle="implied − realized · the vol risk premium in motion" {...panelProps(ivrv)}>
           <BqSeriesChart
             points={(ir.points ?? []).map((p) => ({ date: p.date, implied: p.implied, realized: p.realized, spread: p.spread }))}
             series={[
@@ -397,7 +392,8 @@ export function IvPanel({ symbol }: { symbol: string }) {
             </div>
           ) : null}
         </Panel>
-        <Panel title="Volatility Risk Premium" subtitle="implied − realized history · positive = options expensive" {...panelProps(vrp)}>
+
+      <Panel id="iv-vrp" span={1} title="Volatility Risk Premium" subtitle="implied − realized history · positive = options expensive" {...panelProps(vrp)}>
           <BqSeriesChart
             points={(vp.points ?? []).map((p) => ({ date: p.date, vrp: p.vrp }))}
             series={[{ key: 'vrp', color: CHART_COLORS.violet, name: 'VRP', type: 'area' }]}
@@ -419,9 +415,8 @@ export function IvPanel({ symbol }: { symbol: string }) {
             </div>
           ) : null}
         </Panel>
-      </div>
 
-      <Panel title="IV Surface — Smiles" subtitle="per-expiry smile curves from the fitted surface" {...panelProps(surface)}>
+      <Panel id="iv-surface" title="IV Surface — Smiles" subtitle="per-expiry smile curves from the fitted surface" {...panelProps(surface)}>
         <BqSeriesChart
           points={((sf.expiries ?? []).slice(0, 6).flatMap((exp) =>
             (exp.smile ?? []).map((pt) => ({ strike: pt.strike, iv: pt.iv, expiry: `${fmtDate(exp.expiry)} (${exp.dte}d)` })),
@@ -437,7 +432,7 @@ export function IvPanel({ symbol }: { symbol: string }) {
           height={210}
         />
       </Panel>
-    </div>
+    </Dock>
   );
 }
 
@@ -476,8 +471,9 @@ export function GreeksPanel({ symbol }: { symbol: string }) {
         </div>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-2">
-        <Panel title={`Dealer ${greek} by Strike`} subtitle={pf.unit ?? 'exposure per strike · net / call / put'} {...panelProps(profile)}>
+      {/* greek selector — primary controls, always visible */}
+      <Dock viewId="backquant-greeks" layout="grid">
+        <Panel id="greeks-profile" span={1} title={`Dealer ${greek} by Strike`} subtitle={pf.unit ?? 'exposure per strike · net / call / put'} {...panelProps(profile)}>
           {(pf.strikes ?? []).length ? (
             <div className="space-y-[3px]">
               {(pf.strikes ?? []).map((k, i) => {
@@ -502,7 +498,7 @@ export function GreeksPanel({ symbol }: { symbol: string }) {
           )}
         </Panel>
 
-        <Panel title={`${greek} Surface (strike × expiry)`} subtitle={s3.unit ?? 'sum(greek × OI) per cell'} {...panelProps(surface3d)}>
+        <Panel id="greeks-surface" span={1} title={`${greek} Surface (strike × expiry)`} subtitle={s3.unit ?? 'sum(greek × OI) per cell'} {...panelProps(surface3d)}>
           {s3.matrix ? (
             <BqHeatMatrix
               rowLabels={(s3.strikes ?? []).map((s) => fmtPx(s))}
@@ -515,9 +511,9 @@ export function GreeksPanel({ symbol }: { symbol: string }) {
             <EmptyNote text="no surface" />
           )}
         </Panel>
-      </div>
 
       <Panel
+        id="greeks-trace"
         title={`Greek TRACE — Forward ${traceGreek} Projection`}
         subtitle={`${symbol} · time × price map of dealer ${traceGreek} into expiry${tr.expiry ? ` (${fmtDate(tr.expiry)}, ${tr.dte ?? '?'}d)` : ''}`}
         right={
@@ -581,6 +577,7 @@ export function GreeksPanel({ symbol }: { symbol: string }) {
           </div>
         </div>
       </Panel>
+      </Dock>
     </div>
   );
 }
@@ -601,9 +598,8 @@ export function OiPanel({ symbol }: { symbol: string }) {
   const sh = (strikeHeat.data ?? {}) as { strikes?: Array<Any> };
 
   return (
-    <div className="space-y-3">
-      <div className="grid gap-3 xl:grid-cols-2">
-        <Panel title="Open Interest by Expiry" subtitle="call vs put OI per expiration" {...panelProps(oiExpiry)}>
+    <Dock viewId="backquant-oi" layout="grid">
+      <Panel id="oi-expiry" span={1} title="Open Interest by Expiry" subtitle="call vs put OI per expiration" {...panelProps(oiExpiry)}>
           <BqSeriesChart
             points={(oe.expiries ?? []).map((r) => ({ expiry: r.expiry, call: r.call_oi, put: r.put_oi }))}
             series={[
@@ -616,7 +612,8 @@ export function OiPanel({ symbol }: { symbol: string }) {
             height={185}
           />
         </Panel>
-        <Panel title="Put / Call Ratio" subtitle="OI-weighted PCR history" {...panelProps(pcr)}>
+
+      <Panel id="oi-pcr" span={1} title="Put / Call Ratio" subtitle="OI-weighted PCR history" {...panelProps(pcr)}>
           <BqSeriesChart
             points={(pc.daily ?? []).map((r) => ({ date: r.date, pcr: r.pcr }))}
             series={[{ key: 'pcr', color: CHART_COLORS.sky, name: 'PCR', type: 'area' }]}
@@ -639,10 +636,8 @@ export function OiPanel({ symbol }: { symbol: string }) {
             </div>
           ) : null}
         </Panel>
-      </div>
 
-      <div className="grid gap-3 xl:grid-cols-2">
-        <Panel title="Premium Tide" subtitle="net premium & volume tilt (calls vs puts)" {...panelProps(tide)}>
+      <Panel id="oi-tide" span={1} title="Premium Tide" subtitle="net premium & volume tilt (calls vs puts)" {...panelProps(tide)}>
           <StatTiles
             columns={3}
             stats={[
@@ -665,7 +660,8 @@ export function OiPanel({ symbol }: { symbol: string }) {
             />
           </div>
         </Panel>
-        <Panel title="Futures Term Structure" subtitle="dated-futures annualized basis curve" {...panelProps(basis)}>
+
+      <Panel id="oi-basis" span={1} title="Futures Term Structure" subtitle="dated-futures annualized basis curve" {...panelProps(basis)}>
           <BqSeriesChart
             points={(bs.maturities ?? []).map((m) => ({ dte: m.dte, basis: m.basis_annualized_pct }))}
             series={[{ key: 'basis', color: CHART_COLORS.violet, name: 'annualized basis %', type: 'area' }]}
@@ -686,9 +682,8 @@ export function OiPanel({ symbol }: { symbol: string }) {
             />
           </div>
         </Panel>
-      </div>
 
-      <Panel title="Tape Strike Heat" subtitle="net / absolute aggressor premium by strike (24h)" {...panelProps(strikeHeat)}>
+      <Panel id="oi-strike-heat" title="Tape Strike Heat" subtitle="net / absolute aggressor premium by strike (24h)" {...panelProps(strikeHeat)}>
         <BqTable
           columns={[
             { key: 'strike', label: 'strike', align: 'right', render: (r) => fmtPx(r.strike) },
@@ -702,6 +697,6 @@ export function OiPanel({ symbol }: { symbol: string }) {
           maxHeight={260}
         />
       </Panel>
-    </div>
+    </Dock>
   );
 }

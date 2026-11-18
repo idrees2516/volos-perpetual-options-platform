@@ -11,6 +11,7 @@ import { divergingColor } from '@/lib/quant/heatmap';
 import { PanelState } from '@/components/ui/panel-state';
 import { useQuant, useAgeLabel } from './use-quant';
 import { ChartLegend, DivergingBars, EmptyNote, ErrNote, HeatMatrix, HeatLegend, LineChart, LiveDot, Panel, Pill, Segmented, StatGrid } from './quant-viz';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 interface Levels {
   hvl: number | null;
@@ -78,8 +79,10 @@ export function GexPanel({ symbol, hasOptions }: { symbol: string; hasOptions: b
   return (
     <div className="space-y-2">
       <ErrNote error={levels.error} />
+      <Dock viewId="quant-gex" layout="grid">
       {lv && lvs && (
-        <Panel
+        <DockPanel
+          id="levels"
           title="Dealer Key Levels"
           sub={scope === '0dte' ? '0DTE (front expiry)' : 'all-expiry'}
           right={
@@ -102,28 +105,26 @@ export function GexPanel({ symbol, hasOptions }: { symbol: string; hasOptions: b
             ]}
           />
           <p className="mt-2 text-[8.5px] leading-relaxed text-zinc-600">{lv.note}</p>
-        </Panel>
+        </DockPanel>
       )}
 
-      <div className="grid gap-2 xl:grid-cols-2">
-        <Panel title="GEX by Strike" sub="net dealer gamma per strike · USD / 1% move" right={<Pill tone="teal">live</Pill>}>
+      <DockPanel id="strike" title="GEX by Strike" sub="net dealer gamma per strike · USD / 1% move" right={<Pill tone="teal">live</Pill>} span={1}>
           {strike.data?.topStrikes?.length ? (
             <DivergingBars rows={strike.data.topStrikes.slice(0, 14).map((s) => ({ label: fmtNum(s.strike, 0), value: s.netGex, alt: `${fmtNum(s.callOi, 0)}c/${fmtNum(s.putOi, 0)}p` }))} unit="$" />
           ) : (
             <EmptyNote>{strike.loading ? 'computing…' : 'no strike data'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
 
-        <Panel title="Strike Ladder" sub="cumulative net gex around spot ±10%">
+        <DockPanel id="ladder" title="Strike Ladder" sub="cumulative net gex around spot ±10%" span={1}>
           {ladder.data?.ladder?.length ? (
             <DivergingBars rows={ladder.data.ladder.slice(0, 16).map((s) => ({ label: fmtNum(s.strike, 0), value: s.cumNetGex }))} unit="$" />
           ) : (
             <EmptyNote>{ladder.loading ? 'computing…' : '—'}</EmptyNote>
           )}
-        </Panel>
-      </div>
+        </DockPanel>
 
-      <Panel title="Strike × Expiry GEX Heatmap" sub="USD per 1% move · dealer-signed" right={<Pill>top 24 strikes × 12 expiries</Pill>}>
+      <DockPanel id="heatmap" title="Strike × Expiry GEX Heatmap" sub="USD per 1% move · dealer-signed" right={<Pill>top 24 strikes × 12 expiries</Pill>}>
         {heat.data?.strikes?.length ? (
           <HeatMatrix
             rows={heat.data.strikes.slice(0, 24).map((s) => fmtNum(s, 0))}
@@ -134,12 +135,13 @@ export function GexPanel({ symbol, hasOptions }: { symbol: string; hasOptions: b
         ) : (
           <EmptyNote>{heat.loading ? 'computing…' : '—'}</EmptyNote>
         )}
-      </Panel>
+      </DockPanel>
 
-      <GammaSessionPanel session={session.data} loading={session.loading} error={session.error} onRetry={session.refresh} minutes={sessionMinutes} onMinutes={setSessionMinutes} />
+      <DockPanel id="session" title="Gamma Session" variant="bare">
+        <GammaSessionPanel session={session.data} loading={session.loading} error={session.error} onRetry={session.refresh} minutes={sessionMinutes} onMinutes={setSessionMinutes} />
+      </DockPanel>
 
-      <div className="grid gap-2 xl:grid-cols-2">
-        <Panel title="Total GEX · 7d History" sub={hist.data?.meta?.unit ?? 'USD per 1% move'} right={<Pill>{hist.data?.meta?.snapshots ?? 0} snapshots</Pill>}>
+      <DockPanel id="hist" title="Total GEX · 7d History" sub={hist.data?.meta?.unit ?? 'USD per 1% move'} right={<Pill>{hist.data?.meta?.snapshots ?? 0} snapshots</Pill>} span={1}>
           {hist.data?.points?.length ? (
             <LineChart
               height={150}
@@ -151,9 +153,9 @@ export function GexPanel({ symbol, hasOptions }: { symbol: string; hasOptions: b
           ) : (
             <EmptyNote>history accrues every ~2 min — check back soon</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
 
-        <Panel title="Estimated Dealer Hedge Flow" sub="−GEX × Δspot% from snapshots" right={<Pill tone="amber">estimate</Pill>}>
+        <DockPanel id="flow" title="Estimated Dealer Hedge Flow" sub="−GEX × Δspot% from snapshots" right={<Pill tone="amber">estimate</Pill>} span={1}>
           {flow.data?.points?.length ? (
             <LineChart
               height={150}
@@ -166,8 +168,8 @@ export function GexPanel({ symbol, hasOptions }: { symbol: string; hasOptions: b
             <EmptyNote>{flow.loading ? 'loading…' : 'needs ≥2 snapshots'}</EmptyNote>
           )}
           <ChartLegend series={[{ label: 'positive = dealers sold into rally', color: '#2dd4bf' }]} />
-        </Panel>
-      </div>
+        </DockPanel>
+      </Dock>
       <p className="text-[8.5px] text-zinc-600">
         Model: dealers short customer calls / long puts on the live Deribit chain — the standard dealer-positioning convention. All values in USD per 1% spot move.
       </p>
