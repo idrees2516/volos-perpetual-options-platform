@@ -102,7 +102,6 @@ export function useBq<T = unknown>(
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, enabled, tick, opts?.pollMs]);
 
   return { data, meta, mode, loading, error, refresh, fetchedAt };

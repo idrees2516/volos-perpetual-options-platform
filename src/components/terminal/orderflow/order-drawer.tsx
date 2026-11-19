@@ -34,32 +34,38 @@ interface PrintDetail {
 }
 
 export function OrderDrawer({ id, onClose, onPrintClick }: { id: string | null; onClose: () => void; onPrintClick: (id: string) => void }) {
-  const [detail, setDetail] = useState<PrintDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // detail/error are keyed to the print id — a stale record renders as
+  // "loading" until the fetch lands (no synchronous setState inside the effect)
+  const [detail, setDetail] = useState<(PrintDetail & { id: string }) | null>(null);
+  const [error, setError] = useState<{ id: string; msg: string } | null>(null);
 
   useEffect(() => {
-    if (!id) {
-      setDetail(null);
-      setError(null);
-      return;
-    }
+    if (!id) return;
     let alive = true;
-    setDetail(null);
-    setError(null);
     void fetch(`/api/orderflow/print?id=${encodeURIComponent(id)}`)
       .then(async (res) => {
         if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
         return res.json() as Promise<PrintDetail>;
       })
-      .then((d) => alive && setDetail(d))
-      .catch((e) => alive && setError(e instanceof Error ? e.message : String(e)));
+      .then((d) => {
+        if (!alive) return;
+        setDetail({ ...d, id });
+        setError(null);
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setError({ id, msg: e instanceof Error ? e.message : String(e) });
+        setDetail(null);
+      });
     return () => {
       alive = false;
     };
   }, [id]);
 
   if (!id) return null;
-  const p = detail?.print;
+  const fresh = detail && detail.id === id ? detail : null;
+  const err = error && error.id === id ? error.msg : null;
+  const p = fresh?.print;
   const buy = p?.side === 'buy';
 
   return (
@@ -84,16 +90,16 @@ export function OrderDrawer({ id, onClose, onPrintClick }: { id: string | null; 
           </button>
         </div>
 
-        {!detail && !error && <p className="px-4 py-8 text-center text-[10px] text-zinc-600">loading forensic detail…</p>}
-        {error && <p className="px-4 py-8 text-center text-[10px] text-rose-400">{error}</p>}
+        {!fresh && !err && <p className="px-4 py-8 text-center text-[10px] text-zinc-600">loading forensic detail…</p>}
+        {err && <p className="px-4 py-8 text-center text-[10px] text-rose-400">{err}</p>}
 
-        {detail && p && (
+        {fresh && p && (
           <div className="space-y-2.5 p-3">
             {/* headline */}
             <div className={`rounded-lg border p-2.5 ${buy ? 'border-emerald-500/25 bg-emerald-950/10' : 'border-rose-500/25 bg-rose-950/10'}`}>
               <div className="flex items-baseline justify-between">
                 <span className={`font-mono text-[18px] font-bold ${buy ? 'text-emerald-300' : 'text-rose-300'}`}>
-                  {fmtPrice(p.price, detail.print.price > 5000 ? 1 : 2)}
+                  {fmtPrice(p.price, fresh.print.price > 5000 ? 1 : 2)}
                 </span>
                 <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${buy ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>
                   {buy ? 'aggressive buy' : 'aggressive sell'}
@@ -114,7 +120,7 @@ export function OrderDrawer({ id, onClose, onPrintClick }: { id: string | null; 
                 </div>
               </div>
               <p className="mt-1 font-mono text-[7.5px] text-zinc-600">
-                {detail.venueName} · {detail.nativeSymbol} · #{p.id} · {new Date(p.timestamp).toISOString().replace('T', ' ').slice(0, 23)}
+                {fresh.venueName} · {fresh.nativeSymbol} · #{p.id} · {new Date(p.timestamp).toISOString().replace('T', ' ').slice(0, 23)}
               </p>
             </div>
 
@@ -131,15 +137,15 @@ export function OrderDrawer({ id, onClose, onPrintClick }: { id: string | null; 
               </div>
               <div className="rounded-md border border-zinc-800/70 bg-zinc-900/40 p-2" title="resting liquidity at this price on the heatmap snapshot nearest the print">
                 <p className="text-[7.5px] uppercase tracking-wider text-zinc-600">resting at price</p>
-                <p className="font-mono text-[12px] text-zinc-200">{detail.restingSizeAtPrice !== null ? fmtQty(detail.restingSizeAtPrice) : '—'}</p>
+                <p className="font-mono text-[12px] text-zinc-200">{fresh.restingSizeAtPrice !== null ? fmtQty(fresh.restingSizeAtPrice) : '—'}</p>
                 <p className="font-mono text-[8.5px] text-zinc-600">
-                  {detail.restingSizeAtPrice !== null ? fmtUsd(detail.restingSizeAtPrice * p.price) : ''}
+                  {fresh.restingSizeAtPrice !== null ? fmtUsd(fresh.restingSizeAtPrice * p.price) : ''}
                 </p>
               </div>
               <div className="rounded-md border border-zinc-800/70 bg-zinc-900/40 p-2" title="size ÷ session average print">
                 <p className="text-[7.5px] uppercase tracking-wider text-zinc-600">vs average</p>
                 <p className="font-mono text-[12px] text-zinc-200">{p.ratio ? `${p.ratio.toFixed(1)}×` : '—'}</p>
-                <p className="font-mono text-[8.5px] text-zinc-600">avg {fmtQty(detail.avgPrint)}</p>
+                <p className="font-mono text-[8.5px] text-zinc-600">avg {fmtQty(fresh.avgPrint)}</p>
               </div>
             </div>
 
@@ -148,7 +154,7 @@ export function OrderDrawer({ id, onClose, onPrintClick }: { id: string | null; 
               <p className="text-[7.5px] uppercase tracking-wider text-zinc-600">price path after the print</p>
               <div className="mt-1 grid grid-cols-3 gap-2 font-mono text-[11px]">
                 {['t1s', 't5s', 't15s'].map((k, i) => {
-                  const v = detail.flowAfter ? [detail.flowAfter.t1s, detail.flowAfter.t5s, detail.flowAfter.t15s][i] : null;
+                  const v = fresh.flowAfter ? [fresh.flowAfter.t1s, fresh.flowAfter.t5s, fresh.flowAfter.t15s][i] : null;
                   return (
                     <div key={k}>
                       <p className="text-[8px] text-zinc-600">{k}</p>
@@ -162,21 +168,21 @@ export function OrderDrawer({ id, onClose, onPrintClick }: { id: string | null; 
             </div>
 
             {/* iceberg */}
-            <div className={`rounded-md border p-2 ${detail.iceberg ? 'border-sky-500/40 bg-sky-950/15' : 'border-zinc-800/70 bg-zinc-900/40'}`}>
+            <div className={`rounded-md border p-2 ${fresh.iceberg ? 'border-sky-500/40 bg-sky-950/15' : 'border-zinc-800/70 bg-zinc-900/40'}`}>
               <p className="text-[7.5px] uppercase tracking-wider text-zinc-600">iceberg tracking at this level</p>
-              {detail.iceberg ? (
+              {fresh.iceberg ? (
                 <div className="mt-1 grid grid-cols-3 gap-2 font-mono text-[11px] text-zinc-200">
                   <div>
                     <p className="text-[8px] text-zinc-600">traded</p>
-                    <p>{fmtQty(detail.iceberg.traded)}</p>
+                    <p>{fmtQty(fresh.iceberg.traded)}</p>
                   </div>
                   <div>
                     <p className="text-[8px] text-zinc-600">first shown</p>
-                    <p>{fmtQty(detail.iceberg.displayed)}</p>
+                    <p>{fmtQty(fresh.iceberg.displayed)}</p>
                   </div>
                   <div>
                     <p className="text-[8px] text-zinc-600">refills</p>
-                    <p className={detail.iceberg.refills > 0 ? 'text-sky-300' : 'text-zinc-500'}>{detail.iceberg.refills}</p>
+                    <p className={fresh.iceberg.refills > 0 ? 'text-sky-300' : 'text-zinc-500'}>{fresh.iceberg.refills}</p>
                   </div>
                 </div>
               ) : (
@@ -187,14 +193,14 @@ export function OrderDrawer({ id, onClose, onPrintClick }: { id: string | null; 
             {/* verdict */}
             <div className="rounded-md border border-teal-500/25 bg-teal-950/10 p-2">
               <p className="text-[7.5px] uppercase tracking-wider text-teal-500/80">verdict</p>
-              <p className="mt-0.5 text-[10px] leading-relaxed text-zinc-300">{detail.verdict}</p>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-zinc-300">{fresh.verdict}</p>
             </div>
 
             {/* surrounding prints */}
             <div>
               <p className="mb-1 text-[7.5px] uppercase tracking-wider text-zinc-600">surrounding prints ±5s</p>
               <div className="max-h-48 overflow-y-auto rounded-md border border-zinc-800/70">
-                {detail.surrounding.map((t) => (
+                {fresh.surrounding.map((t) => (
                   <button
                     key={t.id}
                     onClick={() => onPrintClick(t.id)}

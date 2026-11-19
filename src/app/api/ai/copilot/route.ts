@@ -28,6 +28,7 @@ import { quantTools, quantSystemPrompt } from '@/lib/ai/quant-tools';
 import { positionsTools, positionsSystemPrompt } from '@/lib/ai/positions-tools';
 import { autopilotTools, autopilotSystemPrompt } from '@/lib/ai/autopilot-tools';
 import { decisionTools, decisionHubSystemPrompt } from '@/lib/ai/decision-tools';
+import { studioTools, studioSystemPrompt } from '@/lib/ai/studio-tools';
 import { renderCardTool } from '@/lib/cards/render-card-tool';
 import { cardsSystemPrompt } from '@/lib/cards/catalog';
 import { formatCopilotContext, type CopilotContextSnapshot } from '@/lib/copilot-context';
@@ -107,6 +108,7 @@ export async function POST(req: Request) {
       quantSystemPrompt(),
       positionsSystemPrompt(),
       autopilotSystemPrompt(), decisionHubSystemPrompt(),
+      studioSystemPrompt(),
       cardsSystemPrompt(),
       memoryBlock,
       restoredBlock,
@@ -126,6 +128,7 @@ export async function POST(req: Request) {
         ...positionsTools,
         ...autopilotTools,
         ...decisionTools,
+        ...studioTools,
         ...memoryTools,
         render_card: renderCardTool,
         dispatch_agent: dispatchAgentTool,

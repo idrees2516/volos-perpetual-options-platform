@@ -236,6 +236,8 @@ export function TreePdeModel() {
     return { js, levels };
   }, [K, r, sigma]);
   const levelTs = Array.from({ length: levels.length }, (_, i) => i * 8);
+  // SurfaceData wants z[xi][yi] (x-major) — `levels` is [time-slice][j], so transpose
+  const zGrid = js.map((_, xi) => levels.map((row) => row[xi]));
 
   return (
     <Dock viewId="models-tree" layout="grid">
@@ -264,7 +266,7 @@ export function TreePdeModel() {
       <DockPanel id="lattice3d" title="The lattice as a surface · node values by (j, i)" sub="one step 120/90 → four steps → 400: the sawtooth is the odd–even parity of the kink" span={1}>
         <div className="space-y-2">
           <Surface3d
-            surfaces={[{ data: { x: js, y: levelTs, z: levels }, mode: 'height' }]}
+            surfaces={[{ data: { x: js, y: levelTs, z: zGrid }, mode: 'height' }]}
             xLabel="node j (up-down)"
             yLabel="time slice i"
             zLabel="call value"

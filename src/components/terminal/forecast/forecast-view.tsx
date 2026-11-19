@@ -86,7 +86,6 @@ export function ForecastView() {
       const fallback = state.models.find((m) => m.intervals === 'conformal_distribution') ?? state.models[0];
       setPrimaryAlias(fallback.alias);
     }
-     
   }, [state.models.length, primaryAlias]);
 
   const toggleOverlay = (alias: string) =>

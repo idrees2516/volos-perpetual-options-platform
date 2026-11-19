@@ -12,7 +12,7 @@
 //                            is open, refreshed on config change)
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FcTargetId } from '@/lib/forecast/types';
 import { FC_TARGETS } from '@/lib/forecast/types';
 import type { OfAsset } from '@/lib/orderflow/types';
@@ -315,36 +315,39 @@ export class ForecastFeed {
 
 /** React hook: one feed per config, live via SSE, evaluate on demand. */
 export function useForecast(config: FcConfig, evalWanted: boolean) {
+  // one feed per config key — recreated when the key changes; the previous
+  // feed is stopped + unsubscribed by the effect cleanup below (instance
+  // lifecycle lives entirely in effects, never during render)
   const key = configKey(config);
-  const feedRef = useRef<ForecastFeed | null>(null);
+  // one feed per config KEY — callers reconstruct the config object every
+  // render, so the memo dep is deliberately the derived key, not the object
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
+  const feed = useMemo(() => new ForecastFeed(config), [key]);
   const [, setVersion] = useState(0);
   const versionTick = useCallback(() => setVersion((v) => v + 1), []);
 
-  if (!feedRef.current || feedRef.current.key !== key) {
-    feedRef.current?.stop();
-    feedRef.current = new ForecastFeed(config);
-    feedRef.current.subscribe(versionTick);
-  }
-  const feed = feedRef.current;
-
   useEffect(() => {
+    const off = feed.subscribe(versionTick);
     feed.start();
-    return () => feed.stop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+    return () => {
+      off();
+      feed.stop();
+    };
+  }, [feed, versionTick]);
 
   useEffect(() => {
     feed.setEvalWanted(evalWanted);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [evalWanted, key]);
+  }, [evalWanted, feed]);
 
   const state = feed.state;
+  /* eslint-disable react-hooks/preserve-manual-memoization -- feed mutates in
+     place; notifyCount is the version — the deps are deliberately finer-grained
+     than the whole feed object */
   return useMemo(
     () => ({ state, reloadEval: () => feed.loadEval() }),
-    // feed mutates in place; notifyCount is the version
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, feed.notifyCount, evalWanted],
   );
+  /* eslint-enable react-hooks/preserve-manual-memoization */
 }
 
 export const FORECAST_TARGETS = FC_TARGETS;

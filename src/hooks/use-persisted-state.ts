@@ -18,9 +18,30 @@ interface Store {
   listeners: Set<() => void>;
 }
 
-const g = globalThis as unknown as { __volosPersistedStores?: Map<string, Store> };
+const g = globalThis as unknown as { __volosPersistedStores?: Map<string, Store>; __volosRawStores?: Map<string, Store> };
 const stores = g.__volosPersistedStores ?? new Map<string, Store>();
 g.__volosPersistedStores = stores;
+// raw (non-JSON) string stores — for keys written by older code as plain text
+const rawStores = g.__volosRawStores ?? new Map<string, Store>();
+g.__volosRawStores = rawStores;
+
+/** one creation path for raw stores — the entry ALWAYS hydrates from
+ *  localStorage on first touch (subscribe runs before the first client
+ *  getSnapshot after hydration, so it must read localStorage too). */
+function getRawStore(key: string): Store {
+  let s = rawStores.get(key);
+  if (!s) {
+    let value: string | null = null;
+    try {
+      value = window.localStorage.getItem(key);
+    } catch {
+      /* private mode */
+    }
+    s = { value, listeners: new Set() };
+    rawStores.set(key, s);
+  }
+  return s;
+}
 
 function getStore(key: string): Store {
   let s = stores.get(key);
@@ -69,7 +90,6 @@ export function usePersistedState<T>(key: string, initial: T): [T, (v: T | ((pre
     } catch {
       return initial;
     }
-     
   }, [raw]);
 
   const set = useCallback(
@@ -91,6 +111,57 @@ export function usePersistedState<T>(key: string, initial: T): [T, (v: T | ((pre
         /* private mode — memory store only */
       }
       emit(s);
+    },
+    [key, initial],
+  );
+
+  return [value, set];
+}
+
+/** localStorage-backed raw string (no JSON round-trip) — `useState` semantics,
+ *  persisted; safe for keys previously written as plain text (e.g. `volos-view`). */
+export function usePersistedString(key: string, initial: string): [string, (v: string | ((prev: string) => string)) => void] {
+  const subscribe = useCallback(
+    (cb: () => void) => {
+      const s = getRawStore(key);
+      s.listeners.add(cb);
+      const onStorage = (e: StorageEvent) => {
+        if (e.key === key) {
+          const st = getRawStore(key);
+          try {
+            st.value = window.localStorage.getItem(key);
+          } catch {
+            /* private mode */
+          }
+          for (const c of st.listeners) c();
+        }
+      };
+      window.addEventListener('storage', onStorage);
+      return () => {
+        s.listeners.delete(cb);
+        window.removeEventListener('storage', onStorage);
+      };
+    },
+    [key],
+  );
+
+  const getSnapshot = useCallback(() => getRawStore(key).value, [key]);
+
+  const raw = useSyncExternalStore(subscribe, getSnapshot, () => null);
+  const value = raw ?? initial;
+
+  const set = useCallback(
+    (v: string | ((prev: string) => string)) => {
+      const s = getRawStore(key);
+      const prev = s.value ?? initial;
+      const next = typeof v === 'function' ? (v as (p: string) => string)(prev) : v;
+      s.value = next;
+      try {
+        window.localStorage.setItem(key, next);
+      } catch {
+        /* private mode — memory store only */
+      }
+      for (const c of s.listeners) c();
     },
     [key, initial],
   );

@@ -215,7 +215,6 @@ export function TapePanel({
     merged.sort((a, b) => b.ts - a.ts);
     return merged.slice(0, 80);
     // notifyCount re-runs the memo when mutable state changed
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [st, notifyCount, venueFilter, minNotional, bigOnly, liqOnly]);
 
   return (

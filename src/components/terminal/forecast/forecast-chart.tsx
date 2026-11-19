@@ -81,13 +81,16 @@ export function ForecastChart({ state, config, primaryAlias, options, height = 4
   // hover bumps a local counter so the draw effect re-runs (crosshair follows the pointer)
   const [hoverTick, bumpHover] = useReducer((x: number) => x + 1, 0);
   const stateRef = useRef(state);
-  stateRef.current = state;
   const optsRef = useRef(options);
-  optsRef.current = options;
   const cfgRef = useRef(config);
-  cfgRef.current = config;
   const primaryRef = useRef(primaryAlias);
-  primaryRef.current = primaryAlias;
+  // latest props into refs post-commit (rAF-scheduled draw reads them — never render)
+  useEffect(() => {
+    stateRef.current = state;
+    optsRef.current = options;
+    cfgRef.current = config;
+    primaryRef.current = primaryAlias;
+  });
 
   // redraw on every state mutation + resize; canvas draw is idempotent
   useEffect(() => {

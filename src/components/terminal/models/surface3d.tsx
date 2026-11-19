@@ -196,7 +196,8 @@ export function Surface3d(props: Surface3dProps) {
       return { sx: cx + sx * k, sy: cy - sy * k, depth: -sz * k };
     };
 
-    const zColor = (v: number) => sequentialColor(Math.max(0, Math.min(1, (v - zLo) / (zHi - zLo))));
+    const zColor = (v: number) =>
+      Number.isFinite(v) ? sequentialColor(Math.max(0, Math.min(1, (v - zLo) / (zHi - zLo)))) : '#27272a';
     const drawables: Drawable[] = [];
 
     const addSeg = (a: P3, b: P3, stroke: string, width: number, depthBias = 0) => {
@@ -268,10 +269,16 @@ export function Surface3d(props: Surface3dProps) {
       const { x, y, z } = s.data;
       for (let xi = 0; xi < x.length - 1; xi++) {
         for (let yi = 0; yi < y.length - 1; yi++) {
-          const a: P3 = { x: x[xi], y: y[yi], z: z[xi][yi] };
-          const b: P3 = { x: x[xi + 1], y: y[yi], z: z[xi + 1][yi] };
-          const c: P3 = { x: x[xi + 1], y: y[yi + 1], z: z[xi + 1][yi + 1] };
-          const d: P3 = { x: x[xi], y: y[yi + 1], z: z[xi][yi + 1] };
+          // ragged/short grids degrade to skipped cells instead of crashing
+          const zTL = z[xi]?.[yi];
+          const zTR = z[xi + 1]?.[yi];
+          const zBR = z[xi + 1]?.[yi + 1];
+          const zBL = z[xi]?.[yi + 1];
+          if (!Number.isFinite(zTL) || !Number.isFinite(zTR) || !Number.isFinite(zBR) || !Number.isFinite(zBL)) continue;
+          const a: P3 = { x: x[xi], y: y[yi], z: zTL };
+          const b: P3 = { x: x[xi + 1], y: y[yi], z: zTR };
+          const c: P3 = { x: x[xi + 1], y: y[yi + 1], z: zBR };
+          const d: P3 = { x: x[xi], y: y[yi + 1], z: zBL };
           const zmid = (a.z + b.z + c.z + d.z) / 4;
           if (s.wireframe) {
             addSeg(a, b, s.color ?? '#a78bfa', 0.7, 0.1);
