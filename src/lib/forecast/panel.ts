@@ -184,8 +184,71 @@ async function fetchKlines(symbol: string, interval: string, limit: number): Pro
     return await fetchKlinesOnce(symbol, interval, limit);
   } catch {
     await new Promise((r) => setTimeout(r, 500));
-    return fetchKlinesOnce(symbol, interval, limit);
+    try {
+      return await fetchKlinesOnce(symbol, interval, limit);
+    } catch {
+      // Binance geo-blocks some datacenter egress (HTTP 451) — OKX serves the
+      // same perp history; taker-buy volume is approximated from the bar body
+      // (documented heuristic: bullish bars carry more taker buys).
+      return fetchOkxCandles(symbol, interval, limit);
+    }
   }
+}
+
+const OKX_F = 'https://www.okx.com';
+/** Binance interval → OKX bar (the loader only produces these five). */
+const INTERVAL_TO_OKX: Record<string, string> = {
+  '1m': '1m',
+  '5m': '5m',
+  '15m': '15m',
+  '30m': '30m',
+  '1h': '1H',
+};
+
+/**
+ * OKX perp candles fallback (newest-first, ≤ 300 per page — paginated with
+ * `after`). Row: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm].
+ * buyVolume is derived from the bar's body share (0.5 ± 0.4·body/range).
+ */
+async function fetchOkxCandles(symbol: string, interval: string, limit: number): Promise<RawBar[]> {
+  // the USDT-perp swap (not spot) — matches the Binance fapi semantics
+  const instId = `${symbol.replace('USDT', '')}-USDT-SWAP`;
+  const bar = INTERVAL_TO_OKX[interval] ?? interval;
+  const out: RawBar[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < Math.ceil(limit / 300) + 1 && out.length < limit; page++) {
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 12_000);
+    try {
+      const url = new URL(`${OKX_F}/api/v5/market/candles`);
+      url.searchParams.set('instId', instId);
+      url.searchParams.set('bar', bar);
+      url.searchParams.set('limit', String(Math.min(300, limit - out.length)));
+      if (after) url.searchParams.set('after', after);
+      const res = await fetch(url, { signal: ctl.signal, cache: 'no-store', headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error(`okx ${res.status}`);
+      const body = (await res.json()) as { code?: string; data?: unknown[][] };
+      if (body.code !== '0' || !body.data?.length) throw new Error('okx empty');
+      const rows = body.data;
+      for (const r of rows) {
+        const ds = Number(r[0]);
+        const open = Number(r[1]);
+        const high = Number(r[2]);
+        const low = Number(r[3]);
+        const close = Number(r[4]);
+        const volume = Number(r[5]);
+        if (![ds, open, high, low, close, volume].every(Number.isFinite)) continue;
+        const range = Math.max(1e-12, high - low);
+        const share = Math.min(0.9, Math.max(0.1, 0.5 + 0.4 * ((close - open) / range)));
+        out.push({ ds, open, high, low, close, volume, buyVolume: volume * share, trades: 0 });
+      }
+      after = String(rows[rows.length - 1][0]); // paginate older
+    } finally {
+      clearTimeout(to);
+    }
+  }
+  if (!out.length) throw new Error('okx candles empty');
+  return out.sort((a, b) => a.ds - b.ds).slice(-limit);
 }
 
 /** Engine footprint candle → normalized bar (buy volume from delta). */
