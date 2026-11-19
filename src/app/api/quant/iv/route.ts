@@ -84,19 +84,33 @@ export async function GET(req: Request) {
           },
           meta,
         );
-      case 'surface':
+      case 'surface': {
+        const fwd = snap.forwardFront || snap.spot;
+        const rows = snap.heatmap.strikes.map((k) => ({
+          strike: k,
+          moneynessPct: 100 * Math.log(k / fwd), // log-moneyness — the surface's natural y-axis
+        }));
         return qOk(
           {
             symbol,
             asOf: snap.asOf,
             spot: snap.spot,
+            forward: fwd,
             strikes: snap.heatmap.strikes,
             expiries: snap.heatmap.expiries,
             ivPct: snap.heatmap.iv,
-            note: 'OTM-composite IV grid (calls ≥ forward, puts below), live venue marks',
+            rows,
+            // term-structure strip: ATM IV per tenor
+            term: snap.termStructure.filter((p) => Number.isFinite(p.atmIvPct)).map((p) => ({ dte: p.dte, expiry: p.expiry, atmIvPct: p.atmIvPct })),
+            // skew strip: 25Δ risk-reversal + butterfly per expiry (pct pts)
+            skew: snap.expiries
+              .map((e) => ({ expiry: e.expiry, dte: e.dte, rr25: e.rr25, fly25: e.fly25 }))
+              .filter((s) => Number.isFinite(s.rr25)),
+            note: 'OTM-composite IV grid (calls ≥ forward, puts below), live venue marks · rows keyed by log-moneyness vs the front forward',
           },
           meta,
         );
+      }
       default:
         return qOk(
           {

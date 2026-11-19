@@ -8,6 +8,7 @@
 
 import React from 'react';
 import { fmtUsd, fmtNum, heatColor } from '@/lib/format';
+import { correlationColor, legendTicks, sequentialColor } from '@/lib/quant/heatmap';
 
 // ── chrome ───────────────────────────────────────────────────────────────────
 
@@ -379,6 +380,49 @@ export function DataTable<T>({
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ── shared heat legend ──────────────────────────────────────────────────────
+
+/** The one legend every heatmap in the terminal wears: a gradient bar + n
+ *  labeled ticks, colored by the shared rose↔slate↔teal (diverging) or
+ *  viridis-class (sequential) scale. */
+export function HeatLegend({
+  min,
+  max,
+  label,
+  n = 7,
+  fixed,
+  scale = 'diverging',
+}: {
+  min: number;
+  max: number;
+  label: string;
+  n?: number;
+  /** fixed [min,max] domain — skips tick scaling (e.g. correlation −1..1) */
+  fixed?: [number, number];
+  scale?: 'diverging' | 'sequential';
+}) {
+  const dom = fixed ?? [min, max];
+  const ticks = legendTicks(dom[0], dom[1], n);
+  const stops = [0, 0.2, 0.35, 0.5, 0.65, 0.8, 1];
+  const grad =
+    scale === 'sequential'
+      ? `linear-gradient(90deg, ${stops.map((t) => sequentialColor(t)).join(', ')})`
+      : `linear-gradient(90deg, ${stops.map((t) => correlationColor(dom[0] + (dom[1] - dom[0]) * t)).join(', ')})`;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[8px] font-semibold uppercase tracking-[0.12em] text-zinc-600">{label}</span>
+      <div className="flex items-center gap-1.5">
+        <div className="h-2 w-32 rounded-full ring-1 ring-white/10" style={{ background: grad }} />
+        <div className="flex justify-between text-[8px] font-mono text-zinc-500">
+          {ticks.map((t, i) => (
+            <span key={i} className="min-w-[26px] text-center">{t.label}</span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

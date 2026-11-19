@@ -10,6 +10,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { fmtUsd, fmtNum } from '@/lib/format';
 import { useQuant } from './use-quant';
 import { DataTable, EmptyNote, ErrNote, Panel, Pill, Segmented, StatGrid } from './quant-viz';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 import type { InspectTarget } from './trade-drawer';
 
 interface Print {
@@ -40,8 +41,12 @@ interface Agg {
   byExpiry: { expiry: string; premiumUsd: number; prints: number }[];
 }
 
-export function TapePanel({ symbol, hasOptions, onInspect }: { symbol: string; hasOptions: boolean; onInspect?: (t: InspectTarget) => void }) {
-  if (!hasOptions) return <EmptyNote>{symbol} has no options tape — Deribit lists BTC/ETH options.</EmptyNote>;
+export function TapePanel(props: { symbol: string; hasOptions: boolean; onInspect?: (t: InspectTarget) => void }) {
+  if (!props.hasOptions) return <EmptyNote>{props.symbol} has no options tape — Deribit lists BTC/ETH options.</EmptyNote>;
+  return <TapePanelInner {...props} />;
+}
+
+function TapePanelInner({ symbol, onInspect }: { symbol: string; hasOptions: boolean; onInspect?: (t: InspectTarget) => void }) {
   const [hours, setHours] = useState<'6' | '12' | '24' | '48'>('24');
   const [minPremium, setMinPremium] = useState<string>('');
   const [side, setSide] = useState<'all' | 'buy' | 'sell'>('all');
@@ -116,8 +121,9 @@ export function TapePanel({ symbol, hasOptions, onInspect }: { symbol: string; h
       </div>
 
       <ErrNote error={agg.error} />
+      <Dock viewId="quant-tape" layout="grid">
       {a && (
-        <Panel title={`${hours}h Tape Aggregates`} sub="deribit · the only free keyless options tape" right={<Pill tone="teal">{a.prints} prints</Pill>}>
+        <DockPanel id="aggregates" title={`${hours}h Tape Aggregates`} sub="deribit · the only free keyless options tape" right={<Pill tone="teal">{a.prints} prints</Pill>}>
           <StatGrid
             cols={4}
             stats={[
@@ -131,14 +137,10 @@ export function TapePanel({ symbol, hasOptions, onInspect }: { symbol: string; h
               { label: 'prints/hour', value: (a.prints / a.windowHours).toFixed(1), sub: 'tape velocity' },
             ]}
           />
-        </Panel>
+        </DockPanel>
       )}
 
-      {/* hint */}
-      <p className="text-center text-[8px] text-zinc-600">click any print for the full order anatomy — quote, greeks, IV context, one-click paper execution</p>
-
-      <div className="grid gap-2 xl:grid-cols-2">
-        <Panel title="Live Prints" sub="pushed via SSE within seconds of the venue match" right={<Pill>{prints.length} shown</Pill>}>
+      <DockPanel id="prints" title="Live Prints" sub="pushed via SSE within seconds of the venue match" right={<Pill>{prints.length} shown</Pill>} span={1}>
           <div className="max-h-[420px] overflow-y-auto">
             {prints.length ? (
               <table className="w-full text-[9px]">
@@ -193,10 +195,9 @@ export function TapePanel({ symbol, hasOptions, onInspect }: { symbol: string; h
               <EmptyNote>{live ? 'waiting for prints… ( Deribit matches arrive as they happen )' : 'stream paused'}</EmptyNote>
             )}
           </div>
-        </Panel>
+        </DockPanel>
 
-        <div className="space-y-2">
-          <Panel title="Whale Prints" sub={`≥ ${fmtUsd(whaleUsd, { compact: true })} premium`}>
+        <DockPanel id="whales" title="Whale Prints" sub={`≥ ${fmtUsd(whaleUsd, { compact: true })} premium`} span={1}>
             {a?.whales?.length ? (
               <DataTable
                 rows={a.whales}
@@ -242,9 +243,9 @@ export function TapePanel({ symbol, hasOptions, onInspect }: { symbol: string; h
             ) : (
               <EmptyNote>no whales in window</EmptyNote>
             )}
-          </Panel>
+          </DockPanel>
 
-          <Panel title="Premium by Strike" sub="buy vs sell (taker) per strike">
+          <DockPanel id="by-strike" title="Premium by Strike" sub="buy vs sell (taker) per strike" span={1}>
             {a?.byStrike?.length ? (
               <div className="space-y-0.5">
                 {a.byStrike.slice(0, 12).map((s) => {
@@ -265,9 +266,11 @@ export function TapePanel({ symbol, hasOptions, onInspect }: { symbol: string; h
             ) : (
               <EmptyNote>—</EmptyNote>
             )}
-          </Panel>
-        </div>
-      </div>
+          </DockPanel>
+      </Dock>
+
+      {/* hint */}
+      <p className="text-center text-[8px] text-zinc-600">click any print for the full order anatomy — quote, greeks, IV context, one-click paper execution</p>
     </div>
   );
 }

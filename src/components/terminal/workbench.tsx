@@ -22,8 +22,8 @@
 
 import React, { useEffect } from 'react';
 import {
-  Activity, CircleDot, LineChart, Layers, FlaskConical, Atom, Flame, Sigma,
-  BarChart3, Dna, ChevronsLeft, ChevronsRight, ChevronRight,
+  Activity, Brain, CircleDot, LineChart, Layers, FlaskConical, Atom, Flame, Sigma,
+  BarChart3, Dna, ChevronsLeft, ChevronsRight, ChevronRight, Braces,
   TrendingUp, TrendingDown, Radio,
 } from 'lucide-react';
 import type { ViewId } from './topbar';
@@ -50,19 +50,23 @@ const LAB_ITEMS: RailItem[] = [
 
 /** Analytics group — everything else, below the Strategy Lab group. */
 const ANALYTICS_ITEMS: RailItem[] = [
+  { id: 'models', label: 'Mental Models', icon: <Brain className="h-4 w-4" />, hint: 'options mental models · 3D surfaces · greeks · vol surface · exotics zoo · gamma scalper · course map' },
   { id: 'gamma', label: 'Gamma & Flow', icon: <Activity className="h-4 w-4" />, hint: 'GEX · dealer positioning · heatmaps · options flow · 0DTE · skew' },
   { id: 'orderflow', label: 'Order Flow', icon: <Flame className="h-4 w-4" />, hint: 'resting-liquidity heatmap · absorption & icebergs · tape · venues · liquidations · OI & funding · whole market' },
   { id: 'forecast', label: 'Forecast', icon: <Sigma className="h-4 w-4" />, hint: 'conformal prediction on flow bars · calibrated intervals · cross-validated coverage · expected move' },
   { id: 'quant', label: 'Quant Lab', icon: <Atom className="h-4 w-4" />, hint: 'native realtime engine · GEX levels · IV/PDF/greeks · live SSE tape · perps · ETF/COT/SEC · /api/quant' },
+  { id: 'scriptlab', label: 'Script Lab', icon: <Braces className="h-4 w-4" />, hint: 'volscript — pine-style indicators & strategies · drag/resize workspace · backtests · ai writes code' },
   { id: 'chain', label: 'Option Chain', icon: <CircleDot className="h-4 w-4" />, hint: 'live chains with per-strike BUY / SELL' },
   { id: 'trade', label: 'Trading', icon: <LineChart className="h-4 w-4" />, hint: 'engine CLOB · L2 book · $1M demo equity' },
 ];
 
 export const SIDE_OF_VIEW: Record<ViewId, SideId> = {
+  models: 'analytics',
   gamma: 'analytics',
   orderflow: 'analytics',
   forecast: 'analytics',
   quant: 'analytics',
+  scriptlab: 'analytics',
   chain: 'analytics',
   trade: 'analytics',
   strategies: 'lab',
@@ -75,6 +79,8 @@ const SIDE_META: Record<SideId, { label: string; icon: React.ReactNode }> = {
 };
 
 const VIEW_LABEL: Record<ViewId, string> = {
+  models: 'Mental Models',
+  scriptlab: 'Script Lab',
   gamma: 'Gamma & Flow',
   orderflow: 'Order Flow',
   forecast: 'Forecast',
@@ -114,9 +120,13 @@ export function Workbench({ view, onView, collapsed, onToggleCollapsed, children
       {/* ── CENTER · active workspace ─────────────────────────────────────── */}
       <section className="flex min-w-0 flex-1 flex-col">
         <BreadcrumbHeader view={view} />
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[1600px] px-4 py-3">{children}</div>
-        </div>
+        {view === 'scriptlab' ? (
+          <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto w-full max-w-[1600px] px-4 py-3">{children}</div>
+          </div>
+        )}
       </section>
     </div>
   );

@@ -16,6 +16,7 @@ import { OrdersPositions } from './trade/orders-positions';
 import { RfqPanel } from './trade/rfq-panel';
 import { VenuePanel } from './trade/venue-panel';
 import { AlertTriangle, Wifi, WifiOff, Wallet, Shield, Sigma } from 'lucide-react';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 interface TradeViewProps {
   onOpenBuilder: () => void;
@@ -181,50 +182,62 @@ export function TradeView({ onOpenBuilder }: TradeViewProps) {
 
         {/* Center: ticket + book + tape */}
         <div className="flex min-h-0 flex-col gap-3">
-          <OrderTicket
-            instrument={activeInstrument}
-            l1={instruments.find((i) => i.instrument === activeInstrument)}
-            onPlaced={() => {
-              refreshOrders();
-              refreshState();
-            }}
-            notify={notify}
-          />
+          <Dock viewId="trade-ticket">
+            <DockPanel id="ticket" title="Order Ticket" variant="bare">
+              <OrderTicket
+                instrument={activeInstrument}
+                l1={instruments.find((i) => i.instrument === activeInstrument)}
+                onPlaced={() => {
+                  refreshOrders();
+                  refreshState();
+                }}
+                notify={notify}
+              />
+            </DockPanel>
+          </Dock>
           <BookTape instrument={activeInstrument} tape={tape} />
         </div>
 
         {/* Right: RFQ + venues */}
-        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
-          <RfqPanel notify={notify} onExecuted={refreshState} onOpenBuilder={onOpenBuilder} />
-          <VenuePanel instrument={activeInstrument} asset={underlying} />
-        </div>
+        <Dock viewId="trade-right" className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+          <DockPanel id="rfq" title="Strategy RFQ" variant="bare">
+            <RfqPanel notify={notify} onExecuted={refreshState} onOpenBuilder={onOpenBuilder} />
+          </DockPanel>
+          <DockPanel id="venue" title="Venues & Routing" variant="bare">
+            <VenuePanel instrument={activeInstrument} asset={underlying} />
+          </DockPanel>
+        </Dock>
       </div>
 
       {/* Bottom: orders / positions */}
-      <OrdersPositions
-        orders={orders}
-        state={state}
-        onCancel={(id) =>
-          engine
-            .cancelOrder(id)
-            .then(() => notify('ok', `Order #${id} cancelled`))
-            .catch((e) => notify('err', String(e.message ?? e)))
-            .finally(() => {
-              refreshOrders();
-              refreshState();
-            })
-        }
-        onCancelAll={() =>
-          engine
-            .cancelAll()
-            .then((r) => notify('ok', `Cancelled ${r.canceled} orders`))
-            .catch((e) => notify('err', String(e.message ?? e)))
-            .finally(() => {
-              refreshOrders();
-              refreshState();
-            })
-        }
-      />
+      <Dock viewId="trade-orders">
+        <DockPanel id="orders" title="Orders · Positions · Risk" variant="bare">
+          <OrdersPositions
+            orders={orders}
+            state={state}
+            onCancel={(id) =>
+              engine
+                .cancelOrder(id)
+                .then(() => notify('ok', `Order #${id} cancelled`))
+                .catch((e) => notify('err', String(e.message ?? e)))
+                .finally(() => {
+                  refreshOrders();
+                  refreshState();
+                })
+            }
+            onCancelAll={() =>
+              engine
+                .cancelAll()
+                .then((r) => notify('ok', `Cancelled ${r.canceled} orders`))
+                .catch((e) => notify('err', String(e.message ?? e)))
+                .finally(() => {
+                  refreshOrders();
+                  refreshState();
+                })
+            }
+          />
+        </DockPanel>
+      </Dock>
     </div>
   );
 }

@@ -53,7 +53,7 @@ function liveAssetMarket(asset: 'BTC' | 'ETH' | 'SOL'): AssetMarket {
 }
 
 /** Normalize free-form legs into engine `Leg`s (mirrors agent-tools semantics). */
-function toEngineLegs(raw: Array<Partial<Leg>>, spot: number): Leg[] {
+function toEngineLegs(raw: LooseLegInput[], spot: number): Leg[] {
   const KINDS: LegKind[] = ['call', 'put', 'perp_option', 'perp', 'spot'];
   const out: Leg[] = [];
   raw.slice(0, 25).forEach((r, i) => {
@@ -327,9 +327,19 @@ async function autoBacktest(asset: 'BTC' | 'ETH' | 'SOL', strategyName: string, 
 // OPTIMIZER
 // ---------------------------------------------------------------------------
 
+/** Loose legs as they arrive from AI tool schemas — normalized inside. */
+export interface LooseLegInput {
+  kind?: string;
+  side?: string;
+  qty?: number;
+  strike?: number;
+  expiryDays?: number;
+  fundingPeriodDays?: number;
+}
+
 export interface OptimizeArgs {
   strategyId?: string;
-  legs?: Array<Partial<Leg>>;
+  legs?: LooseLegInput[];
   underlying?: string;
   size?: number;
   goal?: string;
@@ -562,7 +572,7 @@ const GOAL_LABELS: Record<OptimizeGoal, string> = {
 
 export interface AlternativesArgs {
   strategyId?: string;
-  legs?: Array<Partial<Leg>>;
+  legs?: LooseLegInput[];
   underlying?: string;
   size?: number;
 }

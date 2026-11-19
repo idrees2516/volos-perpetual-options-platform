@@ -36,6 +36,8 @@ import {
 } from '@/lib/ai/paper';
 import type { VenueId } from '@/lib/ai/exchange-feeds';
 import { getSettingsView, resolveSettings } from '@/lib/positions/settings';
+import { buildDecisionHub } from '@/lib/decision/hub';
+import type { DecisionHubReport } from '@/lib/decision/hub';
 
 const DAY_MS = 86_400_000;
 
@@ -68,6 +70,16 @@ export interface AutopilotSettings {
   adjustTrimFraction: number;
   /** SCALE_IN adds this fraction of the current qty (0.05–1). Default 0.5. */
   scaleInFraction: number;
+  /**
+   * Decision-Hub gate: aggressive actions (ROLL/ADJUST/SCALE_IN) additionally
+   * require the unified stance confidence ≥ this (0 = off). Default 0.
+   */
+  stanceGate: number;
+  /**
+   * Size SCALE_IN with the Decision Hub's half-Kelly fraction instead of the
+   * raw scaleInFraction (still capped by it). Default false.
+   */
+  kellySizing: boolean;
   /** Local hour (0–23) at which the daily morning brief is generated. Default 8. */
   briefHour: number;
   /** IANA timezone for "today" of the morning brief. Default Asia/Karachi. */
@@ -84,6 +96,8 @@ export const AUTOPILOT_DEFAULTS: AutopilotSettings = {
   execute: { takeProfit: true, exit: true, roll: false, adjust: false, scaleIn: false },
   adjustTrimFraction: 0.25,
   scaleInFraction: 0.5,
+  stanceGate: 0,
+  kellySizing: false,
   briefHour: 8,
   briefTz: 'Asia/Karachi',
 };
@@ -124,6 +138,10 @@ export function sanitizeAutopilotPatch(raw: Record<string, unknown>): Partial<Au
   if (adjustTrimFraction !== undefined) out.adjustTrimFraction = clamp(adjustTrimFraction, 0.05, 1);
   const scaleInFraction = num(raw.scaleInFraction);
   if (scaleInFraction !== undefined) out.scaleInFraction = clamp(scaleInFraction, 0.05, 1);
+  const stanceGate = num(raw.stanceGate);
+  if (stanceGate !== undefined) out.stanceGate = clamp(Math.round(stanceGate), 0, 100);
+  const kellySizing = bool(raw.kellySizing);
+  if (kellySizing !== undefined) out.kellySizing = kellySizing;
   const briefHour = num(raw.briefHour);
   if (briefHour !== undefined) out.briefHour = clamp(Math.round(briefHour), 0, 23);
 
@@ -515,6 +533,8 @@ export interface CycleResult {
   executed: number;
   error: string | null;
   entries: AutopilotJournalEntry[];
+  /** the Decision Hub digest for this cycle (null when it timed out) */
+  hub: { stance: number; stanceLabel: string; confidence: number; stanceGate: number; kellySizing: boolean; kellyHalf: number | null } | null;
 }
 
 /**
@@ -527,6 +547,7 @@ export async function runAutopilotCycle(reason: 'loop' | 'manual' = 'loop'): Pro
   const st = stats();
   const entries: AutopilotJournalEntry[] = [];
 
+  let hubReport: DecisionHubReport | null = null;
   const finish = (error: string | null, positions = 0, acted = 0, executed = 0): CycleResult => {
     st.cyclesRun += 1;
     st.lastCycleAt = t0;
@@ -549,6 +570,16 @@ export async function runAutopilotCycle(reason: 'loop' | 'manual' = 'loop'): Pro
       executed,
       error,
       entries,
+      hub: hubReport
+        ? {
+            stance: hubReport.stance,
+            stanceLabel: hubReport.stanceLabel,
+            confidence: hubReport.confidence,
+            stanceGate: s.stanceGate,
+            kellySizing: s.kellySizing,
+            kellyHalf: hubReport.risk.kellyHalf,
+          }
+        : null,
     };
   };
 
@@ -566,6 +597,14 @@ export async function runAutopilotCycle(reason: 'loop' | 'manual' = 'loop'): Pro
       report = await buildPositionIntelligence();
     } catch (e) {
       return finish(`intelligence engine failed: ${(e as Error).message}`);
+    }
+
+    // the unified Decision Hub (30s-cached; timeout-guarded — never fatal)
+    const hubAsset = (report.positions[0]?.asset as 'BTC' | 'ETH' | 'SOL') ?? 'BTC';
+    try {
+      hubReport = await buildDecisionHub(hubAsset);
+    } catch {
+      hubReport = null;
     }
 
     const cooldownMs = s.cooldownMin * 60_000;
@@ -592,6 +631,27 @@ export async function runAutopilotCycle(reason: 'loop' | 'manual' = 'loop'): Pro
         e.detail = `confidence ${p.decision.confidence} < gate ${s.minConfidence}`;
         entries.push(e);
         continue;
+      }
+      // Decision-Hub stance gate (aggressive actions only; defense always runs)
+      if (
+        s.stanceGate > 0 &&
+        (p.decision.action === 'ROLL' || p.decision.action === 'ADJUST' || p.decision.action === 'SCALE_IN')
+      ) {
+        if (!hubReport || hubReport.confidence < s.stanceGate) {
+          e.result = 'skipped';
+          e.detail = `hub confidence ${hubReport?.confidence ?? '—'} < stance gate ${s.stanceGate}`;
+          entries.push(e);
+          continue;
+        }
+        if (p.decision.action === 'SCALE_IN') {
+          const dir = p.side === 'long' ? 1 : -1;
+          if (hubReport.stance * dir < -15) {
+            e.result = 'skipped';
+            e.detail = `hub stance ${hubReport.stance} opposes ${p.side} scale-in`;
+            entries.push(e);
+            continue;
+          }
+        }
       }
       const lastTs = lastAct.get(p.positionId) ?? 0;
       if (cooldownMs > 0 && t0 - lastTs < cooldownMs) {
@@ -639,9 +699,15 @@ export async function runAutopilotCycle(reason: 'loop' | 'manual' = 'loop'): Pro
           case 'ADJUST':
             out = await executeTrim(p, s.adjustTrimFraction);
             break;
-          case 'SCALE_IN':
-            out = await executeScaleIn(p, s.scaleInFraction);
+          case 'SCALE_IN': {
+            let frac = s.scaleInFraction;
+            if (s.kellySizing && hubReport?.risk?.kellyHalf != null) {
+              // never ADD more than the hub's half-Kelly fraction (≥ 0.05 floor)
+              frac = Math.min(s.scaleInFraction, Math.max(0.05, hubReport.risk.kellyHalf));
+            }
+            out = await executeScaleIn(p, frac);
             break;
+          }
           default:
             out = { result: 'skipped', detail: 'unmapped action' };
         }

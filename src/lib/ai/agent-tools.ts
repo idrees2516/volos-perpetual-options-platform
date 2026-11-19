@@ -38,6 +38,7 @@ import { getPositioning, positioningSummary } from '@/lib/orderflow/positioning'
 import { db } from '@/lib/db';
 import { buildForecastPanel } from '@/lib/forecast/panel';
 import { DEFAULT_FC_SPECS, Forecaster } from '@/lib/forecast/forecaster';
+import { buildProjectedState } from '@/lib/forecast/state';
 import { buildPortfolioRisk } from '@/lib/forecast/portfolio';
 import type { FcTargetId } from '@/lib/forecast/types';
 import { getChainSnapshot } from '@/lib/quant/engine';
@@ -76,7 +77,7 @@ async function ensureLive(asset?: string): Promise<'live' | 'simulated'> {
 
 function asAsset(v: unknown, fallback: AssetId = 'BTC'): AssetId {
   const s = String(v ?? '').toUpperCase();
-  return (ASSET_IDS as string[]).includes(s) ? (s as AssetId) : fallback;
+  return (ASSET_IDS as readonly string[]).includes(s) ? (s as AssetId) : fallback;
 }
 
 function asTimeframe(v: unknown, fallback: Timeframe = '4h'): Timeframe {
@@ -158,7 +159,8 @@ export function analyzeStrategyPayload(args: {
   strategyId?: string;
   name?: string;
   underlying: AssetId;
-  legs?: Array<Partial<Leg>>;
+  /** Loose legs as they arrive from AI tool schemas — normalized inside. */
+  legs?: Array<{ kind?: string; side?: string; qty?: number; strike?: number; expiryDays?: number; fundingPeriodDays?: number }>;
   size?: number;
 }): StrategyAnalysisResult | { error: string } {
   const underlying = asAsset(args.underlying);
@@ -249,7 +251,7 @@ export function analyzeStrategyPayload(args: {
     breakevens: a.breakevens,
     pop: a.pop,
     expectedValue: a.expectedValue,
-    riskReward: a.riskReward ?? (a.maxLoss.kind === 'value' && a.maxLoss.value !== 0 && a.maxProfit.kind === 'value' && a.maxProfit.value !== undefined
+    riskReward: a.riskReward ?? (a.maxLoss.kind === 'value' && a.maxLoss.value != null && a.maxLoss.value !== 0 && a.maxProfit.kind === 'value' && a.maxProfit.value != null
       ? Math.abs(a.maxProfit.value / a.maxLoss.value)
       : 0),
     greeks: {
@@ -283,7 +285,7 @@ export const marketTools = {
     execute: async ({ asset }) => {
       const source = await ensureLive(asset);
       const s = liveMarketState();
-      const pick = asset ? [asAsset(asset)] : (ASSET_IDS as AssetId[]);
+      const pick = asset ? [asAsset(asset)] : [...ASSET_IDS];
       const assets = Object.fromEntries(
         pick.map((a) => [
           a,
@@ -740,11 +742,11 @@ export const marketTools = {
           const fb = await getVenueChain(alt, a as FeedAsset, expiry);
           if (fb.chain) {
             return {
+              ...fb.chain,
               asset: a,
               requestedVenue: v,
               usedVenue: alt,
               note: `${VENUE_META[v].name} unavailable (${error}) — served from ${VENUE_META[alt].name}`,
-              ...fb.chain,
             };
           }
         }
@@ -1414,7 +1416,7 @@ export const marketTools = {
         assets: ov.assets.map((a) => ({
           asset: a.asset,
           connected: a.connected,
-          ...(Number.isFinite(a.last) && a.last > 0
+          ...(a.last != null && Number.isFinite(a.last) && a.last > 0
             ? {
                 last: +a.last.toFixed(2),
                 change1mPct: +a.change1mPct.toFixed(3),
@@ -1655,6 +1657,99 @@ export const marketTools = {
               : null,
           guidance:
             'conformal_* models give calibrated coverage (empirically ~level% hits in cross-validation); native models clamp levels wider than 80% to the 80% band — prefer conformal for 95%+ questions.',
+        };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }),
+
+  forecast_state: tool({
+    description:
+      'The projected-state readout — "what will everything be at that price": one call returns the FlowX conformal price fan (point + band per future step, the overlay drawn AHEAD of the live price on the flow chart), the projected values of every related part at the horizon — volume, aggressor delta, CVD, buy share, prints, open interest (each with its own band) — plus indicators computed on history rolled forward through the projected price path (RSI(14), EMA(21), SMA(50), MACD histogram, Bollinger %B), volatility (ATR(14), realized σ, expected-move % per step), drift vs the last close, and P(up) — the empirical share of historical h-step moves that ended up. Use for "if price goes to X, what will RSI/volume/OI/CVD be", "what is the projected state in N minutes", or any forward what-if grounded in current + previous data.',
+    parameters: jsonSchema<{
+      asset: string;
+      tf?: string;
+      h?: number;
+      levels?: string;
+      nWindows?: number;
+    }>({
+      type: 'object',
+      properties: {
+        asset: { type: 'string', enum: OF_ASSETS, description: 'Asset to project.' },
+        tf: { type: 'string', enum: ['1m', '5m', '15m', '30m'], description: 'Flow-bar timeframe. Default 1m.' },
+        h: { type: 'number', description: 'Horizon steps ahead (1–120). Default 30.' },
+        levels: { type: 'string', description: 'Interval levels CSV, e.g. "80,95". Default "80,95".' },
+        nWindows: { type: 'number', description: 'Conformal calibration windows W (2–64). Default 10.' },
+      },
+      required: ['asset'],
+    }),
+    execute: async ({ asset, tf, h, levels, nWindows }) => {
+      try {
+        const a: OfAsset = isOfAsset(String(asset)) ? (asset as OfAsset) : 'BTC';
+        const tfMs = tf === '5m' ? 300_000 : tf === '15m' ? 900_000 : tf === '30m' ? 1_800_000 : 60_000;
+        const hh = Math.max(1, Math.min(120, Number(h) || 30));
+        const lvl = (levels ?? '80,95')
+          .split(',')
+          .map((s) => Number(s.trim()))
+          .filter((v) => Number.isFinite(v) && v > 50 && v < 100);
+        const useLevels = lvl.length ? [...new Set(lvl)].sort((x, y) => x - y) : [80, 95];
+        const W = Math.max(2, Math.min(64, Number(nWindows) || 10));
+
+        const st = await buildProjectedState(a, tfMs, { h: hh, levels: useLevels, nWindows: W });
+        const quarters = [1, 2, 3, 4].map((q) => Math.max(1, Math.round((hh * q) / 4)));
+        const row = (steps: number[]) => {
+          const q = steps[steps.length - 1];
+          const r = st.price.rows[Math.min(q, st.price.rows.length) - 1];
+          return r ?? null;
+        };
+        const atH = row(quarters);
+        return {
+          asset: a,
+          tf,
+          h: hh,
+          horizonMin: (hh * tfMs) / 60_000,
+          model: `${st.price.primary} (${st.price.modelLabel}) · ${st.price.note}`,
+          now: { price: st.cutoff.price, ...st.snapshot },
+          price: {
+            pointAtH: atH ? +atH.point.toFixed(2) : null,
+            bandAtH: atH && Number.isFinite(atH.lo) ? [+atH.lo.toFixed(2), +atH.hi.toFixed(2)] : null,
+            driftPct: st.drift.pct !== null ? +st.drift.pct.toFixed(2) : null,
+            pUp: st.pUp !== null ? +st.pUp.toFixed(3) : null,
+            ensembleAtH: st.price.ensemble.length ? +st.price.ensemble[st.price.ensemble.length - 1].toFixed(2) : null,
+          },
+          metrics: st.metrics.map((m) => {
+            const r = m.rows[m.rows.length - 1];
+            return {
+              id: m.id,
+              label: m.label,
+              unit: m.unit,
+              now: m.now !== null ? +m.now.toFixed(4) : null,
+              atH: r && Number.isFinite(r.v) ? +r.v.toFixed(4) : null,
+              bandAtH: r && Number.isFinite(r.lo) ? [+r.lo.toFixed(4), +r.hi.toFixed(4)] : null,
+              note: m.note,
+            };
+          }),
+          indicators: st.indicators.map((ind) => {
+            const lastV = ind.projected[ind.projected.length - 1];
+            return {
+              id: ind.id,
+              label: ind.label,
+              now: ind.now !== null ? +ind.now.toFixed(4) : null,
+              atH: Number.isFinite(lastV) ? +lastV.toFixed(4) : null,
+            };
+          }),
+          volatility: {
+            atr14: st.volatility.atr14 !== null ? +st.volatility.atr14.toFixed(2) : null,
+            realizedVolPct: st.volatility.realizedVolPct !== null ? +st.volatility.realizedVolPct.toFixed(3) : null,
+            expectedMovePctAtH:
+              atH && Number.isFinite(atH.lo) && atH.point !== 0
+                ? +(((atH.hi - atH.lo) / atH.point) * 100).toFixed(2)
+                : null,
+          },
+          provenance: st.provenance,
+          guidance:
+            'price rows: FlowX conformal bands; indicators roll history forward through the projected point path (what they WOULD read if the forecast tracks); flow metrics are independently forecast with their own bands; P(up) is empirical climatology, not a model probability.',
         };
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) };
@@ -2059,7 +2154,7 @@ export const marketTools = {
           research,
           storage,
           guidance:
-            'orderflow_overview/orderflow_symbol go deeper per asset; options_surface for the full Greeks/GEX/skew story; research_backtest for the measured edge of any signal before acting on it; forecast_now for other horizons/targets; portfolio_risk for hedging; research_web for the macro narrative. Quote numbers with their units (bps, USD, %).',
+            'orderflow_overview/orderflow_symbol go deeper per asset; options_surface for the full Greeks/GEX/skew story; research_backtest for the measured edge of any signal before acting on it; forecast_now for other horizons/targets; forecast_state for the full projected state at the horizon (what RSI/volume/OI/CVD will be if price follows the fan); portfolio_risk for hedging; research_web for the macro narrative. Quote numbers with their units (bps, USD, %).',
         };
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) };

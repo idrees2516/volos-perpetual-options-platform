@@ -21,7 +21,8 @@ import { usePersistedState } from '@/hooks/use-persisted-state';
 import type { IndicatorSnapshot, TfKey } from '@/lib/quant/indicator-service';
 import { IndicatorChart, type SubPane } from './indicator-chart';
 import { useQuant, useAgeLabel } from './use-quant';
-import { Panel, Pill, LiveDot, Segmented } from './quant-viz';
+import { Pill, LiveDot, Segmented } from './quant-viz';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 // ── persisted control state (external-store pattern — see use-persisted-state) ──
 
@@ -130,7 +131,9 @@ export function IndicatorsPanel({ symbol }: { symbol: string }) {
     setOverlays((o) => ({ ...DEFAULT_OVERLAYS, ...o, [id]: !(o?.[id] ?? DEFAULT_OVERLAYS[id]) }));
 
   return (
-    <Panel
+    <Dock viewId="quant-indicators">
+    <DockPanel
+      id="battery"
       title={`Indicators — ${symbol} technical battery`}
       sub="candles + curated overlays from our own kline mirror · server-side kernels · the same numbers the copilot reads"
       right={
@@ -210,7 +213,8 @@ export function IndicatorsPanel({ symbol }: { symbol: string }) {
           </div>
         )}
       </PanelState>
-    </Panel>
+    </DockPanel>
+    </Dock>
   );
 }
 

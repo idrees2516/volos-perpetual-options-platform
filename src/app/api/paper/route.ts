@@ -162,7 +162,7 @@ export async function POST(req: Request) {
       };
       const res = await deployPaperStrategy(deployReq);
       if (!res.ok) return Response.json({ ok: false, error: res.error, legs: res.legs }, { status: 400 });
-      return Response.json({ ok: true, ...res });
+      return Response.json({ ...res, ok: true });
     }
 
     return Response.json({ ok: false, error: `unknown action '${action}'` }, { status: 400 });

@@ -11,7 +11,8 @@
 import React from 'react';
 import { fmtNum } from '@/lib/format';
 import { useQuant, useAgeLabel } from './use-quant';
-import { EmptyNote, ErrNote, LiveDot, Panel, Pill, StatGrid } from './quant-viz';
+import { EmptyNote, ErrNote, LiveDot, Pill, StatGrid } from './quant-viz';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 import { CrosshairChart, RankBar, VolCone } from './viz-deep';
 
 interface VolData {
@@ -52,8 +53,9 @@ export function VolRegimePanel({ symbol, hasOptions }: { symbol: string; hasOpti
       <ErrNote error={vol.error} />
       {!d && vol.loading && <EmptyNote>loading the vol-cycle brief…</EmptyNote>}
       {d && (
-        <>
-          <Panel
+        <Dock viewId="quant-volregime" layout="grid">
+          <DockPanel
+            id="regime"
             title={`${symbol} Volatility Regime`}
             sub={d.verdict}
             right={
@@ -72,10 +74,9 @@ export function VolRegimePanel({ symbol, hasOptions }: { symbol: string; hasOpti
                 { label: 'iv − rv spread', value: d.triangle.spreadIvRv != null ? `${d.triangle.spreadIvRv >= 0 ? '+' : ''}${d.triangle.spreadIvRv.toFixed(1)} pts` : '—', tone: (d.triangle.spreadIvRv ?? 0) >= 0 ? 'rose' : 'emerald', sub: (d.triangle.spreadIvRv ?? 0) >= 0 ? 'insurance rich' : 'options cheap vs moves' },
               ]}
             />
-          </Panel>
+          </DockPanel>
 
-          <div className="grid gap-2 xl:grid-cols-[minmax(280px,360px)_1fr]">
-            <Panel title="IV Rank" sub={d.ivStats?.note ?? 'own snapshot history'}>
+          <DockPanel id="iv-rank" title="IV Rank" sub={d.ivStats?.note ?? 'own snapshot history'} span={1}>
               {d.ivStats ? (
                 <>
                   <RankBar rank={d.ivStats.rank} label="cm30 percentile" sub={`current ${d.ivStats.currentPct.toFixed(1)}% · mean ${Number.isFinite(d.ivStats.meanPct) ? d.ivStats.meanPct.toFixed(1) : '—'}% · range ${Number.isFinite(d.ivStats.minPct) ? `${d.ivStats.minPct.toFixed(1)}–${d.ivStats.maxPct.toFixed(1)}%` : '—'}`} />
@@ -100,9 +101,9 @@ export function VolRegimePanel({ symbol, hasOptions }: { symbol: string; hasOpti
               ) : (
                 <EmptyNote>history is accumulating — the engine persists a snapshot every 2 minutes</EmptyNote>
               )}
-            </Panel>
+          </DockPanel>
 
-            <Panel title="CM30 IV History" sub="our own constant-maturity 30d IV · hover to probe">
+          <DockPanel id="iv-history" title="CM30 IV History" sub="our own constant-maturity 30d IV · hover to probe" span={1}>
               {d.ivStats && d.ivStats.series.length > 3 ? (
                 <CrosshairChart
                   height={190}
@@ -114,19 +115,19 @@ export function VolRegimePanel({ symbol, hasOptions }: { symbol: string; hasOpti
               ) : (
                 <EmptyNote>{d.ivStats ? `${d.ivStats.points} snapshots so far — grows every 2 minutes while the engine runs` : 'collecting…'}</EmptyNote>
               )}
-            </Panel>
-          </div>
+          </DockPanel>
 
-          <div className="grid gap-2 xl:grid-cols-2">
-            <Panel title="Realized-Vol Cone" sub="each window vs its own history — is realized itself cheap or rich?">
+          <DockPanel id="cone" title="Realized-Vol Cone" sub="each window vs its own history — is realized itself cheap or rich?" span={1}>
               <VolCone windows={d.cone} ivPct={d.triangle.iv30Pct} />
-            </Panel>
+          </DockPanel>
 
-            <Panel
-              title="DVOL vs our CM30"
-              sub={d.dvol?.source ?? 'deribit volatility index'}
-              right={d.dvol && d.dvol.series.length > 3 ? <Pill tone="teal">{d.dvol.series.length} prints</Pill> : undefined}
-            >
+          <DockPanel
+            id="dvol"
+            title="DVOL vs our CM30"
+            sub={d.dvol?.source ?? 'deribit volatility index'}
+            right={d.dvol && d.dvol.series.length > 3 ? <Pill tone="teal">{d.dvol.series.length} prints</Pill> : undefined}
+            span={1}
+          >
               {d.dvol && d.dvol.series.length > 3 ? (
                 <CrosshairChart
                   height={190}
@@ -145,10 +146,9 @@ export function VolRegimePanel({ symbol, hasOptions }: { symbol: string; hasOpti
                   our cm30 − dvol: <span className={d.triangle.spreadIvDvol >= 0 ? 'text-teal-300' : 'text-amber-300'}>{d.triangle.spreadIvDvol >= 0 ? '+' : ''}{d.triangle.spreadIvDvol.toFixed(2)} pts</span> — the index tracks the 30d implied we compute independently
                 </p>
               )}
-            </Panel>
-          </div>
+          </DockPanel>
 
-          <Panel title="Term Anchor" sub="front ATM vs constant-maturity 30d — the shape signal">
+          <DockPanel id="term" title="Term Anchor" sub="front ATM vs constant-maturity 30d — the shape signal">
             <StatGrid
               cols={3}
               stats={[
@@ -162,8 +162,8 @@ export function VolRegimePanel({ symbol, hasOptions }: { symbol: string; hasOpti
                 },
               ]}
             />
-          </Panel>
-        </>
+          </DockPanel>
+        </Dock>
       )}
     </div>
   );

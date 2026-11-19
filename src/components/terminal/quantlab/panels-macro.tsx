@@ -8,7 +8,8 @@
 import React, { useState } from 'react';
 import { fmtUsd, fmtNum } from '@/lib/format';
 import { useQuant } from './use-quant';
-import { DataTable, EmptyNote, ErrNote, LineChart, Panel, Pill, Segmented, StatGrid } from './quant-viz';
+import { DataTable, EmptyNote, ErrNote, LineChart, Pill, Segmented, StatGrid } from './quant-viz';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 interface EtfData {
   asset: string;
@@ -65,8 +66,10 @@ export function MacroPanel() {
       </div>
 
       <ErrNote error={etf.error} />
+      <Dock viewId="quant-macro" layout="grid">
       {e && (
-        <Panel
+        <DockPanel
+          id="etf"
           title={`US Spot-${asset} ETF Flows`}
           sub={e.source}
           right={<Pill tone={((e.totalDailyUsd ?? 0) >= 0 ? 'emerald' : 'rose')}>{e.latestDate ?? '—'} · {fmtUsd(e.totalDailyUsd ?? 0, { compact: true, sign: true })}</Pill>}
@@ -106,11 +109,10 @@ export function MacroPanel() {
             />
           </div>
           <p className="mt-1 text-[8px] text-zinc-600">settlement lags a business day by design · cumulative covers the visible farside window</p>
-        </Panel>
+        </DockPanel>
       )}
 
-      <div className="grid gap-2 xl:grid-cols-2">
-        <Panel title="CFTC Commitments of Traders · CME Bitcoin" sub={`legacy futures-only · ${cot.data?.reportDate ?? '—'}`} right={<Pill tone="teal">publicreporting.cftc.gov</Pill>}>
+      <DockPanel id="cot" title="CFTC Commitments of Traders · CME Bitcoin" sub={`legacy futures-only · ${cot.data?.reportDate ?? '—'}`} right={<Pill tone="teal">publicreporting.cftc.gov</Pill>} span={1}>
           <ErrNote error={cot.error} />
           {cot.data ? (
             <>
@@ -138,14 +140,15 @@ export function MacroPanel() {
           ) : (
             <EmptyNote>{cot.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
 
-        <div className="space-y-2">
-          <Panel
-            title="SEC Form 4 · Insider Trades"
-            sub="data.sec.gov · latest filings"
-            right={<Segmented value={insider} onChange={setInsider} options={[{ id: 'COIN', label: 'COIN' }, { id: 'HOOD', label: 'HOOD' }, { id: 'MSTR', label: 'MSTR' }]} />}
-          >
+        <DockPanel
+          id="form4"
+          title="SEC Form 4 · Insider Trades"
+          sub="data.sec.gov · latest filings"
+          right={<Segmented value={insider} onChange={setInsider} options={[{ id: 'COIN', label: 'COIN' }, { id: 'HOOD', label: 'HOOD' }, { id: 'MSTR', label: 'MSTR' }]} />}
+          span={1}
+        >
             <ErrNote error={form4.error} />
             {form4.data?.items?.length ? (
               <DataTable
@@ -163,9 +166,10 @@ export function MacroPanel() {
             ) : (
               <EmptyNote>{form4.loading ? 'loading…' : 'no recent filings'}</EmptyNote>
             )}
-          </Panel>
+          </DockPanel>
 
-          <Panel
+          <DockPanel
+            id="holders13f"
             title="SEC 13F · Institutional Holders"
             sub="efts full-text search · latest quarter"
             right={<Segmented value={holders} onChange={setHolders} options={[{ id: 'MSTR', label: 'MSTR' }, { id: 'COIN', label: 'COIN' }, { id: 'HOOD', label: 'HOOD' }, { id: 'IBIT', label: 'IBIT' }]} />}
@@ -186,9 +190,8 @@ export function MacroPanel() {
             ) : (
               <EmptyNote>{h13.loading ? 'searching EDGAR…' : 'no holders parsed (SEC rate limits)'}</EmptyNote>
             )}
-          </Panel>
-        </div>
-      </div>
+          </DockPanel>
+      </Dock>
     </div>
   );
 }

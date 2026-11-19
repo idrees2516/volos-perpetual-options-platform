@@ -15,25 +15,30 @@
 // VolOS server engine (SSE) for our venues: Binance · Bybit · OKX · Deribit.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
   Bell,
   BookOpen,
+  ChevronDown,
   Diamond,
   Flame,
-  LineChart,
   ListOrdered,
   Radio,
   Waves,
 } from 'lucide-react';
 import { useOrderFlow } from './use-orderflow';
-import { FlowChart, type FlowChartOptions } from './flow-chart';
+import { FlowChart, type FlowChartOptions, type FlowForecast } from './flow-chart';
 import { AlertsPanel, BookPanel, CvdStrip, DerivativesPanel, KpiStrip, LiquidationMiniChart, MarkersPanel, TapePanel, VenuesPanel } from './panels';
 import { MarketOverview } from './market-overview';
 import { OrderDrawer } from './order-drawer';
+import { ProjectionPanel } from '@/components/terminal/forecast/projection-panel';
+import { useProjection } from '@/components/terminal/forecast/use-projection';
 import type { OfAlertSettings, OfAsset, OfVenueId } from '@/lib/orderflow/types';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
+import { usePersistedState } from '@/hooks/use-persisted-state';
 
 const ASSETS: OfAsset[] = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'LINK', 'AVAX'];
 const VENUE_FILTERS: Array<{ id: OfVenueId | 'all'; label: string }> = [
@@ -62,26 +67,19 @@ const RIGHT_TABS = [
   { id: 'alerts', label: 'alerts', icon: <Bell className="h-3 w-3" /> },
 ] as const;
 
+// localStorage-persisted state — delegates to the SHARED external-store hook
+// (useSyncExternalStore: no setState-in-effect, SSR-safe, cross-tab sync) and
+// merges defaults over restored plain objects, so NEW option keys default-on
+// for sessions persisted before the key existed (scalars pass through).
 function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
-  const [value, setValue] = useState<T>(initial);
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw !== null) setValue(JSON.parse(raw) as T);
-    } catch {
-      /* private mode */
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  const set = (v: T) => {
-    setValue(v);
-    try {
-      localStorage.setItem(key, JSON.stringify(v));
-    } catch {
-      /* private mode */
-    }
-  };
-  return [value, set];
+  const [stored, setStored] = usePersistedState<T>(key, initial);
+  const value = useMemo(() => {
+    const bothObjects =
+      initial !== null && typeof initial === 'object' && Array.isArray(initial) === false &&
+      stored !== null && typeof stored === 'object' && Array.isArray(stored) === false;
+    return bothObjects ? ({ ...(initial as object), ...(stored as object) } as T) : stored;
+  }, [stored, initial]);
+  return [value, setStored];
 }
 
 export function OrderFlowView() {
@@ -90,13 +88,17 @@ export function OrderFlowView() {
   const [venueFilter, setVenueFilter] = useState<OfVenueId | 'all'>('all');
   const [rightTab, setRightTab] = useState<(typeof RIGHT_TABS)[number]['id']>('tape');
   const [printId, setPrintId] = useState<string | null>(null);
+  // chart-layer chips fold away behind the "layers" trigger (default open = old always-on row)
+  const [layersOpen, setLayersOpen] = useState(true);
   const [options, setOptions] = usePersisted<FlowChartOptions>('volos-of-options', {
     showHeatmap: true,
+    showWalls: true,
     showFootprint: true,
     showBubbles: true,
     showLiquidations: true,
     showMarkers: true,
     showLevels: true,
+    showForecast: true,
     follow: true,
   });
   const [alertSettings, setAlertSettings] = usePersisted<OfAlertSettings>('volos-of-alerts', {
@@ -114,28 +116,57 @@ export function OrderFlowView() {
   const alerts = state.alerts;
   const cascade = state.liqBuckets?.length ? undefined : undefined;
 
-  // critical-alert toasts (top-right, auto-fade)
+  // the forward projection: one fetch feeds BOTH the chart's ahead-of-price
+  // fan and the projected-state panel ("what everything will be")
+  const projection = useProjection(
+    { asset, tf, h: 30, levels: [80, 95], nWindows: 10 },
+    options.showForecast,
+  );
+  const forecastOverlay: FlowForecast | null = projection.data
+    ? {
+        h: projection.data.h,
+        tf: projection.data.tf,
+        builtAt: projection.data.builtAt,
+        primary: projection.data.price.primary,
+        anchor: projection.data.cutoff,
+        rows: projection.data.price.rows.map((r) => ({
+          step: r.step,
+          ds: r.ds,
+          point: r.point,
+          lo: r.lo,
+          hi: r.hi,
+          levels: r.levels,
+        })),
+      }
+    : null;
+
+  // critical-alert toast (top-right, auto-fade) — state adjusted during render
+  // when a NEW critical alert arrives (React docs pattern; no setState-in-effect);
+  // the 6s fade runs as a timer effect (setState inside the timer callback).
   const [toast, setToast] = useState<{ id: string; title: string; detail?: string } | null>(null);
+  const lastAlert = alerts[alerts.length - 1];
+  if (lastAlert && lastAlert.severity !== 'info' && lastAlert.id !== toast?.id) {
+    setToast({ id: lastAlert.id, title: lastAlert.title, detail: lastAlert.detail });
+  }
   useEffect(() => {
-    const last = alerts[alerts.length - 1];
-    if (last && last.severity !== 'info') {
-      setToast({ id: last.id, title: last.title, detail: last.detail });
-      const t = setTimeout(() => setToast(null), 6000);
-      return () => clearTimeout(t);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [alerts.length]);
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const toggleOption = (key: keyof FlowChartOptions) => setOptions({ ...options, [key]: !options[key] });
   const liveCount = state.connections.filter((c) => c.status === 'live').length;
+  const tfLabel = TFS.find((t) => t.tf === tf)?.label ?? `${Math.max(1, Math.round(tf / 60_000))}m`;
 
   const optionChips: Array<{ key: keyof FlowChartOptions; label: string; title: string }> = [
     { key: 'showHeatmap', label: 'liquidity heat', title: 'resting-liquidity heatmap — order-book depth over time' },
+    { key: 'showWalls', label: 'walls', title: 'resting-liquidity walls — bracket lines at defended levels, ✕ at vanish events' },
     { key: 'showFootprint', label: 'footprint', title: 'per-price bid×ask volume per candle' },
     { key: 'showBubbles', label: 'prints', title: 'trade bubbles sized by notional; rings mark ≥5× average' },
     { key: 'showLiquidations', label: 'liq bubbles', title: 'forced-close bubbles (L = longs, S = shorts)' },
     { key: 'showMarkers', label: 'ABS/ICE', title: 'absorption bands and iceberg diamonds' },
     { key: 'showLevels', label: 'levels', title: 'prior-day POC/VAH/VAL/VWAP, naked POCs, session VWAP ±1σ' },
+    { key: 'showForecast', label: 'forecast', title: 'conformal price fan projected h=30 steps AHEAD of the live price + projected-state panel (values of every related metric at that price)' },
   ];
 
   return (
@@ -187,106 +218,154 @@ export function OrderFlowView() {
             </button>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-1">
-          {optionChips.map((c) => (
+        <Collapsible open={layersOpen} onOpenChange={setLayersOpen} className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <CollapsibleTrigger
+            title="chart layers · csv export · live status — fold away when the strip is in the way"
+            className="flex shrink-0 items-center gap-1 rounded border border-zinc-800 bg-zinc-900/50 px-1.5 py-0.5 text-[9px] font-semibold text-zinc-500 transition hover:text-zinc-300"
+          >
+            layers
+            <ChevronDown className={`h-3 w-3 transition-transform ${layersOpen ? '' : '-rotate-90'}`} />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+            {optionChips.map((c) => (
+              <button
+                key={c.key}
+                onClick={() => toggleOption(c.key)}
+                title={c.title}
+                className={`rounded px-1.5 py-0.5 text-[9px] font-semibold transition ${
+                  options[c.key] ? 'bg-teal-950/60 text-teal-300 ring-1 ring-teal-500/30' : 'bg-zinc-900 text-zinc-600 hover:text-zinc-300'
+                }`}
+              >
+                {c.label}
+              </button>
+            ))}
             <button
-              key={c.key}
-              onClick={() => toggleOption(c.key)}
-              title={c.title}
-              className={`rounded px-1.5 py-0.5 text-[9px] font-semibold transition ${
-                options[c.key] ? 'bg-teal-950/60 text-teal-300 ring-1 ring-teal-500/30' : 'bg-zinc-900 text-zinc-600 hover:text-zinc-300'
+              onClick={() => toggleOption('follow')}
+              title="follow the live edge — click any empty chart spot to re-arm"
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-semibold transition ${
+                options.follow ? 'bg-emerald-950/60 text-emerald-300 ring-1 ring-emerald-500/30' : 'bg-zinc-900 text-zinc-600 hover:text-zinc-300'
               }`}
             >
-              {c.label}
+              <Radio className={`h-2.5 w-2.5 ${options.follow ? 'animate-pulse' : ''}`} />
+              live
             </button>
-          ))}
-          <button
-            onClick={() => toggleOption('follow')}
-            title="follow the live edge — click any empty chart spot to re-arm"
-            className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-semibold transition ${
-              options.follow ? 'bg-emerald-950/60 text-emerald-300 ring-1 ring-emerald-500/30' : 'bg-zinc-900 text-zinc-600 hover:text-zinc-300'
-            }`}
-          >
-            <Radio className={`h-2.5 w-2.5 ${options.follow ? 'animate-pulse' : ''}`} />
-            live
-          </button>
-          <a
-            href={`/api/orderflow/export?asset=${asset}&what=trades`}
-            className="rounded bg-zinc-900 px-1.5 py-0.5 text-[9px] font-semibold text-zinc-500 transition hover:text-zinc-300"
-            title="CSV export — the last 20,000 prints with ratio and displayed size"
-          >
-            csv
-          </a>
-        </div>
-        <span className="ml-auto flex items-center gap-2 font-mono text-[8.5px] text-zinc-600">
-          <span className={`flex items-center gap-1 ${state.connected ? 'text-emerald-400' : 'text-amber-400'}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${state.connected ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
-            {state.connected ? 'streaming' : 'connecting'}
-          </span>
-          <span>
-            {liveCount}/{venueFilter === 'all' ? state.connections.length : 1} venues live
-          </span>
-        </span>
+            <a
+              href={`/api/orderflow/export?asset=${asset}&what=trades`}
+              className="rounded bg-zinc-900 px-1.5 py-0.5 text-[9px] font-semibold text-zinc-500 transition hover:text-zinc-300"
+              title="CSV export — the last 20,000 prints with ratio and displayed size"
+            >
+              csv
+            </a>
+            <span className="ml-auto flex items-center gap-2 font-mono text-[8.5px] text-zinc-600">
+              <span className={`flex items-center gap-1 ${state.connected ? 'text-emerald-400' : 'text-amber-400'}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${state.connected ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
+                {state.connected ? 'streaming' : 'connecting'}
+              </span>
+              <span>
+                {liveCount}/{venueFilter === 'all' ? state.connections.length : 1} venues live
+              </span>
+            </span>
+          </CollapsibleContent>
+        </Collapsible>
       </div>
 
       {/* ── main grid ─────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-2 xl:flex-row">
         {/* left: chart + strips */}
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <FlowChart
-            store={store}
-            tf={tf}
-            options={options}
-            height={440}
-            onPrintClick={(id) => setPrintId(id)}
-            onFollowChange={(follow) => setOptions({ ...options, follow })}
-          />
-          <KpiStrip store={store} />
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            <CvdStrip store={store} />
-            <LiquidationMiniChart store={store} />
-          </div>
+          <Dock viewId="orderflow" layout="stack">
+            <DockPanel
+              id="flow"
+              variant="panel"
+              title={`Flow · ${asset} · ${tfLabel}`}
+              sub="resting liquidity · prints · liq"
+              right={
+                <span className="flex items-center gap-2 font-mono text-[8.5px] text-zinc-600">
+                  <span className={`flex items-center gap-1 ${state.connected ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${state.connected ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
+                    {state.connected ? 'streaming' : 'connecting'}
+                  </span>
+                  <span>
+                    {liveCount}/{venueFilter === 'all' ? state.connections.length : 1} venues live
+                  </span>
+                </span>
+              }
+            >
+              <FlowChart
+                store={store}
+                tf={tf}
+                options={options}
+                height={440}
+                forecast={forecastOverlay}
+                onPrintClick={(id) => setPrintId(id)}
+                onFollowChange={(follow) => setOptions({ ...options, follow })}
+              />
+            </DockPanel>
+            {options.showForecast && (
+              <DockPanel id="projection" variant="bare" title="Projection">
+                <ProjectionPanel
+                  data={projection.data}
+                  loading={projection.loading}
+                  error={projection.error}
+                />
+              </DockPanel>
+            )}
+            <DockPanel id="kpi" variant="bare" title="KPIs">
+              <KpiStrip store={store} />
+            </DockPanel>
+          </Dock>
+          <Dock viewId="orderflow-strips" layout="grid" className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <DockPanel id="cvd" span={1} title="CVD" sub="session cumulative volume delta">
+              <CvdStrip store={store} />
+            </DockPanel>
+            <DockPanel id="liq" span={1} title="Liquidations" sub="1m buckets · longs vs shorts">
+              <LiquidationMiniChart store={store} />
+            </DockPanel>
+          </Dock>
         </div>
 
         {/* right rail */}
-        <div className="flex w-full shrink-0 flex-col rounded-lg border border-zinc-800/80 bg-[#06090f] xl:w-[380px]">
-          <div className="flex items-center gap-0.5 overflow-x-auto border-b border-zinc-800/70 px-1.5 py-1">
-            {RIGHT_TABS.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setRightTab(t.id)}
-                className={`flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[9.5px] font-semibold transition ${
-                  rightTab === t.id ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
-                }`}
-              >
-                {t.icon}
-                {t.label}
-                {t.id === 'alerts' && alerts.length > 0 && (
-                  <span className="rounded-full bg-amber-500/20 px-1 text-[7.5px] font-bold text-amber-300">{alerts.length}</span>
-                )}
-              </button>
-            ))}
-          </div>
-          <div className="h-[430px] min-h-0">
-            {rightTab === 'tape' && <TapePanel store={store} venueFilter={venueFilter} onPrintClick={(id) => setPrintId(id)} />}
-            {rightTab === 'book' && <BookPanel store={store} />}
-            {rightTab === 'venues' && <VenuesPanel store={store} />}
-            {rightTab === 'deriv' && <DerivativesPanel store={store} />}
-            {rightTab === 'markers' && <MarkersPanel store={store} />}
-            {rightTab === 'alerts' && <AlertsPanel store={store} settings={alertSettings} onSettings={setAlertSettings} />}
-          </div>
-        </div>
+        <Dock viewId="orderflow-rail" layout="stack" className="w-full shrink-0 xl:w-[380px]">
+          <DockPanel id="rail" variant="panel" title="Order flow rail" sub="tape · book · venues · oi/funding · markers · alerts">
+            <div className="flex items-center gap-0.5 overflow-x-auto border-b border-zinc-800/70 px-1.5 py-1">
+              {RIGHT_TABS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setRightTab(t.id)}
+                  className={`flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[9.5px] font-semibold transition ${
+                    rightTab === t.id ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  {t.icon}
+                  {t.label}
+                  {t.id === 'alerts' && alerts.length > 0 && (
+                    <span className="rounded-full bg-amber-500/20 px-1 text-[7.5px] font-bold text-amber-300">{alerts.length}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+            <div className="h-[430px] min-h-0">
+              {rightTab === 'tape' && <TapePanel store={store} venueFilter={venueFilter} onPrintClick={(id) => setPrintId(id)} />}
+              {rightTab === 'book' && <BookPanel store={store} />}
+              {rightTab === 'venues' && <VenuesPanel store={store} />}
+              {rightTab === 'deriv' && <DerivativesPanel store={store} />}
+              {rightTab === 'markers' && <MarkersPanel store={store} />}
+              {rightTab === 'alerts' && <AlertsPanel store={store} settings={alertSettings} onSettings={setAlertSettings} />}
+            </div>
+          </DockPanel>
+        </Dock>
       </div>
 
       {/* ── whole-market overview ─────────────────────────────────────────── */}
-      <div className="rounded-lg border border-zinc-800/80 bg-zinc-950/50 p-2">
-        <div className="mb-1.5 flex items-center gap-1.5 px-0.5">
-          <LineChart className="h-3.5 w-3.5 text-teal-400" />
-          <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">whole market</span>
-          <span className="text-[8px] text-zinc-600">every venue · OI · funding · liquidations · flow — click to drill in</span>
-        </div>
-        <MarketOverview active={asset} onSelect={setAsset} />
-      </div>
+      <Dock viewId="orderflow-market" layout="stack">
+        <DockPanel
+          id="market-overview"
+          title="Whole market"
+          sub="every venue · OI · funding · liquidations · flow — click to drill in"
+        >
+          <MarketOverview active={asset} onSelect={setAsset} />
+        </DockPanel>
+      </Dock>
 
       {/* toast */}
       {toast && (

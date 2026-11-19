@@ -9,7 +9,7 @@ const maybe = process.env.SMOKE_TOOLS === '1' ? describe : describe.skip;
 maybe('copilot tool smoke (SMOKE_TOOLS=1)', () => {
   it('options_surface returns a full Deribit read', async () => {
     const { marketTools } = await import('./agent-tools');
-    const out = await (marketTools.options_surface as { execute: (a: unknown) => Promise<Record<string, unknown>> }).execute({ symbol: 'BTC' });
+    const out = await (marketTools.options_surface as unknown as { execute: (a: unknown) => Promise<Record<string, unknown>> }).execute({ symbol: 'BTC' });
     expect(out.error).toBeUndefined();
     expect(out.spot).toBeGreaterThan(0);
     expect(out.vol).toBeTruthy();
@@ -19,7 +19,7 @@ maybe('copilot tool smoke (SMOKE_TOOLS=1)', () => {
 
   it('research_backtest latest/list/run all work', async () => {
     const { marketTools } = await import('./agent-tools');
-    const t = marketTools.research_backtest as { execute: (a: unknown) => Promise<Record<string, unknown>> };
+    const t = marketTools.research_backtest as unknown as { execute: (a: unknown) => Promise<Record<string, unknown>> };
     const list = await t.execute({ mode: 'list', limit: 3 });
     expect(Array.isArray((list as Record<string, unknown>).runs)).toBe(true);
     const latest = await t.execute({ mode: 'latest', asset: 'BTC' });
@@ -31,7 +31,7 @@ maybe('copilot tool smoke (SMOKE_TOOLS=1)', () => {
 
   it('market_brief aggregates options + research', async () => {
     const { marketTools } = await import('./agent-tools');
-    const out = await (marketTools.market_brief as { execute: () => Promise<Record<string, unknown>> }).execute();
+    const out = await (marketTools.market_brief as unknown as { execute: () => Promise<Record<string, unknown>> }).execute();
     expect(out.error).toBeUndefined();
     const options = out.options as Record<string, Record<string, unknown>>;
     expect(options.BTC ?? options.ETH).toBeTruthy();

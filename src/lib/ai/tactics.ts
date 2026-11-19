@@ -485,8 +485,8 @@ export interface MultilegCandidate {
 /** Propose multileg structures for a view, struck off the live surface. */
 export async function proposeMultileg(asset: AssetId, view: 'bullish' | 'bearish' | 'neutral' | 'volatile' | 'low-vol'): Promise<MultilegCandidate[]> {
   const { chain } = await getVenueChain('deribit', asset as FeedAsset);
-  const spot = chain?.spot ?? 0;
-  if (!spot) throw new Error('no live chain');
+  if (!chain || !chain.spot) throw new Error('no live chain');
+  const spot = chain.spot;
   const iv = (chain.atmIv ?? 45) / 100;
   const t = 30 / DAYS_PER_YEAR;
   const sigma = spot * iv * Math.sqrt(t);

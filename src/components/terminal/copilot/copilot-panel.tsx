@@ -98,6 +98,7 @@ let copilotContextRef: { current: CopilotContextSnapshot | null } = { current: n
 
 const VIEW_LABELS: Record<string, string> = {
   strategies: 'Strategies',
+  models: 'Mental Models',
   gamma: 'Gamma & Flow',
   chain: 'Option Chain',
   trade: 'Trading',
@@ -125,7 +126,7 @@ export function CopilotContextBridge({ view }: { view: ViewId }) {
     }
     copilotContextRef.current = {
       tsIso: new Date().toISOString(),
-      activeSide: view === 'gamma' || view === 'chain' || view === 'trade' ? 'analytics' : 'lab',
+      activeSide: view === 'gamma' || view === 'chain' || view === 'trade' || view === 'models' ? 'analytics' : 'lab',
       activeView: view,
       viewLabel: VIEW_LABELS[view] ?? view,
       underlying,

@@ -14,6 +14,7 @@ import {
   VENUE_IDS,
   VENUE_META,
   type FeedAsset,
+  type VenueChain,
   type VenueId,
 } from '@/lib/ai/exchange-feeds';
 
@@ -35,7 +36,7 @@ export async function GET(req: Request) {
   try {
     // try preferred venue, then fall back through the rest
     const order: VenueId[] = [preferred, ...VENUE_IDS.filter((v) => v !== preferred)];
-    let chain = null;
+    let chain: VenueChain | null = null;
     let usedVenue: VenueId = preferred;
     let error: string | undefined;
     for (const v of order) {

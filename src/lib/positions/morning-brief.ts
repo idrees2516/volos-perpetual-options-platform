@@ -26,6 +26,7 @@ import {
   type PositionAction,
 } from '@/lib/positions/intelligence';
 import { getAutopilotSettings, getJournal, journalCount, type AutopilotJournalEntry } from '@/lib/positions/autopilot';
+import { buildDecisionHub } from '@/lib/decision/hub';
 import { getDeskModel } from '@/lib/ai/model-router';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -90,6 +91,17 @@ export interface MorningBrief {
   };
   positions: BriefPositionDigest[];
   decisionCensus: Partial<Record<PositionAction, number>>;
+  /** the unified Decision Hub digest (null when the hub timed out) */
+  decisionHub: {
+    stance: number;
+    stanceLabel: string;
+    confidence: number;
+    volVerdict: string | null;
+    topAction: string;
+    kellyHalf: number | null;
+    hmmLabel: string | null;
+    garchVolPctH: number | null;
+  } | null;
   watchlist: BriefWatchItem[];
   autopilot: {
     enabled: boolean;
@@ -304,10 +316,29 @@ async function aiNarrative(brief: Omit<MorningBrief, 'aiNarrative' | 'aiModel'>)
 
 export async function buildMorningBrief(opts?: { includeAi?: boolean }): Promise<MorningBrief> {
   const apSettings = getAutopilotSettings();
+
   const now = new Date();
   const date = localDateStr(now, apSettings.briefTz);
 
   const report = await buildPositionIntelligence();
+  // the unified Decision Hub digest (timeout-guarded, never blocks the brief)
+  let hubDigest: MorningBrief['decisionHub'] = null;
+  try {
+    const hub = await buildDecisionHub((report.positions[0]?.asset as 'BTC' | 'ETH' | 'SOL') ?? 'BTC');
+    hubDigest = {
+      stance: hub.stance,
+      stanceLabel: hub.stanceLabel,
+      confidence: hub.confidence,
+      volVerdict: hub.volVerdict,
+      topAction: hub.actions[0]?.title ?? 'no edge — stand aside',
+      kellyHalf: hub.risk.kellyHalf,
+      hmmLabel: hub.context.hmmLabel,
+      garchVolPctH: hub.context.garchVolPctH,
+    };
+  } catch {
+    hubDigest = null;
+  }
+
 
   // autopilot activity since the PREVIOUS brief (or the last 24h)
   const prev = latestBrief();
@@ -333,6 +364,7 @@ export async function buildMorningBrief(opts?: { includeAi?: boolean }): Promise
     },
     positions: positionDigests(report),
     decisionCensus: report.portfolio.decisionCounts,
+    decisionHub: hubDigest,
     watchlist: buildWatchlist(report),
     autopilot: {
       enabled: apSettings.enabled,

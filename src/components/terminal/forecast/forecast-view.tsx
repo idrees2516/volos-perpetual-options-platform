@@ -17,11 +17,14 @@
 //                  coverage from the SSE stream)
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useEffect, useState } from 'react';
-import { Activity, Gauge, LineChart, Radar, RefreshCw, Sigma } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Activity, Crosshair, Gauge, LineChart, Radar, RefreshCw, Sigma } from 'lucide-react';
 import { useForecast, FORECAST_TARGETS, type FcConfig, type FcTargetId } from './use-forecast';
 import { ForecastChart } from './forecast-chart';
 import { CalibPanel, EvaluatePanel, ForecastKpiStrip, LiveCoveragePanel, ModelsPanel, RiskPanel } from './panels';
+import { ProjectionPanel } from './projection-panel';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
+import { usePersistedState } from '@/hooks/use-persisted-state';
 import type { OfAsset } from '@/lib/orderflow/types';
 
 const ASSETS: OfAsset[] = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'LINK', 'AVAX'];
@@ -39,6 +42,7 @@ const LEVELSETS: number[][] = [
 ];
 const WINDOWS: number[] = [5, 10, 20];
 const RIGHT_TABS = [
+  { id: 'outlook', label: 'outlook', icon: <Crosshair className="h-3 w-3" /> },
   { id: 'models', label: 'models', icon: <Sigma className="h-3 w-3" /> },
   { id: 'evaluate', label: 'evaluate', icon: <Activity className="h-3 w-3" /> },
   { id: 'calib', label: 'calibration', icon: <Gauge className="h-3 w-3" /> },
@@ -46,26 +50,10 @@ const RIGHT_TABS = [
   { id: 'risk', label: 'risk', icon: <Radar className="h-3 w-3" /> },
 ] as const;
 
+// localStorage-persisted state — delegates to the SHARED external-store hook
+// (useSyncExternalStore: no setState-in-effect, SSR-safe, cross-tab sync).
 function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
-  const [value, setValue] = useState<T>(initial);
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw !== null) setValue(JSON.parse(raw) as T);
-    } catch {
-      /* private mode */
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  const set = (v: T) => {
-    setValue(v);
-    try {
-      localStorage.setItem(key, JSON.stringify(v));
-    } catch {
-      /* private mode */
-    }
-  };
-  return [value, set];
+  return usePersistedState<T>(key, initial);
 }
 
 export function ForecastView() {
@@ -79,7 +67,7 @@ export function ForecastView() {
   const [overlays, setOverlays] = useState<string[]>(['Ensemble-error']);
   const [showBands, setShowBands] = useState(true);
   const [historyBars, setHistoryBars] = useState(160);
-  const [rightTab, setRightTab] = useState<(typeof RIGHT_TABS)[number]['id']>('models');
+  const [rightTab, setRightTab] = useState<(typeof RIGHT_TABS)[number]['id']>('outlook');
 
   const config: FcConfig = {
     asset,
@@ -98,13 +86,14 @@ export function ForecastView() {
       const fallback = state.models.find((m) => m.intervals === 'conformal_distribution') ?? state.models[0];
       setPrimaryAlias(fallback.alias);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [state.models.length, primaryAlias]);
 
   const toggleOverlay = (alias: string) =>
     setOverlays((o) => (o.includes(alias) ? o.filter((a) => a !== alias) : [...o, alias]));
 
   const liveDot = state.live ? 'bg-emerald-500' : state.error ? 'bg-rose-500' : 'bg-amber-400 animate-pulse';
+  const tfLabel = TFS.find((t) => t.tf === tf)?.label ?? `${Math.max(1, Math.round(tf / 60_000))}m`;
 
   return (
     <div className="space-y-2 pb-2">
@@ -235,73 +224,85 @@ export function ForecastView() {
       </div>
 
       {/* ── KPI strip ───────────────────────────────────────────────────── */}
-      <ForecastKpiStrip state={state} config={config} primaryAlias={primaryAlias} />
+      <Dock viewId="forecast-kpi" layout="stack">
+        <DockPanel id="kpi" variant="bare" title="Forecast KPIs">
+          <ForecastKpiStrip state={state} config={config} primaryAlias={primaryAlias} />
+        </DockPanel>
+      </Dock>
 
       {/* ── chart + right rail ─────────────────────────────────────────── */}
       <div className="flex flex-col gap-2 lg:flex-row">
-        <div className="min-w-0 flex-1">
-          <ForecastChart
-            state={state}
-            config={config}
-            primaryAlias={primaryAlias}
-            options={{ historyBars, overlays, showBands }}
-            height={440}
-          />
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[8px] text-zinc-600">
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-full bg-teal-400" /> primary point
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-2 w-4 rounded-sm bg-teal-400/25 ring-1 ring-teal-400/40" /> conformal band (teal = widest level)
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-2 w-4 bg-zinc-500" /> flow-bar history (bright tail = live engine)
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-2 w-4 bg-amber-400/70" /> overlay point line
-            </span>
-            <span className="text-zinc-700">
-              provenance: klines {state.panel?.provenance?.klinesBars ?? 0} + engine {state.panel?.provenance?.engineBars ?? 0} ·
-              season m={state.panel?.seasonLength ?? 1}
-              {state.panel?.provenance?.klineError ? ` · kline ✕ ${state.panel.provenance.klineError}` : ''}
-            </span>
-          </div>
-        </div>
+        <Dock viewId="forecast" layout="stack" className="min-w-0 flex-1 space-y-2">
+          <DockPanel id="fan" variant="bare" title={`Conformal fan · ${asset} · ${tfLabel}`}>
+            <ForecastChart
+              state={state}
+              config={config}
+              primaryAlias={primaryAlias}
+              options={{ historyBars, overlays, showBands }}
+              height={440}
+            />
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[8px] text-zinc-600">
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-2 w-2 rounded-full bg-teal-400" /> primary point
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-2 w-4 rounded-sm bg-teal-400/25 ring-1 ring-teal-400/40" /> conformal band (teal = widest level)
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-2 w-4 bg-zinc-500" /> flow-bar history (bright tail = live engine)
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-2 w-4 bg-amber-400/70" /> overlay point line
+              </span>
+              <span className="text-zinc-700">
+                provenance: klines {state.panel?.provenance?.klinesBars ?? 0} + engine {state.panel?.provenance?.engineBars ?? 0} ·
+                season m={state.panel?.seasonLength ?? 1}
+                {state.panel?.provenance?.klineError ? ` · kline ✕ ${state.panel.provenance.klineError}` : ''}
+              </span>
+            </div>
+          </DockPanel>
+        </Dock>
 
         {/* right rail */}
-        <div className="w-full shrink-0 lg:w-[340px]">
-          <div className="flex items-center gap-1 rounded-lg border border-zinc-800/80 bg-zinc-950/60 px-1.5 py-1">
-            {RIGHT_TABS.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setRightTab(t.id)}
-                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] transition ${
-                  rightTab === t.id ? 'bg-teal-500/15 text-teal-300' : 'text-zinc-500 hover:text-zinc-300'
-                }`}
-              >
-                {t.icon}
-                {t.label}
-              </button>
-            ))}
-            {rightTab === 'evaluate' && state.evalLoading && <RefreshCw className="ml-auto h-3 w-3 animate-spin text-zinc-600" />}
-          </div>
-
-          <div className="mt-1.5 max-h-[560px] overflow-y-auto rounded-lg border border-zinc-800/80 bg-zinc-950/40 p-1.5">
-            {rightTab === 'models' && (
-              <ModelsPanel
-                models={state.models}
-                primaryAlias={primaryAlias}
-                overlays={overlays}
-                onPrimary={setPrimaryAlias}
-                onToggleOverlay={toggleOverlay}
-              />
-            )}
-            {rightTab === 'evaluate' && <EvaluatePanel state={state} config={config} onRefresh={() => reloadEval()} />}
-            {rightTab === 'calib' && <CalibPanel state={state} primaryAlias={primaryAlias} />}
-            {rightTab === 'live' && <LiveCoveragePanel state={state} />}
-            {rightTab === 'risk' && <RiskPanel h={config.h} tfSec={config.tf / 1000} />}
-          </div>
-        </div>
+        <Dock viewId="forecast-rail" layout="stack" className="w-full shrink-0 lg:w-[340px]">
+          <DockPanel id="rail" variant="panel" title="Forecast rail" sub="outlook · models · evaluate · calibration · live · risk">
+            <div className="flex items-center gap-1 rounded-lg border border-zinc-800/80 bg-zinc-950/60 px-1.5 py-1">
+              {RIGHT_TABS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setRightTab(t.id)}
+                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] transition ${
+                    rightTab === t.id ? 'bg-teal-500/15 text-teal-300' : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  {t.icon}
+                  {t.label}
+                </button>
+              ))}
+              {rightTab === 'evaluate' && state.evalLoading && <RefreshCw className="ml-auto h-3 w-3 animate-spin text-zinc-600" />}
+            </div>
+            <div className="mt-1.5 max-h-[560px] overflow-y-auto p-1.5">
+              {rightTab === 'outlook' && (
+                <ProjectionPanel
+                  ownConfig={{ asset, tf, h, levels: LEVELSETS[Math.min(levelsIdx, LEVELSETS.length - 1)], nWindows }}
+                />
+              )}
+              {rightTab === 'models' && (
+                <ModelsPanel
+                  models={state.models}
+                  primaryAlias={primaryAlias}
+                  overlays={overlays}
+                  onPrimary={setPrimaryAlias}
+                  onToggleOverlay={toggleOverlay}
+                />
+              )}
+              {rightTab === 'evaluate' && <EvaluatePanel state={state} config={config} onRefresh={() => reloadEval()} />}
+              {rightTab === 'calib' && <CalibPanel state={state} primaryAlias={primaryAlias} />}
+              {rightTab === 'live' && <LiveCoveragePanel state={state} />}
+              {rightTab === 'risk' && <RiskPanel h={config.h} tfSec={config.tf / 1000} />}
+            </div>
+          </DockPanel>
+        </Dock>
       </div>
     </div>
   );

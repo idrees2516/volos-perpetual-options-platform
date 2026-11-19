@@ -108,7 +108,7 @@ export interface BacktestOptions {
 
 export async function runBacktest(opts: BacktestOptions): Promise<BacktestResult> {
   const assetRaw = String(opts.asset ?? 'BTC').toUpperCase();
-  const asset: AssetId = (ASSET_IDS as string[]).includes(assetRaw) ? (assetRaw as AssetId) : 'BTC';
+  const asset: AssetId = (ASSET_IDS as readonly string[]).includes(assetRaw) ? (assetRaw as AssetId) : 'BTC';
   const cfg = VOL_CONFIG[asset] ?? VOL_CONFIG.BTC;
   const legs = opts.legs.filter((l) => l.qty > 0 && l.strike > 0);
   if (legs.length === 0) throw new Error('backtest needs at least one leg');

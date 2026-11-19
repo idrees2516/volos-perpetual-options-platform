@@ -284,3 +284,40 @@ model ConversationMessage {
   @@index([sessionId, createdAt])
   @@index([createdAt])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCRIPT LAB — VolScript persistence. User-authored indicators/strategies and
+// an append-only log of strategy backtest runs (repeated runs form a track
+// record of which parameter sets actually worked, when). Built-in library
+// scripts live in code (src/lib/scriptlang/library.ts) and stay in sync with
+// the engine; only user scripts land here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Script {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  category    String   @default("trend") // one of the 17 library category keys
+  kind        String   @default("indicator") // indicator | strategy
+  code        String
+  author      String   @default("local")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category, updatedAt])
+}
+
+model ScriptRun {
+  id          String   @id @default(cuid())
+  scriptName  String
+  kind        String   @default("strategy")
+  symbol      String
+  tf          String
+  bars        Int
+  metricsJson String // StrategyStats snapshot
+  code        String // exact code that produced the run (reproducibility)
+  createdAt   DateTime @default(now())
+
+  @@index([scriptName, createdAt])
+  @@index([createdAt])
+}

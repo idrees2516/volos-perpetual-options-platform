@@ -7,6 +7,10 @@
 //   y: price (auto range from the visible window)
 //
 // Layers, back to front:
+//   0. forward forecast fan       (conformal bands + point line projected
+//                                   h steps AHEAD of the live price, in the
+//                                   future region right of the current bar —
+//                                   the "forecast in front of price")
 //   1. resting-liquidity heatmap  (one 1 s column per second, blue→cyan→yellow→white)
 //   2. footprint cells             (bid×ask volume per price per candle, imbalance-tinted)
 //   3. prior-session levels       (pPOC / pVAH / pVAL / pVWAP + naked POCs, edge-pinned)
@@ -21,17 +25,50 @@
 
 import { useEffect, useRef } from 'react';
 import { HeatmapRenderer } from './heatmap-render';
+import { detectWalls, type WallScan } from '@/lib/orderflow/walls';
 import type { OrderFlowStore } from './use-orderflow';
 import type { OfWireTrade } from '@/lib/orderflow/types';
 
 export interface FlowChartOptions {
   showHeatmap: boolean;
+  showWalls: boolean;
   showFootprint: boolean;
   showBubbles: boolean;
   showLiquidations: boolean;
   showMarkers: boolean;
   showLevels: boolean;
+  showForecast: boolean;
   follow: boolean;
+}
+
+/** One level's interval bounds at a future step. */
+export interface FlowForecastLevel {
+  level: number;
+  lo: number;
+  hi: number;
+}
+
+/** One future step of the price fan (subset of the projected-state row). */
+export interface FlowForecastRow {
+  step: number;
+  ds: number;
+  point: number;
+  /** widest-level convenience bounds */
+  lo: number;
+  hi: number;
+  /** every requested level — drawn widest-first as nested fan bands */
+  levels?: FlowForecastLevel[];
+}
+
+/** The forward fan payload the chart renders ahead of the live price. */
+export interface FlowForecast {
+  h: number;
+  tf: number;
+  builtAt: number;
+  primary: string;
+  /** the forecast origin: last merged bar's open time + its close */
+  anchor: { ds: number; price: number };
+  rows: FlowForecastRow[];
 }
 
 interface Props {
@@ -42,6 +79,8 @@ interface Props {
   onPrintClick: (id: string) => void;
   onMarkerClick?: (marker: { kind: 'absorption' | 'iceberg'; price: number; time: number }) => void;
   onFollowChange?: (follow: boolean) => void;
+  /** forward projection — the conformal fan drawn h steps AHEAD of the price */
+  forecast?: FlowForecast | null;
 }
 
 interface HitBubble {
@@ -66,10 +105,11 @@ const C = {
   white: '#e4eaf2',
 };
 
-export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMarkerClick, onFollowChange }: Props) {
+export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMarkerClick, onFollowChange, forecast }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef(new HeatmapRenderer());
+  const wallsRef = useRef<{ scan: WallScan | null; at: number }>({ scan: null, at: 0 });
   const dirtyRef = useRef(true);
   const viewRef = useRef({ t1: Date.now(), span: tf * 60, effT0: 0, effT1: 0 });
   const hoverRef = useRef<{ x: number; y: number } | null>(null);
@@ -77,6 +117,8 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
   const dragRef = useRef<{ x: number; t1: number; moved: boolean } | null>(null);
   const optionsRef = useRef(options);
   optionsRef.current = options;
+  const forecastRef = useRef(forecast);
+  forecastRef.current = forecast;
   const followRef = useRef(options.follow);
   followRef.current = options.follow;
   const storeRef = useRef(store);
@@ -137,6 +179,13 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
       const view = viewRef.current;
       if (followRef.current) view.t1 = Date.now();
       const t1 = view.t1;
+      // forward forecast: when the overlay is on, the drawn domain extends
+      // h steps past the live edge — the fan renders IN FRONT of the price
+      // where it is now, in genuinely blank future territory.
+      const fc = forecastRef.current;
+      const fcOn = Boolean(opts.showForecast && fc && fc.rows.length);
+      const fcTf = fc?.tf || tfRef.current;
+      const t1x = fcOn ? Math.max(t1, (fc?.rows[fc.rows.length - 1]?.ds ?? t1) + fcTf) : t1;
       // Clamp the left edge to the data we actually have: a fresh session
       // shouldn't show an hour of empty grid — the window grows to `span`.
       let dataStart = Infinity;
@@ -151,7 +200,7 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
       const t0 = Number.isFinite(dataStart)
         ? Math.max(t1 - view.span, Math.min(dataStart - 3000, t1 - 5000))
         : t1 - view.span;
-      const xOf = (t: number) => plotL + ((t - t0) / Math.max(1, t1 - t0)) * plotW;
+      const xOf = (t: number) => plotL + ((t - t0) / Math.max(1, t1x - t0)) * plotW;
 
       // ── price range from the visible window ───────────────────────────
       let pMin = Infinity;
@@ -175,6 +224,18 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
         // traded range are edge-pinned with an arrow (reference behaviour).
         if (st.session?.high) consider(st.session.high);
         if (st.session?.low) consider(st.session.low);
+      }
+      // the fan participates in the price range so projected extremes fit
+      if (fcOn && fc) {
+        for (const r of fc.rows) {
+          consider(r.point);
+          consider(r.lo);
+          consider(r.hi);
+          for (const li of r.levels ?? []) {
+            consider(li.lo);
+            consider(li.hi);
+          }
+        }
       }
       if (!Number.isFinite(pMin) || !Number.isFinite(pMax) || pMin === pMax) {
         pMin = 0;
@@ -214,19 +275,158 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       for (let i = 0; i <= 6; i++) {
-        const t = t0 + ((t1 - t0) * i) / 6;
+        const t = t0 + ((t1x - t0) * i) / 6;
         const d = new Date(t);
         const label = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
         ctx.fillText(label, plotL + (plotW * i) / 6, plotB + 4);
       }
-      // remember the effective window for pan/zoom math
+      // remember the effective window for pan/zoom math (the DRAWN domain,
+      // future region included when the fan is on)
       viewRef.current.effT0 = t0;
-      viewRef.current.effT1 = t1;
+      viewRef.current.effT1 = t1x;
+
+      // ── 0. forward forecast fan (AHEAD of the live price) ──────────────
+      if (fcOn && fc && st) {
+        const anchorPrice = st.prints.length ? st.prints[st.prints.length - 1].price : fc.anchor.price;
+        const anchorX = Math.min(plotR, xOf(fc.anchor.ds + fcTf));
+        const anchorY = priceY(anchorPrice);
+        if (anchorX < plotR && Number.isFinite(anchorY)) {
+          // future-region shading + 'now' divider at the live edge
+          ctx.fillStyle = 'rgba(45, 212, 191, 0.03)';
+          ctx.fillRect(anchorX, plotT, plotR - anchorX, plotH);
+          ctx.strokeStyle = 'rgba(227, 232, 240, 0.22)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(anchorX + 0.5, plotT);
+          ctx.lineTo(anchorX + 0.5, plotB);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.font = '8px ui-monospace, monospace';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillStyle = 'rgba(139, 149, 165, 0.9)';
+          ctx.fillText('now', anchorX + 3, plotT + 3);
+          ctx.fillStyle = 'rgba(45, 212, 191, 0.75)';
+          ctx.fillText(`forecast h=${fc.h} · ${(fc.h * fcTf) / 60_000}m`, anchorX + 3, plotT + 13);
+
+          // nested level bands: widest drawn first, inner on top
+          const levelsOf = (r: FlowForecastRow): FlowForecastLevel[] =>
+            r.levels && r.levels.length ? r.levels : [{ level: 95, lo: r.lo, hi: r.hi }];
+          const perLevel = new Map<number, { ds: number[]; lo: number[]; hi: number[] }>();
+          for (const r of fc.rows) {
+            for (const b of levelsOf(r)) {
+              if (!Number.isFinite(b.lo) || !Number.isFinite(b.hi)) continue;
+              const e = perLevel.get(b.level) ?? { ds: [], lo: [], hi: [] };
+              e.ds.push(r.ds);
+              e.lo.push(b.lo);
+              e.hi.push(b.hi);
+              perLevel.set(b.level, e);
+            }
+          }
+          const ordered = [...perLevel.entries()].sort((a, b) => b[0] - a[0]);
+          for (let k = 0; k < ordered.length; k++) {
+            const e = ordered[k][1];
+            const alpha = 0.04 + 0.07 * (ordered.length - k);
+            ctx.fillStyle = `rgba(45, 212, 191, ${Math.min(0.2, alpha).toFixed(3)})`;
+            ctx.strokeStyle = `rgba(45, 212, 191, ${(0.22 + 0.1 * (ordered.length - 1 - k)).toFixed(2)})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(anchorX, anchorY);
+            for (let i = 0; i < e.ds.length; i++) ctx.lineTo(xOf(e.ds[i]), priceY(e.hi[i]));
+            for (let i = e.ds.length - 1; i >= 0; i--) ctx.lineTo(xOf(e.ds[i]), priceY(e.lo[i]));
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+          }
+
+          // primary point line + terminal dot + projected price tag
+          ctx.strokeStyle = '#2dd4bf';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(anchorX, anchorY);
+          for (const r of fc.rows) {
+            if (Number.isFinite(r.point)) ctx.lineTo(xOf(r.ds), priceY(r.point));
+          }
+          ctx.stroke();
+          const lastRow = fc.rows[fc.rows.length - 1];
+          if (lastRow && Number.isFinite(lastRow.point)) {
+            const ty = priceY(lastRow.point);
+            ctx.fillStyle = '#2dd4bf';
+            ctx.beginPath();
+            ctx.arc(xOf(lastRow.ds), ty, 3, 0, Math.PI * 2);
+            ctx.fill();
+            if (ty >= plotT && ty <= plotB) {
+              ctx.fillStyle = '#fbbf24';
+              ctx.fillRect(plotR + 2, ty - 7, axisW - 6, 14);
+              ctx.fillStyle = '#05070a';
+              ctx.font = 'bold 9px ui-monospace, monospace';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(lastRow.point.toFixed(tickDec), plotR + axisW / 2, ty);
+            }
+          }
+        }
+      }
 
       // ── 1. resting-liquidity heatmap ──────────────────────────────────
       if (st && opts.showHeatmap && st.heatmapColumns.size) {
         rendererRef.current.update(st.heatmapColumns.values(), st.tick || 0.01);
         rendererRef.current.draw(ctx, t0, t1, xOf, priceY, 0.72);
+      }
+
+      // ── 1b. liquidity walls (depth-heatmap v2 markers) ─────────────────
+      if (st && opts.showWalls && st.heatmapColumns.size) {
+        // recompute at most every 5 s — pure fn over the streamed columns
+        const wstate = wallsRef.current;
+        if (Date.now() - wstate.at > 5_000 || !wstate.scan) {
+          const columns = [...st.heatmapColumns.values()].sort((a, b) => a.t - b.t);
+          wstate.scan = detectWalls(columns, st.tick || 0.01);
+          wstate.at = Date.now();
+        }
+        const scan = wallsRef.current.scan;
+        if (scan) {
+          ctx.lineWidth = 1.5;
+          // live walls: bracket line from appearance → now, side-colored
+          for (const w of scan.live) {
+            const y = priceY(w.price);
+            if (y < plotT - 2 || y > plotB + 2) continue;
+            const x0 = Math.max(plotL, xOf(w.tStart));
+            const x1 = Math.min(plotR, xOf(Math.min(w.tEnd, t1)));
+            if (x1 <= plotL || x0 >= plotR) continue;
+            const color = w.side === 'bid' ? 'rgba(45,212,191,0.85)' : 'rgba(251,113,133,0.85)';
+            ctx.strokeStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(x0, y);
+            ctx.lineTo(x1, y);
+            // end caps
+            ctx.moveTo(x0, y - 3);
+            ctx.lineTo(x0, y + 3);
+            ctx.moveTo(x1, y - 3);
+            ctx.lineTo(x1, y + 3);
+            ctx.stroke();
+            // peak-size ring at the strongest moment (right end)
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x1, y, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          // recent vanishes: small ✕ at the vanish time & price
+          ctx.lineWidth = 1;
+          for (const e of scan.events) {
+            const y = priceY(e.price);
+            if (y < plotT - 2 || y > plotB + 2) continue;
+            const x = xOf(e.tEnd);
+            if (x < plotL || x > plotR) continue;
+            ctx.strokeStyle = 'rgba(251,191,36,0.9)';
+            ctx.beginPath();
+            ctx.moveTo(x - 3, y - 3);
+            ctx.lineTo(x + 3, y + 3);
+            ctx.moveTo(x + 3, y - 3);
+            ctx.lineTo(x - 3, y + 3);
+            ctx.stroke();
+          }
+        }
       }
 
       // ── 2. footprint cells ────────────────────────────────────────────
@@ -484,7 +684,7 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
       hitsRef.current = hits;
       const hover = hoverRef.current;
       if (hover && hover.x >= plotL && hover.x <= plotR && hover.y >= plotT && hover.y <= plotB) {
-        const t = t0 + ((hover.x - plotL) / plotW) * (t1 - t0);
+        const t = t0 + ((hover.x - plotL) / plotW) * (t1x - t0);
         const p = pMax - ((hover.y - plotT) / plotH) * (pMax - pMin);
         ctx.strokeStyle = 'rgba(139,149,165,0.4)';
         ctx.setLineDash([4, 4]);
@@ -521,6 +721,25 @@ export function FlowChart({ store, tf, options, height = 460, onPrintClick, onMa
         const lines: string[] = [];
         const d = new Date(t);
         lines.push(`⏱ ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}:${String(d.getUTCSeconds()).padStart(2, '0')} UTC · ${p.toFixed(tickDec)}`);
+        // hovering the future region: that step's projected point + band
+        if (fcOn && fc && t > fc.anchor.ds + fcTf / 2) {
+          let best: FlowForecastRow | null = null;
+          for (const r of fc.rows) {
+            if (!best || Math.abs(r.ds - t) < Math.abs(best.ds - t)) best = r;
+          }
+          if (best) {
+            const band = best.levels?.length ? best.levels[best.levels.length - 1] : null;
+            const lo = band?.lo ?? best.lo;
+            const hi = band?.hi ?? best.hi;
+            const dd = new Date(best.ds);
+            lines.push(
+              `▸ forecast +${best.step} · ${String(dd.getUTCHours()).padStart(2, '0')}:${String(dd.getUTCMinutes()).padStart(2, '0')} UTC`,
+            );
+            lines.push(
+              `   point ${best.point.toFixed(tickDec)}${Number.isFinite(lo) && Number.isFinite(hi) ? ` · ${band?.level ?? ''}% ${lo.toFixed(tickDec)}…${hi.toFixed(tickDec)}` : ''}`,
+            );
+          }
+        }
         if (resting !== null) lines.push(`resting ${(resting * p).toFixed(0)} USD ≈ ${resting.toFixed(3)} ${st?.asset ?? ''}`);
         if (nearest?.print) {
           const pr = nearest.print;

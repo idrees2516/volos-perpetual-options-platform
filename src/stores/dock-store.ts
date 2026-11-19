@@ -19,7 +19,8 @@ export type DockKind =
   | 'quant-perps'
   | 'quant-risk'
   | 'paper-intelligence'
-  | 'paper-autopilot';
+  | 'paper-autopilot'
+  | 'paper-decision-hub';
 
 export interface PinnedPanel {
   /** Unique instance id (kind + meta hash when needed). */

@@ -9,6 +9,7 @@ import React, { useState } from 'react';
 import { fmtUsd, fmtNum } from '@/lib/format';
 import { useQuant } from './use-quant';
 import { ChartLegend, EmptyNote, ErrNote, LineChart, Panel, Pill, Segmented, StatGrid } from './quant-viz';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 
 interface PerpData {
   spot: number;
@@ -45,8 +46,9 @@ export function PerpsPanel({ symbol }: { symbol: string }) {
   return (
     <div className="space-y-2">
       <ErrNote error={perp.error} />
+      <Dock viewId="quant-perps" layout="grid">
       {p && market.data && (
-        <Panel title={`${symbol} Perp Picture`} sub="binance · bybit · okx · deribit — live public data" right={<Pill tone="teal">live</Pill>}>
+        <DockPanel id="picture" title={`${symbol} Perp Picture`} sub="binance · bybit · okx · deribit — live public data" right={<Pill tone="teal">live</Pill>}>
           <StatGrid
             cols={4}
             stats={[
@@ -69,11 +71,10 @@ export function PerpsPanel({ symbol }: { symbol: string }) {
               </div>
             ))}
           </div>
-        </Panel>
+        </DockPanel>
       )}
 
-      <div className="grid gap-2 xl:grid-cols-2">
-        <Panel title="Price + CVD" sub="5m candles · cumulative taker delta (USD)">
+      <DockPanel id="cvd" title="Price + CVD" sub="5m candles · cumulative taker delta (USD)" span={1}>
           {p?.cvd?.length ? (
             <>
               <LineChart
@@ -97,10 +98,9 @@ export function PerpsPanel({ symbol }: { symbol: string }) {
           ) : (
             <EmptyNote>{perp.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
 
-        <div className="space-y-2">
-          <Panel title="Funding History" sub="binance · per 8h">
+        <DockPanel id="funding" title="Funding History" sub="binance · per 8h" span={1}>
             {p?.fundingHist?.length ? (
               <LineChart
                 height={130}
@@ -112,8 +112,8 @@ export function PerpsPanel({ symbol }: { symbol: string }) {
             ) : (
               <EmptyNote>{perp.loading ? 'loading…' : '—'}</EmptyNote>
             )}
-          </Panel>
-          <Panel title="Futures Term Structure" sub="deribit dated futures · annualized basis">
+          </DockPanel>
+          <DockPanel id="term" title="Futures Term Structure" sub="deribit dated futures · annualized basis" span={1}>
             {p?.futuresTerm?.length ? (
               <LineChart
                 height={130}
@@ -125,10 +125,11 @@ export function PerpsPanel({ symbol }: { symbol: string }) {
             ) : (
               <EmptyNote>{perp.loading ? 'loading…' : '—'}</EmptyNote>
             )}
-          </Panel>
-        </div>
-      </div>
-      <LiquidationPanel symbol={symbol} />
+          </DockPanel>
+        <DockPanel id="liq" title="Liquidation Heatmap" variant="bare">
+          <LiquidationPanel symbol={symbol} />
+        </DockPanel>
+      </Dock>
     </div>
   );
 }

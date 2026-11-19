@@ -8,8 +8,9 @@
 import React, { useMemo, useState } from 'react';
 import { fmtUsd, fmtNum } from '@/lib/format';
 import { useQuant } from './use-quant';
-import { DataTable, EmptyNote, ErrNote, LineChart, Panel, Pill, Segmented, StatGrid } from './quant-viz';
+import { DataTable, EmptyNote, ErrNote, LineChart, Pill, Segmented, StatGrid } from './quant-viz';
 import { FlowPanel } from './panels-tape';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 import { isoToDeribitLabel, type InspectTarget } from './trade-drawer';
 
 interface ExpiryRow {
@@ -60,8 +61,12 @@ interface ChainData {
   rows: { strike: number; forward: number; call: Side | null; put: Side | null }[];
 }
 
-export function ChainPanel({ symbol, hasOptions, onInspect }: { symbol: string; hasOptions: boolean; onInspect?: (t: InspectTarget) => void }) {
-  if (!hasOptions) return <EmptyNote>{symbol} has no options chain on free venues (Deribit lists BTC/ETH).</EmptyNote>;
+export function ChainPanel(props: { symbol: string; hasOptions: boolean; onInspect?: (t: InspectTarget) => void }) {
+  if (!props.hasOptions) return <EmptyNote>{props.symbol} has no options chain on free venues (Deribit lists BTC/ETH).</EmptyNote>;
+  return <ChainPanelInner {...props} />;
+}
+
+function ChainPanelInner({ symbol, onInspect }: { symbol: string; hasOptions: boolean; onInspect?: (t: InspectTarget) => void }) {
   const summary = useQuant<SummaryData>('/chain', { symbol, view: 'summary' }, { pollMs: 10000 });
   const [expiry, setExpiry] = useState<string>('');
   const [moneyness, setMoneyness] = useState<'5' | '10' | '20' | 'all'>('10');
@@ -76,8 +81,14 @@ export function ChainPanel({ symbol, hasOptions, onInspect }: { symbol: string; 
   return (
     <div className="space-y-2">
       <ErrNote error={summary.error} />
+      <Dock viewId="quant-chain">
       {summary.data && (
-        <Panel title="Per-Expiry Summary" sub={`${summary.data.totals.instruments} live instruments · ${fmtUsd(summary.data.totals.volumeUsd24h, { compact: true })} 24h volume`} right={<Pill tone="teal">live chain</Pill>}>
+        <DockPanel
+          id="summary"
+          title="Per-Expiry Summary"
+          sub={`${summary.data.totals.instruments} live instruments · ${fmtUsd(summary.data.totals.volumeUsd24h, { compact: true })} 24h volume`}
+          right={<Pill tone="teal">live chain</Pill>}
+        >
           <StatGrid
             cols={4}
             stats={[
@@ -108,10 +119,11 @@ export function ChainPanel({ symbol, hasOptions, onInspect }: { symbol: string; 
               ]}
             />
           </div>
-        </Panel>
+        </DockPanel>
       )}
 
-      <Panel
+      <DockPanel
+        id="chain"
         title={`Option Chain · ${activeExpiry || '—'}`}
         sub="premiums in underlying units · greeks computed natively (Black-76 on venue forwards/IV) · click any mid price to open the order anatomy drawer"
         right={
@@ -198,9 +210,9 @@ export function ChainPanel({ symbol, hasOptions, onInspect }: { symbol: string; 
         ) : (
           <EmptyNote>{chain.loading ? 'loading chain…' : 'no rows in range'}</EmptyNote>
         )}
-      </Panel>
+      </DockPanel>
 
-      <Panel title="OPEX Calendar · next 60 days" sub="◆ anchor (monthly/quarterly) expiries" right={<Pill>event risk</Pill>}>
+      <DockPanel id="opex" title="OPEX Calendar · next 60 days" sub="◆ anchor (monthly/quarterly) expiries" right={<Pill>event risk</Pill>}>
         {opex.data?.events?.length ? (
           <DataTable
             rows={opex.data.events}
@@ -221,7 +233,8 @@ export function ChainPanel({ symbol, hasOptions, onInspect }: { symbol: string; 
         ) : (
           <EmptyNote>{opex.loading ? 'loading…' : '—'}</EmptyNote>
         )}
-      </Panel>
+      </DockPanel>
+      </Dock>
     </div>
   );
 }
@@ -236,8 +249,9 @@ export function OiPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
   return (
     <div className="space-y-2">
       {!hasOptions && <EmptyNote>{symbol} has no options chain — showing perp/futures structure only.</EmptyNote>}
+      <Dock viewId="quant-oi" layout="grid">
       {hasOptions && (
-        <Panel title="Open Interest by Expiry" sub="calls vs puts · live deribit chain" right={<Pill tone="teal">{oi.data ? fmtUsd(oi.data.totalOiUsd, { compact: true }) : '…'} total</Pill>}>
+        <DockPanel id="by-expiry" title="Open Interest by Expiry" sub="calls vs puts · live deribit chain" right={<Pill tone="teal">{oi.data ? fmtUsd(oi.data.totalOiUsd, { compact: true }) : '…'} total</Pill>}>
           <ErrNote error={oi.error} />
           {oi.data?.byExpiry?.length ? (
             <DataTable
@@ -256,10 +270,9 @@ export function OiPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
           ) : (
             <EmptyNote>{oi.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
-      <div className="grid gap-2 xl:grid-cols-2">
-        <Panel title="Futures Term Structure" sub="deribit dated futures · annualized basis vs spot">
+      <DockPanel id="term" title="Futures Term Structure" sub="deribit dated futures · annualized basis vs spot" span={1}>
           <ErrNote error={term.error} />
           {term.data?.futures?.length ? (
             <DataTable
@@ -277,8 +290,8 @@ export function OiPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
           ) : (
             <EmptyNote>{term.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
-        <Panel title="Options OI · 7d History" sub="our snapshot store (SQLite)">
+        </DockPanel>
+        <DockPanel id="oi-history" title="Options OI · 7d History" sub="our snapshot store (SQLite)" span={1}>
           {oiHist.data?.points?.length ? (
             <LineChart
               height={150}
@@ -289,9 +302,13 @@ export function OiPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
           ) : (
             <EmptyNote>history accrues every ~2 min — check back soon</EmptyNote>
           )}
-        </Panel>
-      </div>
-      {hasOptions && <FlowPanel symbol={symbol} />}
+        </DockPanel>
+      {hasOptions && (
+        <DockPanel id="flow" title="Premium Tide & Flow by Strike" variant="bare">
+          <FlowPanel symbol={symbol} />
+        </DockPanel>
+      )}
+      </Dock>
     </div>
   );
 }

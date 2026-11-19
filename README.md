@@ -186,6 +186,24 @@ A virtual **$100,000 USDC account** that executes against the **real
 best-bid/offer of all six connected exchanges** — every fill is a live venue
 price, not a simulation:
 
+### The Decision Hub — the whole product in one stance (NEW)
+
+`GET /api/decision` + the Paper Desk's first panel (dockable/pinnable like
+everything else): EVERY data family in the terminal fused into one answer —
+**stance −100..+100** (RISK-ON … RISK-OFF) with **confidence** and **pillar
+agreement**, five weighted pillars (Kalman trend · the model room's P(up)
+panel · order flow & tape · dealer gamma & structure · paper-book alignment),
+the **vol edge** (IV(30d) vs the GARCH forecast → RICH/CHEAP/FAIR premium),
+every statistical model's live verdict, the **top strategy fits** from the
+131-strategy catalog scored against the current context, the risk block
+(half-Kelly, CVaR95, drawdown), the forecast cross-check (climatology vs ML
+vs Monte-Carlo P(up)), whole-market breadth, the levels that matter — and
+the **action battery**: what to actually do right now, with rationale and
+sizing numbers. The copilot gets it all via the `decision_hub` and
+`model_suite` tools; the autopilot can gate its aggressive actions on the
+hub's confidence (`stanceGate`) and size scale-ins with its **half-Kelly**
+fraction (`kellySizing`); the morning brief carries the stance digest.
+
 - **Smart routing** — `venue=auto` buys at the lowest live ask and sells at
   the highest live bid across Deribit · Bybit · OKX · Aevo · Paradex · Derive
 - **Realistic frictions** — per-venue taker fees (2–3 bps of notional),
@@ -239,18 +257,32 @@ and an AI narrative synthesized from those exact numbers. Stored for 30 days
 by the copilot (`morning_brief` tool). API: `GET|POST
 /api/positions/morning-brief`.
 
-**Dockable panels — drag, adjust, open in Builder.** The parts inside the
-workspaces are adjustable and draggable: `<Dock>`/`<DockPanel>`
-(`src/components/terminal/dock/`) turns each panel into a card whose header
-is a drag handle (reorder by dragging one panel onto another — the layout
-persists per view in localStorage), with a resize cycle (compact → medium →
-full), collapse, and an **Open in Builder** pin. Pinned panels dock into the
-**Builder workspace** (`BuilderDock`) as LIVE cards — a switcher strip to
-flip between them, drag to reorder the strip, unpin individually — the
-pinned sections keep rendering their real components (live data, live
-decisions), not snapshots. Wired today: QuantLab Overview + Signals and the
-Paper Desk column (Position Intelligence · Autopilot · Positions · orders ·
-fills); other views adopt the same primitive panel by panel.
+**Dockable panels — drag, adjust, expand, collapse — EVERYWHERE.** Every
+part inside every workspace is adjustable, expandable and collapsible:
+`<Dock>`/`<DockPanel>` (`src/components/terminal/dock/`) turns each panel
+into a card with
+- **drag-reorder** — header grip, drop on another panel; layout persists
+  per view in localStorage
+- **adjust height** — drag the panel's bottom edge to ANY pixel height
+  (persisted), or cycle 220px → 460px → auto presets; double-click the
+  handle to reset
+- **expand** — one click to a fullscreen focus overlay (Esc or backdrop
+  restores; content stays mounted so live charts keep streaming)
+- **collapse** — smooth animated collapse whose children STAY MOUNTED —
+  live panels keep their SSE/polling subscriptions through the round trip
+- **Open in Builder** pin — the live section docks into the **Builder
+  workspace** (`BuilderDock`) as LIVE cards (switcher strip, drag reorder,
+  unpin) that keep rendering their real components
+
+Wired today across ALL views: QuantLab (every tab), Order Flow (chart ·
+projection · KPIs · CVD · liquidations · rail · whole market), Forecast,
+Gamma & Flow, Option Chain, Trading, Strategies (payoff · structure ·
+intelligence · metrics · routing · platforms · live-data · backtest),
+BackQuant (all tab panels), Script Lab (windows keep their own drag/resize
+plus collapse + fullscreen), and the Paper Desk column. Dense secondary
+chip rows collapse behind shadcn `Collapsible` triggers (Order Flow
+"layers"), and persisted UI state rides the shared `usePersistedState`
+external-store hook.
 
 UI: **Paper Desk** tab — account bar with equity curve, order ticket with a
 live cross-venue quote preview, positions with live marks and one-click
@@ -345,6 +377,33 @@ simulation so the UI stays usable.
 cd rust-backend && cargo build --release
 ./target/release/volos-backend            # VOLOS_PORT=3031 by default
 ```
+
+### 4. Deploy on InstaBox (cloud computer, public HTTPS URL)
+
+The terminal can be deployed to an [InstaBox](https://instabox.sh) cloud
+machine — a full Linux VM (4 vCPU / 8 GiB) — with one command, and exposed
+on a public `https://<port>-<machine>.instabox.tech` URL:
+
+```bash
+bun run deploy:instabox            # create machine → push tracked files →
+                                   # bun install + prisma + next build →
+                                   # start standalone server → publish :3000
+bun run deploy:instabox:wake       # wake a paused machine + health check
+bash scripts/deploy-instabox.sh --update   # re-push code, rebuild, restart
+bash scripts/deploy-instabox.sh --stop     # stop (disk + URL stay)
+```
+
+Auth: `INSTABOX_API_KEY` (an `ibk_…` key from instabox.sh) in the
+environment or `.env.local` (git-ignored — note that sandbox environment
+resets wipe `.env.local`, so re-add the key before redeploying).
+The deploy uses the production standalone build (`bun run build` →
+`node .next/standalone/server.js`) and its own SQLite at
+`/data/volos/db/custom.db` — the sandbox/dev database is never shipped.
+On the free plan the machine auto-pauses after 30 idle minutes (URL and
+disk persist; `deploy:instabox:wake` restores it, with the server process
+still in memory). AI-provider keys (`OMNIROUTE_API_KEY`, …) are optional —
+add them to `/data/volos/.env.local` on the machine to activate the
+copilot's gateway tiers.
 
 ---
 
@@ -568,10 +627,11 @@ consecutive failures → 5-minute cooldown) stops paying the timeout on every
 request while a gateway is down. `/api/ai/providers` and the copilot header
 badge expose the active backend and gateway health.
 
-> **Hosting note:** the InstaBox cloud deployment was retired — the machine,
-its disks and its public URL were deleted and the deploy tooling removed
-from the repo. The terminal runs exclusively on `localhost:3000` and the
-sandbox preview URL.
+> **Hosting note:** VolOS runs on `localhost:3000` and the sandbox preview
+> URL by default. It can ALSO be deployed to a public HTTPS URL on an
+> InstaBox cloud machine with one command — see
+> **Deploy on InstaBox** below. (An earlier deployment was retired and
+> fully deleted; redeploying is a fresh, one-command flow.)
 
 ### Conversation memory (RAG) — the copilot remembers
 

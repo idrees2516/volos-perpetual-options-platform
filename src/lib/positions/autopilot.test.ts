@@ -18,6 +18,14 @@ vi.mock('@/lib/positions/intelligence', () => ({
   buildPositionIntelligence: vi.fn(async () => report),
 }));
 
+let hub: Record<string, unknown> | null;
+vi.mock('@/lib/decision/hub', () => ({
+  buildDecisionHub: vi.fn(async () => {
+    if (hub) return hub;
+    throw new Error('hub unavailable (test)');
+  }),
+}));
+
 vi.mock('node:fs', () => ({
   default: {
     readFileSync: vi.fn(() => {
@@ -131,6 +139,7 @@ describe('sanitizeAutopilotPatch', () => {
 describe('runAutopilotCycle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    hub = null;
     resetJournal();
     resetAutopilotSettings();
     paper.closePaperPosition.mockReset();
@@ -240,5 +249,115 @@ describe('settings store', () => {
     expect(getAutopilotSettings().minConfidence).toBe(80);
     expect(getAutopilotSettings().execute.takeProfit).toBe(true); // untouched defaults survive
     expect(s.intervalSec).toBe(AUTOPILOT_DEFAULTS.intervalSec);
+  });
+});
+
+
+// --- decision-hub integration -----------------------------------------------------------
+
+describe('autopilot × decision hub', () => {
+  const hubReport = {
+    stance: 62,
+    stanceLabel: 'RISK-ON',
+    confidence: 78,
+    risk: { kellyHalf: 0.2, kellyFull: 0.4 },
+    positions: { count: 1 },
+  };
+
+  it('exposes the hub digest on every cycle result', async () => {
+    hub = hubReport as never;
+    const res = await runAutopilotCycle('manual');
+    expect(res.hub).toMatchObject({ stance: 62, stanceLabel: 'RISK-ON', confidence: 78, stanceGate: 0, kellySizing: false, kellyHalf: 0.2 });
+  });
+
+  it('degrades gracefully when the hub is unavailable', async () => {
+    hub = null;
+    const res = await runAutopilotCycle('manual');
+    expect(res.hub).toBeNull();
+    expect(res.error).toBeNull();
+  });
+
+  it('stanceGate blocks aggressive actions below the gate (defense unaffected)', async () => {
+    hub = { ...hubReport, confidence: 45 } as never;
+    await updateAutopilotSettings({ enabled: true, dryRun: true, stanceGate: 60, execute: { takeProfit: true, exit: true, roll: true, adjust: true, scaleIn: true } } as never);
+    report = mkReport([
+      mkPos({
+        decision: { action: 'ROLL', confidence: 90, healthScore: 70, reasons: ['dte'], suggestedAction: 'roll' },
+        expiryMs: Date.now() + 3 * 86_400_000,
+        dte: 3,
+      }),
+    ]);
+    const res = await runAutopilotCycle('manual');
+    const roll = res.entries.find((e) => e.action === 'ROLL');
+    expect(roll).toBeDefined();
+    expect(roll!.result).toBe('skipped');
+    expect(roll!.detail).toMatch(/stance gate/);
+    expect(res.hub?.stanceGate).toBe(60);
+  });
+
+  it('stanceGate passes aggressive actions above the gate', async () => {
+    hub = { ...hubReport, confidence: 80 } as never;
+    await updateAutopilotSettings({ enabled: true, dryRun: true, stanceGate: 60, execute: { takeProfit: true, exit: true, roll: true, adjust: true, scaleIn: true } } as never);
+    report = mkReport([
+      mkPos({
+        decision: { action: 'ROLL', confidence: 90, healthScore: 70, reasons: ['dte'], suggestedAction: 'roll' },
+        expiryMs: Date.now() + 3 * 86_400_000,
+        dte: 3,
+      }),
+    ]);
+    const res = await runAutopilotCycle('manual');
+    const roll = res.entries.find((e) => e.action === 'ROLL');
+    expect(roll).toBeDefined();
+    expect(roll!.result).toBe('planned');
+  });
+
+  it('stanceGate blocks a scale-in that fights the hub stance', async () => {
+    hub = { ...hubReport, stance: -40, confidence: 80 } as never;
+    await updateAutopilotSettings({ enabled: true, dryRun: true, stanceGate: 60, execute: { takeProfit: true, exit: true, roll: true, adjust: true, scaleIn: true } } as never);
+    report = mkReport([
+      mkPos({
+        side: 'long',
+        decision: { action: 'SCALE_IN', confidence: 90, healthScore: 80, reasons: ['strong'], suggestedAction: 'add' },
+      }),
+    ]);
+    const res = await runAutopilotCycle('manual');
+    const scale = res.entries.find((e) => e.action === 'SCALE_IN');
+    expect(scale).toBeDefined();
+    expect(scale!.result).toBe('skipped');
+    expect(scale!.detail).toMatch(/opposes/);
+  });
+
+  it('kellySizing caps the scale-in fraction at half-Kelly', async () => {
+    hub = hubReport as never;
+    await updateAutopilotSettings({ enabled: true, dryRun: false, stanceGate: 0, kellySizing: true, scaleInFraction: 0.5, execute: { takeProfit: true, exit: true, roll: false, adjust: false, scaleIn: true } } as never);
+    report = mkReport([
+      mkPos({
+        side: 'long',
+        decision: { action: 'SCALE_IN', confidence: 90, healthScore: 80, reasons: ['strong'], suggestedAction: 'add' },
+      }),
+    ]);
+    paper.placePaperOrder.mockResolvedValueOnce({ ok: true, fill: { price: 0.06, qty: 0.2, fee: 1 } });
+    const res = await runAutopilotCycle('manual');
+    const scale = res.entries.find((e) => e.action === 'SCALE_IN');
+    expect(scale).toBeDefined();
+    expect(scale!.result).toBe('scaled');
+    // frac = min(0.5, max(0.05, 0.2)) = 0.2 → qty = 1 × 0.2
+    expect(paper.placePaperOrder).toHaveBeenCalledWith(expect.objectContaining({ qty: expect.closeTo(0.2, 4) }));
+  });
+
+  it('kellySizing keeps the raw fraction when Kelly is unknown', async () => {
+    hub = { ...hubReport, risk: { kellyHalf: null } } as never;
+    await updateAutopilotSettings({ enabled: true, dryRun: false, stanceGate: 0, kellySizing: true, scaleInFraction: 0.5, execute: { takeProfit: true, exit: true, roll: false, adjust: false, scaleIn: true } } as never);
+    report = mkReport([
+      mkPos({
+        side: 'long',
+        decision: { action: 'SCALE_IN', confidence: 90, healthScore: 80, reasons: ['strong'], suggestedAction: 'add' },
+      }),
+    ]);
+    paper.placePaperOrder.mockResolvedValueOnce({ ok: true, fill: { price: 0.06, qty: 0.5, fee: 1 } });
+    const res = await runAutopilotCycle('manual');
+    const scale = res.entries.find((e) => e.action === 'SCALE_IN');
+    expect(scale!.result).toBe('scaled');
+    expect(paper.placePaperOrder).toHaveBeenCalledWith(expect.objectContaining({ qty: 0.5 }));
   });
 });

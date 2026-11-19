@@ -5,24 +5,27 @@
 // constant-maturity, IV-vs-RV (VRP), expected moves and the surface grid.
 // -----------------------------------------------------------------------------
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { fmtUsd, fmtNum } from '@/lib/format';
+import { sequentialColor } from '@/lib/quant/heatmap';
 import { useQuant } from './use-quant';
-import { ChartLegend, DataTable, EmptyNote, ErrNote, HeatMatrix, LineChart, Panel, Pill, Segmented, StatGrid } from './quant-viz';
+import { ChartLegend, DataTable, EmptyNote, ErrNote, HeatMatrix, HeatLegend, LineChart, Pill, Segmented, StatGrid } from './quant-viz';
+import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 import { Surface3D } from './viz-deep';
 
 export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: boolean }) {
   const [view, setView] = useState<'term' | 'skew' | 'smile' | 'vrp' | 'em' | 'surface'>('term');
   const [surfaceMode, setSurfaceMode] = useState<'3d' | 'grid'>('3d');
-  if (!hasOptions) return <EmptyNote>{symbol} has no options chain — IV analytics need the Deribit chain (BTC/ETH).</EmptyNote>;
   const term = useQuant<{ termStructure: { dte: number; expiry: string; atmIvPct: number; oiUsd: number }[]; cm30Pct: number; vrp: { iv30Pct: number; rv30Pct: number; vrpPct: number; rvSource: string } }>('/iv', { symbol, view: 'term' }, { pollMs: 10000 });
   const skew = useQuant<{ byExpiry: { expiry: string; dte: number; atmIvPct: number; rr25: number; fly25: number; rr10: number }[] }>('/iv', { symbol, view: 'skew' }, { pollMs: 15000 });
   const smile = useQuant<{ expiry: string; dte: number; forward: number; smile: { strike: number; ivPct: number; delta: number }[] }>('/iv', { symbol, view: 'smile' }, { pollMs: 10000 });
   const vrp = useQuant<{ iv30Pct: number; rv30Pct: number; vrpPct: number; realizedSeries: { ts: number; rvPct: number }[] }>('/iv', { symbol, view: 'vrp' }, { pollMs: 60000 });
   const em = useQuant<{ spot: number; byExpiry: { expiry: string; dte: number; straddleUsd: number; oneSigmaUsd: number; oneSigmaPct: number; twoSigmaUsd: number; rangeLow: number; rangeHigh: number; calibrated1sUsd: number }[] }>('/iv', { symbol, view: 'em' }, { pollMs: 15000 });
-  const surface = useQuant<{ spot: number; strikes: number[]; expiries: string[]; ivPct: number[][] }>('/iv', { symbol, view: 'surface' }, { pollMs: 30000 });
+  const surface = useQuant<{ spot: number; forward?: number; strikes: number[]; expiries: string[]; ivPct: number[][]; rows?: { strike: number; moneynessPct: number }[]; term?: { dte: number; expiry: string; atmIvPct: number }[]; skew?: { expiry: string; dte: number; rr25: number; fly25: number }[] }>('/iv', { symbol, view: 'surface' }, { pollMs: 30000 });
 
   const t = term.data;
+
+  if (!hasOptions) return <EmptyNote>{symbol} has no options chain — IV analytics need the Deribit chain (BTC/ETH).</EmptyNote>;
 
   return (
     <div className="space-y-2">
@@ -43,8 +46,9 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
         {t?.vrp && Number.isFinite(t.vrp.vrpPct) && <Pill tone={t.vrp.vrpPct >= 0 ? 'emerald' : 'amber'}>vrp {t.vrp.vrpPct >= 0 ? '+' : ''}{t.vrp.vrpPct.toFixed(1)}pts</Pill>}
       </div>
 
+      <Dock viewId="quant-iv">
       {view === 'term' && (
-        <Panel title="ATM IV Term Structure" sub="live implied vol by tenor (OTM composite at forward)" right={<Pill tone="teal">live</Pill>}>
+        <DockPanel id="term" title="ATM IV Term Structure" sub="live implied vol by tenor (OTM composite at forward)" right={<Pill tone="teal">live</Pill>}>
           <ErrNote error={term.error} />
           {t?.termStructure?.length ? (
             <>
@@ -60,11 +64,11 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
           ) : (
             <EmptyNote>{term.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
 
       {view === 'skew' && (
-        <Panel title="Skew · 25Δ / 10Δ" sub="rr = put IV − call IV (risk reversal) · fly = mid(wings) − ATM">
+        <DockPanel id="skew" title="Skew · 25Δ / 10Δ" sub="rr = put IV − call IV (risk reversal) · fly = mid(wings) − ATM">
           <ErrNote error={skew.error} />
           {skew.data?.byExpiry?.length ? (
             <DataTable
@@ -83,11 +87,11 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
           ) : (
             <EmptyNote>{skew.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
 
       {view === 'smile' && (
-        <Panel title="OTM Composite Smile" sub={smile.data ? `${smile.data.expiry} · ${smile.data.dte.toFixed(1)}d · forward ${fmtNum(smile.data.forward ?? 0, 0)}` : 'front expiry'}>
+        <DockPanel id="smile" title="OTM Composite Smile" sub={smile.data ? `${smile.data.expiry} · ${smile.data.dte.toFixed(1)}d · forward ${fmtNum(smile.data.forward ?? 0, 0)}` : 'front expiry'}>
           <ErrNote error={smile.error} />
           {smile.data?.smile?.length ? (
             <LineChart
@@ -100,11 +104,11 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
           ) : (
             <EmptyNote>{smile.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
 
       {view === 'vrp' && (
-        <Panel title="IV vs Realized Vol · VRP" sub={t?.vrp?.rvSource ?? 'deribit 30d realized'} right={vrp.data && Number.isFinite(vrp.data.vrpPct) ? <Pill tone={vrp.data.vrpPct >= 0 ? 'emerald' : 'amber'}>{vrp.data.vrpPct >= 0 ? 'rich' : 'cheap'}</Pill> : null}>
+        <DockPanel id="vrp" title="IV vs Realized Vol · VRP" sub={t?.vrp?.rvSource ?? 'deribit 30d realized'} right={vrp.data && Number.isFinite(vrp.data.vrpPct) ? <Pill tone={vrp.data.vrpPct >= 0 ? 'emerald' : 'amber'}>{vrp.data.vrpPct >= 0 ? 'rich' : 'cheap'}</Pill> : null}>
           <ErrNote error={vrp.error} />
           {vrp.data ? (
             <>
@@ -132,11 +136,11 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
           ) : (
             <EmptyNote>{vrp.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
 
       {view === 'em' && (
-        <Panel title="Expected Move" sub="1σ lognormal + ATM straddle · calibrated = VRP-rescaled">
+        <DockPanel id="em" title="Expected Move" sub="1σ lognormal + ATM straddle · calibrated = VRP-rescaled">
           <ErrNote error={em.error} />
           {em.data?.byExpiry?.length ? (
             <DataTable
@@ -157,11 +161,12 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
           ) : (
             <EmptyNote>{em.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
       )}
 
       {view === 'surface' && (
-        <Panel
+        <DockPanel
+          id="surface"
           title="IV Surface · strike × expiry"
           sub="OTM composite IV (% annualized) · drag the 3D surface to orbit, hover any cell to probe — the spot row is outlined"
           right={
@@ -201,21 +206,100 @@ export function IvPanel({ symbol, hasOptions }: { symbol: string; hasOptions: bo
                 })()}
               />
             ) : (
-              <HeatMatrix
-                rows={surface.data.strikes.slice(0, 22).map((s) => fmtNum(s, 0))}
-                cols={surface.data.expiries.slice(0, 12).map((e) => e.slice(5))}
-                values={surface.data.ivPct.slice(0, 12).map((row) => row.slice(0, 22))}
-                format={(v) => (Number.isFinite(v) ? v.toFixed(0) : '·')}
-                colorFn={(v) => {
-                  const t = Math.min(Math.max((v - 25) / 60, 0), 1);
-                  return `rgba(45, 212, 191, ${(0.08 + t * 0.72).toFixed(3)})`;
-                }}
-              />
+              <SurfaceGrid surface={surface.data} />
             )
           ) : (
             <EmptyNote>{surface.loading ? 'loading…' : '—'}</EmptyNote>
           )}
-        </Panel>
+        </DockPanel>
+      )}
+      </Dock>
+    </div>
+  );
+}
+
+// ── surface grid — the shared heatmap language ───────────────────────────────
+
+interface SurfaceData {
+  spot: number;
+  forward?: number;
+  strikes: number[];
+  expiries: string[];
+  ivPct: number[][];
+  rows?: { strike: number; moneynessPct: number }[];
+  term?: { dte: number; expiry: string; atmIvPct: number }[];
+  skew?: { expiry: string; dte: number; rr25: number; fly25: number }[];
+}
+
+function moneynessLabel(m: number): string {
+  const a = Math.abs(m);
+  if (a < 2) return 'ATM';
+  return `${m > 0 ? '+' : '−'}${a >= 10 ? a.toFixed(0) : a.toFixed(1)}%`;
+}
+
+function SurfaceGrid({ surface }: { surface: SurfaceData | null }) {
+  const MAXR = 22;
+  const MAXC = 12;
+
+  // robust color domain: p10..p90 of the finite IVs — one deep-OTM 300% mark
+  // must not saturate the whole grid
+  const dom = useMemo<[number, number]>(() => {
+    const vals = (surface?.ivPct ?? []).flat().filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+    if (vals.length < 4) return [20, 90];
+    const lo = vals[Math.floor(vals.length * 0.1)];
+    const hi = vals[Math.min(vals.length - 1, Math.floor(vals.length * 0.9))];
+    return [lo, Math.max(hi, lo + 5)];
+  }, [surface]);
+  const span = dom[1] - dom[0];
+
+  if (!surface?.strikes?.length) return <EmptyNote>—</EmptyNote>;
+  const rows = surface.rows ?? [];
+  const yLabels = surface.strikes.slice(0, MAXR).map((s) => {
+    const r = rows.find((x) => x.strike === s);
+    return r ? moneynessLabel(r.moneynessPct) : fmtNum(s, 0);
+  });
+  const term = surface.term ?? [];
+  const skew = surface.skew ?? [];
+
+  return (
+    <div className="space-y-2.5">
+      <HeatMatrix
+        rows={yLabels}
+        cols={surface.expiries.slice(0, MAXC).map((e) => e.slice(5))}
+        values={surface.ivPct.slice(0, MAXC).map((row) => row.slice(0, MAXR))}
+        format={(v) => (Number.isFinite(v) ? v.toFixed(0) : '·')}
+        colorFn={(v) => (Number.isFinite(v) ? sequentialColor(Math.min(1, Math.max(0, (v - dom[0]) / span))) : 'rgba(39,39,42,0.35)')}
+        height={20}
+        titleFn={(v, r, c) => {
+          const strike = surface.strikes[r];
+          const m = rows.find((x) => x.strike === strike)?.moneynessPct;
+          return Number.isFinite(v)
+            ? `${fmtNum(strike, 0)} · ${m != null ? moneynessLabel(m) : ''} · ${surface.expiries[c]}: ${v.toFixed(1)}% IV`
+            : 'no mark';
+        }}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+        <HeatLegend min={dom[0]} max={dom[1]} label="iv %" scale="sequential" n={5} />
+        {term.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[8.5px] font-mono">
+            <span className="uppercase tracking-wider text-zinc-600">term</span>
+            {term.slice(0, 7).map((p) => (
+              <span key={p.expiry} className="text-zinc-400">
+                {p.dte}d <span className="text-teal-300">{p.atmIvPct.toFixed(0)}%</span>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      {skew.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[8.5px] font-mono">
+          <span className="uppercase tracking-wider text-zinc-600">25Δ skew (put−call, pct pts)</span>
+          {skew.slice(0, 8).map((s) => (
+            <span key={s.expiry} className="text-zinc-400">
+              {s.dte}d <span className={s.rr25 >= 0 ? 'text-rose-300' : 'text-teal-300'}>{s.rr25 >= 0 ? '+' : ''}{s.rr25.toFixed(1)}</span>
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );
