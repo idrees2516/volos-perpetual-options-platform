@@ -46,6 +46,13 @@ vi.mock('@/lib/positions/autopilot', () => ({
 const ai = { generateText: vi.fn() };
 vi.mock('ai', () => ({ generateText: (...args: unknown[]) => ai.generateText(...args) }));
 vi.mock('@/lib/ai/model-router', () => ({ getDeskModel: () => ({}) }));
+let hubFixture: Record<string, unknown> | null = null;
+vi.mock('@/lib/decision/hub', () => ({
+  buildDecisionHub: vi.fn(async () => {
+    if (hubFixture) return hubFixture;
+    throw new Error('hub unavailable (test)');
+  }),
+}));
 
 import { buildMorningBrief, ensureMorningBrief, localDateStr } from './morning-brief';
 
@@ -211,5 +218,41 @@ describe('ensureMorningBrief', () => {
     const second = await ensureMorningBrief();
     expect(second.generated).toBe(false);
     expect(second.reason).toBe('already exists');
+  });
+});
+
+
+describe('decision hub digest', () => {
+  it('attaches the unified stance digest when the hub resolves', async () => {
+    hubFixture = {
+      stance: 52,
+      stanceLabel: 'RISK-ON',
+      confidence: 81,
+      volVerdict: 'RICH',
+      actions: [{ id: 'sell-rich-vol', kind: 'harvest', title: 'Sell the rich premium' }],
+      risk: { kellyHalf: 0.18 },
+      context: { hmmLabel: 'calm', garchVolPctH: 41.2 },
+    };
+    try {
+      const brief = await buildMorningBrief({ includeAi: false });
+      expect(brief.decisionHub).toMatchObject({
+        stance: 52,
+        stanceLabel: 'RISK-ON',
+        confidence: 81,
+        volVerdict: 'RICH',
+        topAction: 'Sell the rich premium',
+        kellyHalf: 0.18,
+        hmmLabel: 'calm',
+        garchVolPctH: 41.2,
+      });
+    } finally {
+      hubFixture = null;
+    }
+  });
+
+  it('leaves the digest null when the hub is unavailable', async () => {
+    hubFixture = null;
+    const brief = await buildMorningBrief({ includeAi: false });
+    expect(brief.decisionHub).toBeNull();
   });
 });

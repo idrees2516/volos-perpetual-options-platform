@@ -186,6 +186,24 @@ A virtual **$100,000 USDC account** that executes against the **real
 best-bid/offer of all six connected exchanges** — every fill is a live venue
 price, not a simulation:
 
+### The Decision Hub — the whole product in one stance (NEW)
+
+`GET /api/decision` + the Paper Desk's first panel (dockable/pinnable like
+everything else): EVERY data family in the terminal fused into one answer —
+**stance −100..+100** (RISK-ON … RISK-OFF) with **confidence** and **pillar
+agreement**, five weighted pillars (Kalman trend · the model room's P(up)
+panel · order flow & tape · dealer gamma & structure · paper-book alignment),
+the **vol edge** (IV(30d) vs the GARCH forecast → RICH/CHEAP/FAIR premium),
+every statistical model's live verdict, the **top strategy fits** from the
+131-strategy catalog scored against the current context, the risk block
+(half-Kelly, CVaR95, drawdown), the forecast cross-check (climatology vs ML
+vs Monte-Carlo P(up)), whole-market breadth, the levels that matter — and
+the **action battery**: what to actually do right now, with rationale and
+sizing numbers. The copilot gets it all via the `decision_hub` and
+`model_suite` tools; the autopilot can gate its aggressive actions on the
+hub's confidence (`stanceGate`) and size scale-ins with its **half-Kelly**
+fraction (`kellySizing`); the morning brief carries the stance digest.
+
 - **Smart routing** — `venue=auto` buys at the lowest live ask and sells at
   the highest live bid across Deribit · Bybit · OKX · Aevo · Paradex · Derive
 - **Realistic frictions** — per-venue taker fees (2–3 bps of notional),

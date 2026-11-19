@@ -42,6 +42,10 @@ import {
   smaProjector,
 } from './indicators';
 import type { OfAsset } from '@/lib/orderflow/types';
+import { fitGarch, garchForecast } from '@/lib/models/timeseries';
+import { fitHmm, hmmRegime } from '@/lib/models/regimes';
+import { calibrateMerton } from '@/lib/models/stochastic';
+import { marketFeatureMatrix, walkForwardPUp, logisticPredict } from '@/lib/models/ml';
 
 export interface FcStateRow {
   step: number;
@@ -82,6 +86,32 @@ export interface FcIndicatorBlock {
   note?: string;
 }
 
+export interface FcRegimeBlock {
+  /** GARCH(1,1) fit: params + annualized vol % now / at h / long-run */
+  garch: {
+    alpha: number;
+    beta: number;
+    persistence: number;
+    volPctNow: number;
+    volPctAtH: number;
+    volPctLongRun: number;
+    /** conditional σ % path over the forecast horizon */
+    volPctPath: number[];
+    shockHalfLifeBars: number | null;
+  } | null;
+  /** HMM dominant state + probabilities */
+  hmm: {
+    label: string;
+    prob: number;
+    states: { label: string; mu: number; sigma: number; stationaryProb: number }[];
+    expectedDurationBars: number | null;
+  } | null;
+  /** walk-forward ML P(up) classifier verdict */
+  ml: { pUpNow: number; accuracy: number; auc: number | null } | null;
+  /** Merton jump calibration */
+  merton: { lambdaPerYear: number; muJ: number; sigmaJ: number; tailCount: number } | null;
+}
+
 export interface FcProjectedState {
   asset: OfAsset;
   tf: number;
@@ -115,6 +145,12 @@ export interface FcProjectedState {
   metrics: FcMetricBlock[];
   indicators: FcIndicatorBlock[];
   volatility: { atr14: number | null; realizedVolPct: number | null; expectedMovePctPerStep: number[] };
+  /**
+   * The model room's regime verdict fused onto the projected state (null when
+   * history is too short): GARCH vol forecast, HMM state, ML P(up) — the
+   * deep-integration block shared with the Decision Hub.
+   */
+  regime: FcRegimeBlock | null;
   /** every "now" value in one flat record (current + previous data) */
   snapshot: Record<string, number | null>;
   provenance: {
@@ -391,6 +427,70 @@ export function buildProjectedStateFromBars(
     realizedVolPct: rvNow,
   };
 
+  // ── the model room's regime verdict (GARCH + HMM + ML + Merton) ──────────
+  const rets: number[] = [];
+  for (let i = 1; i < closes.length; i++) rets.push(Math.log(closes[i] / closes[i - 1]));
+  const barsPerYear = Math.round((365 * 24 * 3600 * 1000) / tf);
+  const garch = rets.length >= 60 ? fitGarch(rets, { barsPerYear }) : null;
+  const garchFc = garch ? garchForecast(garch, rets[rets.length - 1], h) : null;
+  const hmm = rets.length >= 120 ? fitHmm(rets.slice(-600), { k: 3 }) : null;
+  const hmmR = hmm ? hmmRegime(hmm) : null;
+  const mertonCal = rets.length >= 60 ? calibrateMerton(rets, { barsPerYear }) : null;
+  let mlBlock: { pUpNow: number; accuracy: number; auc: number | null } | null = null;
+  try {
+    const fm = marketFeatureMatrix(closes, {
+      deltas: bars.slice(1).map((b) => 2 * b.buyVolume - b.volume),
+    });
+    const wf = fm ? walkForwardPUp(fm, { seed: 20260101 }) : null;
+    if (wf && fm) {
+      mlBlock = {
+        pUpNow: logisticPredict(wf.model, fm.x[fm.x.length - 1]),
+        accuracy: wf.metrics.accuracy,
+        auc: wf.metrics.auc,
+      };
+    }
+  } catch {
+    mlBlock = null;
+  }
+  const regime: FcRegimeBlock | null = garch || hmm || mlBlock
+    ? {
+        garch: garch && garchFc
+          ? {
+              alpha: garch.alpha,
+              beta: garch.beta,
+              persistence: garch.persistence,
+              volPctNow: garch.currentVol * Math.sqrt(barsPerYear) * 100,
+              volPctAtH: garchFc.volPctAnnual[Math.max(0, h - 1)],
+              volPctLongRun: garch.longRunVol * Math.sqrt(barsPerYear) * 100,
+              volPctPath: garchFc.volPctAnnual,
+              shockHalfLifeBars: garch.shockHalfLifeBars,
+            }
+          : null,
+        hmm: hmmR
+          ? {
+              label: hmmR.label,
+              prob: hmmR.prob,
+              states: hmm!.states.map((s) => ({
+                label: s.label,
+                mu: s.mu,
+                sigma: s.sigma,
+                stationaryProb: s.stationaryProb,
+              })),
+              expectedDurationBars: Number.isFinite(hmmR.expectedDurationBars) ? hmmR.expectedDurationBars : null,
+            }
+          : null,
+        ml: mlBlock,
+        merton: mertonCal && mertonCal.params.lambda > 0
+          ? {
+              lambdaPerYear: mertonCal.params.lambda,
+              muJ: mertonCal.params.muJ,
+              sigmaJ: mertonCal.params.sigmaJ,
+              tailCount: mertonCal.tailCount,
+            }
+          : null,
+      }
+    : null;
+
   return {
     asset,
     tf,
@@ -414,6 +514,7 @@ export function buildProjectedStateFromBars(
     metrics,
     indicators,
     volatility: { atr14: atrNow, realizedVolPct: rvNow, expectedMovePctPerStep },
+    regime,
     snapshot,
     provenance: {
       klinesBars: 0,

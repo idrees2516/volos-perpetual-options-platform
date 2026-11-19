@@ -225,3 +225,51 @@ describe('projected state', () => {
     expect(lastProj >= (rsiBlock.now ?? 0) - 5).toBe(true);
   });
 });
+
+// ── the model room's regime block (deep integration) ────────────────────────
+
+describe('projected state × model room', () => {
+  it('attaches the GARCH + HMM + Merton regime block on sufficient history', () => {
+    const bars = seededBars(400);
+    const state = buildProjectedStateFromBars(bars, [], 900_000, { h: 24, levels: [80, 95], nWindows: 6 });
+    expect(state.regime).not.toBeNull();
+    const reg = state.regime!;
+    // GARCH fitted with a sane forecast path
+    expect(reg.garch).not.toBeNull();
+    expect(reg.garch!.alpha).toBeGreaterThan(0);
+    expect(reg.garch!.beta).toBeGreaterThan(0);
+    expect(reg.garch!.persistence).toBeLessThan(1);
+    expect(reg.garch!.volPctPath.length).toBe(24);
+    expect(reg.garch!.volPctNow).toBeGreaterThan(0);
+    expect(reg.garch!.volPctAtH).toBeGreaterThan(0);
+    expect(reg.garch!.volPctLongRun).toBeGreaterThan(0);
+    // HMM states σ-ordered + probabilities
+    expect(reg.hmm).not.toBeNull();
+    expect(reg.hmm!.states.length).toBe(3);
+    for (let i = 1; i < reg.hmm!.states.length; i++) {
+      expect(reg.hmm!.states[i].sigma).toBeGreaterThan(reg.hmm!.states[i - 1].sigma);
+    }
+    expect(reg.hmm!.prob).toBeGreaterThan(0);
+    expect(reg.hmm!.prob).toBeLessThanOrEqual(1);
+    // Merton calibration: null when no 3σ exceedances exist (λ = 0), else sane
+    if (reg.merton) {
+      expect(reg.merton.lambdaPerYear).toBeGreaterThan(0);
+      expect(Number.isFinite(reg.merton.muJ)).toBe(true);
+    } else {
+      expect(reg.merton).toBeNull();
+    }
+  });
+
+  it('the regime block is null when history is too short for every model', () => {
+    const bars = seededBars(60);
+    const state = buildProjectedStateFromBars(bars, [], 900_000, { h: 24, levels: [80, 95], nWindows: 6 });
+    // GARCH needs ≥60 returns; with 60 bars all three families degrade — the
+    // block either collapses to null or carries no garch/hmm
+    if (state.regime) {
+      expect(state.regime.garch == null || state.regime.garch.persistence < 1).toBe(true);
+      expect(state.regime.hmm).toBeNull();
+    } else {
+      expect(state.regime).toBeNull();
+    }
+  });
+});

@@ -13,6 +13,7 @@ import { useStrategy } from '@/stores/strategy-store';
 import { fmtNum, fmtUsd } from '@/lib/format';
 import { LiveExchangeStatus } from './trade/venue-panel';
 import { PositionIntelligencePanel } from './paper/position-intelligence';
+import { DecisionHubPanel } from './paper/decision-hub-panel';
 import { AutopilotPanel } from './paper/autopilot-panel';
 import { Dock, DockPanel } from '@/components/terminal/dock/dock';
 import {
@@ -607,6 +608,9 @@ export function PaperView() {
         {/* Position intelligence (decisions × market data × settings) + positions / orders / fills
             — every part draggable, collapsible, resizable and pinnable into the Builder */}
         <Dock viewId="paper-desk">
+          <DockPanel id="decision-hub" title="Decision Hub · the whole product in one stance" variant="bare" dock={{ kind: 'paper-decision-hub' }}>
+            <DecisionHubPanel />
+          </DockPanel>
           <DockPanel id="position-intelligence" title="Position Intelligence" variant="bare" dock={{ kind: 'paper-intelligence' }}>
             <PositionIntelligencePanel onClosePosition={closePosition} />
           </DockPanel>

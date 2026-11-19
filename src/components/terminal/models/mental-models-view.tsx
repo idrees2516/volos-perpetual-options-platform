@@ -25,13 +25,18 @@ import {
   GammaScalpModel, PnlExplainModel, WwBandModel, PinningModel, MmInventoryModel, StrategyShapesModel,
 } from './panels-trading';
 import { ExoticsZooModel } from './panels-exotics';
+import {
+  HestonEngineModel, JumpDiffusionModel, RegimeHmmModel, GarchVolModel,
+  KalmanOuModel, MlLabModel, PortfolioKellyModel, LiveModelRoomModel,
+} from './panels-statmachine';
 
 type ModelId =
   | 'random-walk' | 'book-queues' | 'liquidation'
   | 'bsm-surface' | 'greeks-atlas' | 'tree-pde' | 'american-put' | 'mc-engine' | 'gram-charlier'
   | 'svi-surface' | 'dupire' | 'varswap' | 'surface-pca'
   | 'gamma-scalp' | 'pnl-explain' | 'ww-band' | 'pinning' | 'mm-inventory' | 'strategy-shapes'
-  | 'exotics-zoo';
+  | 'exotics-zoo'
+  | 'heston-engine' | 'jump-diffusion' | 'regime-hmm' | 'garch-vol' | 'kalman-ou' | 'ml-lab' | 'portfolio-kelly' | 'live-model-room';
 
 interface ModelDef {
   id: ModelId;
@@ -90,6 +95,21 @@ const ACTS: Act[] = [
     ],
   },
   {
+    n: 'V',
+    title: 'The Statistical Machine',
+    parts: 'the new model wing — fitted on the live desk',
+    models: [
+      { id: 'live-model-room', title: 'The LIVE room', idea: 'every model fitted on real bars — and the exact product surfaces already consuming each one' },
+      { id: 'heston-engine', title: 'Heston × SABR', idea: 'the smile from a variance process — and the closed form calibrated to match it' },
+      { id: 'jump-diffusion', title: 'Merton gaps', idea: 'Poisson jumps put mass where the Gaussian has none — the 3σ event becomes a priced risk' },
+      { id: 'regime-hmm', title: 'The regime machine', idea: 'three hidden markets in one return series — calm, trending, violent — decoded with probabilities' },
+      { id: 'garch-vol', title: 'Vol that remembers', idea: 'ω + α·ε² + β·σ² — yesterday’s shock is today’s variance, and the forecast is a rubber band' },
+      { id: 'kalman-ou', title: 'Honest trend + rubber band', idea: 'the Kalman filter splits news from noise; the OU half-life times the snap-back' },
+      { id: 'ml-lab', title: 'The learning machine', idea: 'P(up) learned, not assumed — logistic boundary, forest votes, walk-forward honesty' },
+      { id: 'portfolio-kelly', title: 'Kelly & ruin', idea: 'the growth-optimal fraction, its cliff, and why the desk trades half-Kelly' },
+    ],
+  },
+  {
     n: 'VI',
     title: 'Market Microstructure',
     parts: 'Parts 35–39',
@@ -121,13 +141,21 @@ const MODEL_COMPONENTS: Record<ModelId, React.ComponentType> = {
   'mm-inventory': MmInventoryModel,
   'strategy-shapes': StrategyShapesModel,
   'exotics-zoo': ExoticsZooModel,
+  'heston-engine': HestonEngineModel,
+  'jump-diffusion': JumpDiffusionModel,
+  'regime-hmm': RegimeHmmModel,
+  'garch-vol': GarchVolModel,
+  'kalman-ou': KalmanOuModel,
+  'ml-lab': MlLabModel,
+  'portfolio-kelly': PortfolioKellyModel,
+  'live-model-room': LiveModelRoomModel,
 };
 
 const ALL_MODEL_IDS = ACTS.flatMap((a) => a.models.map((m) => m.id));
 
 export function MentalModelsView() {
   const [modelId, setModelId] = usePersistedState<ModelId>('volos-models-view', 'bsm-surface');
-  const [openActs, setOpenActs] = usePersistedState<Record<string, boolean>>('volos-models-acts', { III: true });
+  const [openActs, setOpenActs] = usePersistedState<Record<string, boolean>>('volos-models-acts', { III: true, V: true });
 
   // guard persisted ids against catalog changes
   useEffect(() => {
@@ -164,7 +192,7 @@ export function MentalModelsView() {
         {/* ── course map ─────────────────────────────────────────────────── */}
         <aside className="w-[46px] shrink-0 overflow-y-auto overflow-x-hidden rounded-lg border border-zinc-800 bg-zinc-950/50 transition-[width] duration-200 md:w-[218px]" aria-label="Mental model catalog">
           <div className="px-2 py-2">
-            <p className="hidden px-1 text-[8px] font-bold uppercase tracking-[0.18em] text-zinc-500 md:block">course map · 7 acts</p>
+            <p className="hidden px-1 text-[8px] font-bold uppercase tracking-[0.18em] text-zinc-500 md:block">course map · 8 acts</p>
           </div>
           {ACTS.map((act) => {
             const open = openActs[act.n] ?? false;

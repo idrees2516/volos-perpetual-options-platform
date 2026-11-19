@@ -22,6 +22,7 @@ import { PerpsPanel } from '@/components/terminal/quantlab/panels-perps';
 import { RiskPanel } from '@/components/terminal/quantlab/panels-risk';
 import { PositionIntelligencePanel } from '@/components/terminal/paper/position-intelligence';
 import { AutopilotPanel } from '@/components/terminal/paper/autopilot-panel';
+import { DecisionHubPanel } from '@/components/terminal/paper/decision-hub-panel';
 
 /** The live component behind a pinned panel (falls back to a note for unknown kinds). */
 function PinnedContent({ p }: { p: PinnedPanel }) {
@@ -47,6 +48,8 @@ function PinnedContent({ p }: { p: PinnedPanel }) {
     case 'paper-intelligence':
       // docked copy: close buttons are wired to the Paper Desk (no-op here)
       return <PositionIntelligencePanel onClosePosition={() => {}} />;
+    case 'paper-decision-hub':
+      return <DecisionHubPanel />;
     case 'paper-autopilot':
       return <AutopilotPanel />;
     default:
