@@ -12,20 +12,27 @@
 //                     the chart IS the backtest — no separate module)
 //   • Performance   — the deep analytics: drawdown, distributions, streaks,
 //                     monthly returns, buy & hold comparison
-//   • Library       — the 17-category script browser
+//   • Options       — the Strategy Lab bridge (EXPERIMENTAL): any of the 131
+//                     catalog options strategies compiles into VolScript and
+//                     applies to this same chart+panel pipeline
+//   • Library       — the 18-category script browser
 //   • Dataset       — bar provenance + coverage
+//
+// Bar replay (EXPERIMENTAL) rides the same pipeline: replay slices the bars
+// before the chart AND the script engine, so the applied indicator, its
+// backtest and its performance all replay bar-by-bar.
 //
 // The chart/panel split is a draggable divider (double-click resets); the
 // panel collapses to its tab strip. Dataset + draft + layout persist.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
-  Braces, Code2, Library, FlaskConical, Sparkles, Database, Gauge,
+  Braces, Code2, Library, FlaskConical, Sparkles, Database, Gauge, History,
   ChevronsDown, ChevronsUp, TrendingUp, TrendingDown,
 } from 'lucide-react';
 import {
-  useScriptLab, SCRIPTLAB_SYMBOLS, SCRIPTLAB_TFS, rehydrateScriptLab, type BottomTab,
+  useScriptLab, SCRIPTLAB_SYMBOLS, SCRIPTLAB_TFS, REPLAY_SPEEDS, rehydrateScriptLab, type BottomTab,
 } from '@/stores/scriptlab-store';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScriptChart } from './script-chart';
@@ -34,12 +41,14 @@ import { LibraryPanel } from './library-panel';
 import { BacktestPanel } from './backtest-panel';
 import { PerformancePanel } from './performance-panel';
 import { DataPanel } from './data-panel';
+import { OptionsPanel } from './options-panel';
 
 const BOTTOM_TABS: { id: BottomTab; label: string; icon: React.ReactNode; hint: string }[] = [
   { id: 'editor', label: 'Pine Editor', icon: <Code2 className="h-3.5 w-3.5" />, hint: 'pinescript-style code · settings · the AI desk writes it with you' },
   { id: 'backtest', label: 'Backtest', icon: <FlaskConical className="h-3.5 w-3.5" />, hint: 'equity curve · fills · trade list' },
   { id: 'performance', label: 'Performance', icon: <Gauge className="h-3.5 w-3.5" />, hint: 'drawdown · distributions · streaks · monthly returns' },
-  { id: 'library', label: 'Library', icon: <Library className="h-3.5 w-3.5" />, hint: '17 categories · templates + saved scripts' },
+  { id: 'options', label: 'Options', icon: <Sparkles className="h-3.5 w-3.5" />, hint: 'EXPERIMENTAL · the Strategy Lab bridge — 131 options strategies compile into VolScript and apply to this chart' },
+  { id: 'library', label: 'Library', icon: <Library className="h-3.5 w-3.5" />, hint: '18 categories · templates + saved scripts' },
   { id: 'data', label: 'Dataset', icon: <Database className="h-3.5 w-3.5" />, hint: 'bars provenance · coverage · refresh' },
 ];
 
@@ -48,12 +57,15 @@ export function ScriptLabView() {
     symbol, tf, limit, bars, barsSource, barsLoading, result, running,
     bottomTab, setBottomTab, chartSplitPct, setChartSplitPct, resetChartSplit,
     bottomCollapsed, toggleBottomCollapsed, scriptName,
+    replayActive, replayIdx, replayPlaying, replaySpeedMs,
+    enterReplay, exitReplay, replayStep, replaySeek, replayTogglePlay, replaySetSpeed,
   } = useScriptLab();
 
   const workspaceRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
 
-  // first mount: restore persisted studio state, then fetch bars + scripts
+  // first mount: restore persisted studio state, then fetch bars + scripts.
+  // unmount: stop the replay tape (the module-level timer survives navigation)
   const booted = useRef(false);
   useEffect(() => {
     if (booted.current) return;
@@ -61,6 +73,7 @@ export function ScriptLabView() {
     rehydrateScriptLab();
     void useScriptLab.getState().fetchUserScripts();
     void useScriptLab.getState().refreshBars();
+    return () => useScriptLab.getState().replayPause();
   }, []);
 
   // dataset changes re-fetch (then auto re-run inside refreshBars)
@@ -72,6 +85,35 @@ export function ScriptLabView() {
     }
     void useScriptLab.getState().refreshBars();
   }, [symbol, tf, limit]);
+
+  // ── bar replay: the visible dataset — bars revealed so far only ──────────
+  const visibleBars = useMemo(
+    () => (replayActive && bars ? bars.slice(0, Math.min(bars.length, replayIdx + 1)) : bars),
+    [bars, replayActive, replayIdx],
+  );
+  const cursorTime = replayActive && bars && bars[replayIdx] ? bars[replayIdx].ts : null;
+
+  // replay keyboard nav (←/→ step, space play/pause) — only when the editor
+  // / inputs don't own the keystroke
+  useEffect(() => {
+    if (!replayActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        useScriptLab.getState().replayStep(1);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        useScriptLab.getState().replayStep(-1);
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        useScriptLab.getState().replayTogglePlay();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [replayActive]);
 
   // ── the chart / panel divider (drag to resize, dbl-click to reset) ───────
   const onDividerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -152,6 +194,20 @@ export function ScriptLabView() {
           </SelectContent>
         </Select>
 
+        {/* bar replay (EXPERIMENTAL) — the tape control rides the chart */}
+        <button
+          onClick={() => (replayActive ? exitReplay() : enterReplay())}
+          className={`ml-1 flex items-center gap-1 rounded-lg border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider transition ${
+            replayActive
+              ? 'border-amber-500/40 bg-amber-950/60 text-amber-300'
+              : 'border-zinc-800 bg-zinc-950 text-zinc-500 hover:border-amber-500/30 hover:text-amber-300'
+          }`}
+          title={replayActive ? 'Exit bar replay' : 'Bar replay — hide future bars and step/play the tape; the applied script replays with it (EXPERIMENTAL)'}
+        >
+          <History className="h-3 w-3" />
+          <span className="hidden sm:inline">{replayActive ? `replay ${replayIdx + 1}/${bars?.length ?? 0}` : 'replay'}</span>
+        </button>
+
         {/* provenance */}
         <span className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wider ring-1 ${sourceBadge.cls}`}>
           <Database className="h-2.5 w-2.5" />
@@ -184,12 +240,35 @@ export function ScriptLabView() {
 
       {/* ── workspace: chart on top · the script panel below ────────────── */}
       <div ref={workspaceRef} className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#04060a]">
-        {/* chart — the applied indicator/strategy draws right here */}
+        {/* chart — the applied indicator/strategy draws right here. In replay
+            mode the chart only sees bars revealed so far, and the control bar
+            floats over the canvas */}
         <div
           className={`relative min-h-[240px] overflow-hidden ${bottomCollapsed ? 'flex-1' : 'flex-none'}`}
           style={bottomCollapsed ? undefined : { height: `${chartSplitPct}%` }}
         >
-          <ScriptChart bars={bars} result={result} />
+          <ScriptChart
+            bars={visibleBars}
+            result={result}
+            replay={
+              replayActive
+                ? {
+                    active: true,
+                    idx: replayIdx,
+                    total: bars?.length ?? 0,
+                    playing: replayPlaying,
+                    speedMs: replaySpeedMs,
+                    onTogglePlay: replayTogglePlay,
+                    onStep: replayStep,
+                    onSeek: replaySeek,
+                    onExit: exitReplay,
+                    onSpeed: replaySetSpeed,
+                    cursorTime,
+                    speeds: REPLAY_SPEEDS,
+                  }
+                : undefined
+            }
+          />
           {barsLoading && (
             <div className="absolute right-3 top-3 flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-950/90 px-2 py-1 text-[9px] text-zinc-400">
               <span className="h-2 w-2 animate-pulse rounded-full bg-teal-400" />
@@ -278,6 +357,7 @@ export function ScriptLabView() {
               {bottomTab === 'editor' && <EditorPanel />}
               {bottomTab === 'backtest' && <BacktestPanel />}
               {bottomTab === 'performance' && <PerformancePanel />}
+              {bottomTab === 'options' && <OptionsPanel />}
               {bottomTab === 'library' && <LibraryPanel />}
               {bottomTab === 'data' && <DataPanel />}
             </div>

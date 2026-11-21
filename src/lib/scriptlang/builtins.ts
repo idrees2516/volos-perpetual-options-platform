@@ -694,7 +694,10 @@ export const TA_BUILTINS: Record<string, BuiltinFn> = {
   valuewhen: (a) => {
     const cond = seriesArg(a, 0, undefined, 'ta.valuewhen');
     const src = seriesArg(a, 1, undefined, 'ta.valuewhen');
-    const occ = intArg(a, 2, undefined, 'ta.valuewhen', 0);
+    // occurrence index — 0 = most recent (Pine default). NOT intArg: that
+    // helper clamps lengths to >= 1, which turned occ=0 into occ=1 (an
+    // off-by-one that made single-bar conditions never fire).
+    const occ = Math.max(0, Math.round(numArg(a, 2, undefined, 'ta.valuewhen', 0)));
     const out = new Float64Array(a.n).fill(NaN);
     const seen: number[] = [];
     for (let i = 0; i < a.n; i++) {
@@ -834,6 +837,59 @@ export const MATH_BUILTINS: Record<string, BuiltinFn> = {
   },
   to_degree: (a) => map1(a, 0, (v) => (v * 180) / Math.PI),
   to_radians: (a) => map1(a, 0, (v) => (v * Math.PI) / 180),
+};
+
+// ── options.* namespace — Black-Scholes pricers for the options bridge ──────
+// The Strategy Lab → Script Lab bridge prices option legs with these. r = 0
+// (crypto convention), iv is decimal vol (0.60 = 60%), years is time to expiry
+// in year units. Every argument may be a scalar or a series and broadcasts
+// exactly like math.* — the natural call shape is options.bs_call(close, k,
+// (expiryMs - time) / 31557600000, iv).
+
+/** standard normal CDF — erf via Abramowitz & Stegun 7.1.26 (|err| < 1.5e-7) */
+export function ncdf(x: number): number {
+  const s = x < 0 ? -1 : 1;
+  const z = Math.abs(x) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * z);
+  const erf =
+    1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-z * z);
+  return 0.5 * (1 + s * erf);
+}
+
+export function bsPrice(s: number, k: number, years: number, iv: number, isCall: boolean): number {
+  if (!(s > 0) || !(k > 0)) return 0;
+  // at / past expiry (or zero vol) the mark collapses to intrinsic
+  if (!(years > 0) || !(iv > 0)) return isCall ? Math.max(s - k, 0) : Math.max(k - s, 0);
+  const vt = iv * Math.sqrt(years);
+  const d1 = Math.log(s / k) / vt + 0.5 * vt;
+  const d2 = d1 - vt;
+  return isCall ? s * ncdf(d1) - k * ncdf(d2) : k * ncdf(-d2) - s * ncdf(-d1);
+}
+
+function bsArg(a: BuiltinArgs, isCall: boolean, what: string): Val {
+  const s = a.get(0, 'spot');
+  const k = a.get(1, 'strike');
+  const t = a.get(2, 'years');
+  const v = a.get(3, 'iv');
+  if (s === undefined) throw new Error(`${what}: missing argument 'spot'`);
+  if (k === undefined) throw new Error(`${what}: missing argument 'strike'`);
+  if (t === undefined) throw new Error(`${what}: missing argument 'years'`);
+  if (v === undefined) throw new Error(`${what}: missing argument 'iv'`);
+  if (isSeries(s) || isSeries(k) || isSeries(t) || isSeries(v)) {
+    const ss = asSeries(s, a.n);
+    const ks = asSeries(k, a.n);
+    const ts = asSeries(t, a.n);
+    const vs = asSeries(v, a.n);
+    const out = new Float64Array(a.n);
+    for (let i = 0; i < a.n; i++) out[i] = bsPrice(ss[i], ks[i], ts[i], vs[i], isCall);
+    return out;
+  }
+  return bsPrice(asNum(s, what), asNum(k, what), asNum(t, what), asNum(v, what), isCall);
+}
+
+export const OPTIONS_BUILTINS: Record<string, BuiltinFn> = {
+  bs_call: (a) => bsArg(a, true, 'options.bs_call'),
+  bs_put: (a) => bsArg(a, false, 'options.bs_put'),
 };
 
 function map1(a: BuiltinArgs, idx: number, fn: (v: number) => number): Val {

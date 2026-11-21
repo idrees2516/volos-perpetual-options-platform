@@ -5,20 +5,43 @@
 // overlay plots (line/area/histogram/circles) on the price pane, non-overlay
 // plots in an auto-scaled sub pane, hlines, plotshape markers, backtest trade
 // markers (▲ entry / ✕ exit), crosshair + OHLCV tooltip + legend values.
+// Bar replay (EXPERIMENTAL): the bars prop arrives pre-sliced at the replay
+// cursor, the amber edge marks the live replay bar, and the control bar
+// (step / play / speed / seek / exit) floats over the chart bottom.
 // Same visual language as the rest of the terminal (teal/rose, hairline grid).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Pause, Play, SkipBack, SkipForward, X } from 'lucide-react';
 import type { FillSpec, RunResult, ScriptBar } from '@/lib/scriptlang/types';
 
 const UP = '#2dd4bf';
 const DOWN = '#fb7185';
 const GRID = 'rgba(63, 63, 70, 0.35)';
 const TXT = '#71717a';
+const REPLAY_EDGE = 'rgba(251, 191, 36, 0.9)';
+
+export interface ReplayControls {
+  active: boolean;
+  /** index of the last revealed bar within the FULL dataset */
+  idx: number;
+  total: number;
+  playing: boolean;
+  speedMs: number;
+  onTogglePlay: () => void;
+  onStep: (delta: number) => void;
+  onSeek: (idx: number) => void;
+  onExit: () => void;
+  onSpeed: (ms: number) => void;
+  /** label of the bar at the cursor (rendered by the controls) */
+  cursorTime: number | null;
+  speeds: { label: string; ms: number }[];
+}
 
 interface Props {
   bars: ScriptBar[] | null;
   result: RunResult | null;
+  replay?: ReplayControls;
 }
 
 function fmtNum(v: number): string {
@@ -75,7 +98,7 @@ interface Hover {
   bar: number;
 }
 
-export function ScriptChart({ bars, result }: Props) {
+export function ScriptChart({ bars, result, replay }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hover, setHover] = useState<Hover | null>(null);
@@ -747,6 +770,29 @@ export function ScriptChart({ bars, result }: Props) {
       ctx.fillText(fmtTime(bars[i].ts, tfSec), x(i), size.h - TIME_H + 2);
     }
 
+    // ── bar-replay edge (EXPERIMENTAL) ────────────────────────────────────
+    // the bars prop is pre-sliced at the cursor — mark that last revealed bar
+    // with the amber edge so the tape's position is unmistakable
+    if (replay?.active) {
+      const cx = x(n - 1);
+      ctx.save();
+      ctx.strokeStyle = REPLAY_EDGE;
+      ctx.lineWidth = 1.25;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(cx + 0.5, 0);
+      ctx.lineTo(cx + 0.5, size.h - TIME_H);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // replay watermark
+      ctx.fillStyle = 'rgba(251, 191, 36, 0.55)';
+      ctx.font = '700 9px var(--font-geist-mono), ui-monospace, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('BAR REPLAY', plotW / 2, 4);
+      ctx.restore();
+    }
+
     // ── crosshair ──────────────────────────────────────────────────────────
     if (hover && hover.bar >= 0 && hover.bar < n) {
       const cx = x(hover.bar);
@@ -773,7 +819,7 @@ export function ScriptChart({ bars, result }: Props) {
         ctx.fillText(fmtNum(val), plotW + 6, hover.y);
       }
     }
-  }, [bars, result, size, hover, n, tfSec]);
+  }, [bars, result, size, hover, n, tfSec, replay]);
 
   useEffect(() => {
     draw();
@@ -807,6 +853,75 @@ export function ScriptChart({ bars, result }: Props) {
             }}
             onMouseLeave={() => setHover(null)}
           />
+
+          {/* ── bar replay controls (EXPERIMENTAL) ─────────────────────────── */}
+          {replay?.active && (
+            <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col items-center gap-1.5 px-3 pb-1.5 pt-6 [background:linear-gradient(to_top,rgba(4,6,10,0.92),rgba(4,6,10,0))]">
+              {/* seek slider — the whole tape in one drag */}
+              <input
+                type="range"
+                min={0}
+                max={Math.max(0, replay.total - 1)}
+                value={replay.idx}
+                onChange={(e) => replay.onSeek(Number(e.target.value))}
+                className="h-1 w-full max-w-[520px] cursor-ew-resize appearance-none rounded bg-zinc-800 accent-amber-400 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-amber-400"
+                aria-label="Replay position"
+              />
+              <div className="flex items-center gap-1 rounded-lg border border-amber-500/25 bg-zinc-950/90 px-1.5 py-1 shadow-lg">
+                <span className="rounded bg-amber-950/60 px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.14em] text-amber-300 ring-1 ring-amber-500/30">
+                  replay · experimental
+                </span>
+                <button
+                  onClick={() => replay.onStep(-1)}
+                  className="rounded-md p-1 text-zinc-400 transition hover:bg-zinc-800 hover:text-amber-300"
+                  title="Step back one bar (←)"
+                >
+                  <SkipBack className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => replay.onTogglePlay()}
+                  className="rounded-md bg-amber-500/15 p-1 text-amber-300 ring-1 ring-amber-500/30 transition hover:bg-amber-500/25"
+                  title={replay.playing ? 'Pause (space)' : 'Play (space)'}
+                >
+                  {replay.playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  onClick={() => replay.onStep(1)}
+                  className="rounded-md p-1 text-zinc-400 transition hover:bg-zinc-800 hover:text-amber-300"
+                  title="Step forward one bar (→)"
+                >
+                  <SkipForward className="h-3.5 w-3.5" />
+                </button>
+                {/* speed */}
+                <div className="ml-1 flex items-center gap-0.5 rounded-md border border-zinc-800 bg-zinc-950 p-0.5">
+                  {replay.speeds.map((s) => (
+                    <button
+                      key={s.ms}
+                      onClick={() => replay.onSpeed(s.ms)}
+                      className={`rounded px-1.5 py-0.5 font-mono text-[8.5px] font-bold transition ${
+                        replay.speedMs === s.ms ? 'bg-amber-500/20 text-amber-300' : 'text-zinc-500 hover:text-zinc-300'
+                      }`}
+                      title={`${s.ms} ms per bar`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+                {/* cursor readout */}
+                <span className="ml-1.5 whitespace-nowrap font-mono text-[8.5px] text-zinc-400">
+                  <span className="text-amber-300">{replay.idx + 1}</span>/{replay.total}
+                  {replay.cursorTime ? ` · ${new Date(replay.cursorTime).toISOString().replace('T', ' ').slice(5, 16)}Z` : ''}
+                </span>
+                <button
+                  onClick={() => replay.onExit()}
+                  className="ml-1 rounded-md p-1 text-zinc-500 transition hover:bg-rose-950/60 hover:text-rose-300"
+                  title="Exit bar replay"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
           {/* legend — script title + plot values at the hovered bar */}
           {view && (
             <div className="pointer-events-none absolute left-2 top-1.5 max-w-[70%] space-y-0.5">

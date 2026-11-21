@@ -25,6 +25,7 @@ import type {
 import {
   TA_BUILTINS,
   MATH_BUILTINS,
+  OPTIONS_BUILTINS,
   mkArgs,
   isSeries,
   isColor,
@@ -1079,6 +1080,16 @@ class Interpreter {
     }
     if (name.startsWith('math.')) {
       const fn = MATH_BUILTINS[name.slice(5)];
+      if (!fn) rt(`unknown function '${name}'`);
+      try {
+        return fn(mkArgs(pos, named, this.bars));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new RuntimeError(`${name}: ${msg}`, line);
+      }
+    }
+    if (name.startsWith('options.')) {
+      const fn = OPTIONS_BUILTINS[name.slice(8)];
       if (!fn) rt(`unknown function '${name}'`);
       try {
         return fn(mkArgs(pos, named, this.bars));

@@ -8,6 +8,12 @@
 // results and the performance analytics. There is no separate backtesting
 // module; dataset, draft, run result, AI chat and user scripts persist to
 // localStorage like the rest of the terminal.
+//
+// Bar replay lives here too (EXPERIMENTAL): while replay is active the
+// visible dataset is bars.slice(0, replayIdx + 1) — the chart AND the script
+// engine only ever see the bars revealed so far, so indicators, strategies,
+// backtests and performance all replay bar-by-bar exactly like TradingView.
+// Replay state is deliberately transient (never persisted).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { create } from 'zustand';
@@ -17,7 +23,7 @@ import { defaultScript, SCRIPT_CATEGORIES } from '@/lib/scriptlang/library';
 import type { RunResult, ScriptBar } from '@/lib/scriptlang/types';
 
 /** The tabs of the panel that lives directly below the chart. */
-export type BottomTab = 'editor' | 'backtest' | 'performance' | 'library' | 'data';
+export type BottomTab = 'editor' | 'backtest' | 'performance' | 'library' | 'options' | 'data';
 
 export interface UserScript {
   id: string;
@@ -45,6 +51,23 @@ export const SCRIPTLAB_SYMBOLS = ['BTC', 'ETH', 'SOL'] as const;
 export const DEFAULT_CHART_SPLIT = 58;
 const SPLIT_MIN = 22;
 const SPLIT_MAX = 82;
+
+/** bar-replay playback speeds — ms per revealed bar (EXPERIMENTAL feature) */
+export const REPLAY_SPEEDS: { label: string; ms: number }[] = [
+  { label: '0.5×', ms: 1200 },
+  { label: '1×', ms: 500 },
+  { label: '2×', ms: 220 },
+  { label: '5×', ms: 80 },
+];
+
+/** the live playback timer — module-level so it survives store re-creation */
+let replayTimer: ReturnType<typeof setInterval> | null = null;
+
+/** slice bars to the replay cursor (identity when replay is off) */
+function replaySlice(bars: ScriptBar[] | null, active: boolean, idx: number): ScriptBar[] | null {
+  if (!bars || !active) return bars;
+  return bars.slice(0, Math.min(bars.length, Math.max(0, idx) + 1));
+}
 
 interface ScriptLabState {
   // dataset
@@ -77,6 +100,14 @@ interface ScriptLabState {
   /** set when a script is loaded from the library / AI / template — auto-reveals backtest results */
   autoShowBacktest: boolean;
 
+  // bar replay (EXPERIMENTAL — transient, never persisted)
+  replayActive: boolean;
+  /** index of the last revealed bar (0-based) */
+  replayIdx: number;
+  replayPlaying: boolean;
+  /** ms per revealed bar — one of REPLAY_SPEEDS */
+  replaySpeedMs: number;
+
   // AI
   chat: ChatMessage[];
   aiBusy: boolean;
@@ -99,6 +130,16 @@ interface ScriptLabState {
   setChartSplitPct: (pct: number) => void;
   resetChartSplit: () => void;
   toggleBottomCollapsed: () => void;
+
+  // bar replay (EXPERIMENTAL)
+  enterReplay: (idx?: number) => void;
+  exitReplay: () => void;
+  replayStep: (delta: number) => void;
+  replaySeek: (idx: number) => void;
+  replayTogglePlay: () => void;
+  replaySetSpeed: (ms: number) => void;
+  replayPlay: () => void;
+  replayPause: () => void;
 
   pushChat: (m: Omit<ChatMessage, 'id' | 'ts'>) => void;
   setAiBusy: (b: boolean) => void;
@@ -138,6 +179,11 @@ export const useScriptLab = create<ScriptLabState>()(
       bottomCollapsed: false,
       autoShowBacktest: false,
 
+      replayActive: false,
+      replayIdx: 0,
+      replayPlaying: false,
+      replaySpeedMs: 500,
+
       chat: [],
       aiBusy: false,
 
@@ -146,7 +192,7 @@ export const useScriptLab = create<ScriptLabState>()(
       setDataset: (patch) => set(patch),
 
       refreshBars: async () => {
-        const { symbol, tf, limit } = get();
+        const { symbol, tf, limit, replayActive } = get();
         set({ barsLoading: true, barsError: null });
         try {
           const res = await fetch(`/api/scriptlab/bars?symbol=${symbol}&tf=${tf}&limit=${limit}`);
@@ -156,11 +202,15 @@ export const useScriptLab = create<ScriptLabState>()(
             error?: { message?: string };
           };
           if (!json.success || !json.data) throw new Error(json.error?.message ?? 'bars request failed');
+          const bars = json.data.bars;
+          // a fresh dataset may be shorter than the replay cursor — clamp it
+          const replayIdx = replayActive ? Math.min(get().replayIdx, bars.length - 1) : get().replayIdx;
           set({
-            bars: json.data.bars,
+            bars,
             barsSource: json.data.source,
             barsAsOf: json.data.asOf,
             barsLoading: false,
+            replayIdx,
           });
           get().rerun();
         } catch (e) {
@@ -169,21 +219,26 @@ export const useScriptLab = create<ScriptLabState>()(
       },
 
       rerun: (opts) => {
-        const { bars, scriptCode, inputs } = get();
-        if (!bars || bars.length === 0) return;
+        const { bars, scriptCode, inputs, replayActive, replayIdx } = get();
+        // replay: the script engine only sees bars revealed so far — the
+        // indicator, its backtest and its performance all replay with the chart
+        const visible = replaySlice(bars, replayActive, replayIdx);
+        if (!visible || visible.length === 0) return;
         const code = opts?.code ?? scriptCode;
         const mergedInputs = { ...inputs, ...(opts?.inputs ?? {}) };
         set({ running: true });
-        const result = runScript(code, bars, { inputs: mergedInputs });
+        const result = runScript(code, visible, { inputs: mergedInputs });
         const patch: Partial<ScriptLabState> = { result, running: false, inputs: mergedInputs };
         // a script that just arrived from the library / AI desk / template:
         // reveal the backtest results below the chart straight away
         if (get().autoShowBacktest) {
           patch.autoShowBacktest = false;
-          if (result.ok && result.kind === 'strategy') patch.bottomTab = 'backtest';
+          if (result.ok && result.kind === 'strategy' && !replayActive) patch.bottomTab = 'backtest';
         }
         set(patch);
-        if (result.ok && result.kind === 'strategy') {
+        // replaying a strategy re-runs every bar — the runs ledger records the
+        // full-window run only (the non-replay rerun), never the replay steps
+        if (result.ok && result.kind === 'strategy' && !replayActive) {
           // append-only track record — fire and forget, never blocks the UI
           const { symbol, tf } = get();
           void fetch('/api/scriptlab/runs', {
@@ -193,7 +248,7 @@ export const useScriptLab = create<ScriptLabState>()(
               scriptName: get().scriptName,
               symbol,
               tf,
-              bars: bars.length,
+              bars: visible.length,
               metrics: result.backtest?.stats,
               code,
             }),
@@ -249,6 +304,89 @@ export const useScriptLab = create<ScriptLabState>()(
       setChartSplitPct: (pct) => set({ chartSplitPct: Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, pct)) }),
       resetChartSplit: () => set({ chartSplitPct: DEFAULT_CHART_SPLIT }),
       toggleBottomCollapsed: () => set({ bottomCollapsed: !get().bottomCollapsed }),
+
+      // ── bar replay (EXPERIMENTAL) ───────────────────────────────────────
+      enterReplay: (idx) => {
+        const { bars } = get();
+        if (!bars || bars.length < 2) return;
+        const start = Math.max(0, Math.min(bars.length - 1, idx ?? Math.floor(bars.length * 0.66)));
+        if (replayTimer) {
+          clearInterval(replayTimer);
+          replayTimer = null;
+        }
+        set({ replayActive: true, replayIdx: start, replayPlaying: false });
+        get().rerun();
+      },
+      exitReplay: () => {
+        if (replayTimer) {
+          clearInterval(replayTimer);
+          replayTimer = null;
+        }
+        set({ replayActive: false, replayPlaying: false, replayIdx: 0 });
+        get().rerun();
+      },
+      replayStep: (delta) => {
+        const { bars, replayActive, replayIdx } = get();
+        if (!replayActive || !bars) return;
+        const next = Math.max(0, Math.min(bars.length - 1, replayIdx + delta));
+        if (next === replayIdx) {
+          if (delta > 0) get().replayPause();
+          return;
+        }
+        set({ replayIdx: next });
+        get().rerun();
+      },
+      replaySeek: (idx) => {
+        const { bars, replayActive } = get();
+        if (!replayActive || !bars) return;
+        const next = Math.max(0, Math.min(bars.length - 1, Math.round(idx)));
+        set({ replayIdx: next });
+        get().rerun();
+      },
+      replayTogglePlay: () => {
+        const { replayPlaying } = get();
+        if (replayPlaying) get().replayPause();
+        else get().replayPlay();
+      },
+      replaySetSpeed: (ms) => {
+        set({ replaySpeedMs: ms });
+        // a live playback moves to the new speed immediately
+        if (get().replayPlaying) {
+          get().replayPause();
+          get().replayPlay();
+        }
+      },
+      replayPlay: () => {
+        const { bars, replayActive, replayIdx, replayPlaying, replaySpeedMs } = get();
+        if (!replayActive || replayPlaying || !bars) return;
+        if (replayIdx >= bars.length - 1) return; // already at the live edge
+        set({ replayPlaying: true });
+        replayTimer = setInterval(() => {
+          const s = get();
+          if (!s.replayActive || !s.replayPlaying) {
+            if (replayTimer) clearInterval(replayTimer);
+            replayTimer = null;
+            return;
+          }
+          const next = s.replayIdx + 1;
+          if (next >= (s.bars?.length ?? 0)) {
+            // reached the live edge — stop the tape
+            if (replayTimer) clearInterval(replayTimer);
+            replayTimer = null;
+            set({ replayPlaying: false, replayIdx: (s.bars?.length ?? 1) - 1 });
+            return;
+          }
+          set({ replayIdx: next });
+          get().rerun();
+        }, Math.max(60, replaySpeedMs));
+      },
+      replayPause: () => {
+        if (replayTimer) {
+          clearInterval(replayTimer);
+          replayTimer = null;
+        }
+        if (get().replayPlaying) set({ replayPlaying: false });
+      },
 
       pushChat: (m) => {
         const chat = [...get().chat, { ...m, id: `m${Date.now()}${Math.random().toString(36).slice(2, 6)}`, ts: Date.now() }];

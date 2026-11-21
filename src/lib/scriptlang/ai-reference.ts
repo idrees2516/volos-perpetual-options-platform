@@ -44,6 +44,15 @@ NOTE: len arguments must be constant numbers, not series.
 # math.* NAMESPACE
 math.abs max min (variadic) round(x, precision=0) floor ceil pow sqrt log log10 exp sign avg (variadic)
 
+# options.* NAMESPACE (options structures — the Strategy Lab bridge)
+options.bs_call(spot, strike, years, iv) options.bs_put(spot, strike, years, iv) — Black-Scholes marks, r=0 (crypto convention). iv is decimal vol (0.60 = 60%); years = time to expiry in year units, e.g. (expiryMs - time) / 31557600000 with time in epoch ms. At years<=0 or iv<=0 the mark collapses to intrinsic. All four args may be scalars or series and broadcast.
+Typical options bridge shape (structure P&L vs its entry marks):
+    entrySpot = ta.valuewhen(bar_index == entryBar, close, 0)
+    years = math.max(0, (entryMs + 30 * 86400000 - time) / 31557600000)
+    mark = options.bs_call(close, strike, years, iv)
+    entryMark = ta.valuewhen(bar_index == entryBar, mark, 0)
+    plot(mark - entryMark, "Leg P&L", color.teal, 2)
+
 # PLOTTING
 plot(series, title, color, linewidth, style, offset=) — style: plot.style_line (default) | plot.style_stepline | plot.style_histogram | plot.style_columns | plot.style_area | plot.style_circles | plot.style_cross
 plotcandle(open, high, low, close, title, color) — four aligned series as candles
