@@ -262,25 +262,29 @@ trap cleanup INT TERM
 
 # Free the port of anything still bound to it (orphaned servers).
 free_port() {
+  local want="$1"; [[ -z "$want" ]] && want="$PORT"
   if command -v lsof >/dev/null 2>&1; then
     local pids
-    pids="$(lsof -ti tcp:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
+    pids="$(lsof -ti tcp:"$want" -sTCP:LISTEN 2>/dev/null || true)"
     if [[ -n "$pids" ]]; then
       kill $pids 2>/dev/null || true
       sleep 1
-      log "freed port $PORT (pids: $pids)"
+      log "freed port $want (pids: $pids)"
     fi
   fi
 }
 
-# Start OUR dev server on the port and wait for readiness.
+# Start OUR dev server directly on the port (wire compression is the PROD path's
+# feature — scripts/perf/prod-server.js fronts the standalone build with
+# compress-proxy; Turbopack's dev module graph does not tolerate a
+# byte-mutating front, so dev serves raw).
 start_own_ui() {
-  free_port
+  free_port "$PORT"
   log "starting the dev server on :$PORT (auto-restart loop)…"
   if [[ "$PM" == "bun" ]]; then
     bun x next dev -p "$PORT" >"$UI_LOG" 2>&1 &
   else
-    "${PM_RUN[@]}" dev >"$UI_LOG" 2>&1 &
+    "${PM_RUN[@]}" dev -p "$PORT" >"$UI_LOG" 2>&1 &
   fi
   UI_PID=$!
   echo "$UI_PID" > "$LOG_DIR/ui.pid"
