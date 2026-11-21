@@ -50,7 +50,8 @@ function gauss(rnd: () => number): number {
   return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 }
 
-// --- live market anchors (mirror MarketSim INIT so UI and agents agree) ------
+// --- live market anchors (neutral offline last resort — real data comes from
+// primeLiveMarket; these constants only serve when EVERY venue is unreachable) ---
 
 export interface LiveAssetState {
   spot: number;
@@ -173,6 +174,7 @@ export async function primeLiveMarket(): Promise<boolean> {
         let openInterest = ANCHORS[a].openInterest;
         let volume24h = ANCHORS[a].volume24h;
         let change24h = 0;
+        let perpSource = 'Bybit linear';
         try {
           const r = await primeFetchJson<{ result: { list: BybitLinearTicker[] } }>(
             `https://api.bybit.com/v5/market/tickers?category=linear&symbol=${a}USDT`,
@@ -184,6 +186,30 @@ export async function primeLiveMarket(): Promise<boolean> {
           if (tk?.price24hPcnt != null) change24h = Number(tk.price24hPcnt) * 100;
         } catch {
           /* keep anchors */
+        }
+        // OKX USDT-swap fallback for the perp metrics (funding/OI) when Bybit
+        // geo-blocks the host — same real data, second venue
+        if (fundingRate === ANCHORS[a].fundingRate || openInterest === ANCHORS[a].openInterest) {
+          try {
+            const [fr, oi] = await Promise.all([
+              primeFetchJson<{ data: { fundingRate: string }[] }>(
+                `https://www.okx.com/api/v5/public/funding-rate?instId=${a}-USDT-SWAP`),
+              primeFetchJson<{ data: { oiUsd: string; volCcy24h?: string }[] }>(
+                `https://www.okx.com/api/v5/public/open-interest?instId=${a}-USDT-SWAP`),
+            ]);
+            const okxRate = Number(fr.data?.[0]?.fundingRate);
+            const okxOi = Number(oi.data?.[0]?.oiUsd);
+            if (Number.isFinite(okxRate) && okxRate !== 0) {
+              fundingRate = okxRate * 100 * 3; // 8h fraction → daily %
+              perpSource = 'OKX swap';
+            }
+            if (Number.isFinite(okxOi) && okxOi > 0) {
+              openInterest = okxOi;
+              perpSource = 'OKX swap';
+            }
+          } catch {
+            /* keep anchors */
+          }
         }
         const atm = await deribitAtmIv30d(a);
         assets[a] = {

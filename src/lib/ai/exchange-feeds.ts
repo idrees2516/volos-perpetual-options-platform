@@ -1666,34 +1666,83 @@ export interface HistBar {
 export type HistInterval = '15m' | '1h' | '4h' | '1d';
 
 const BYBIT_INTERVAL: Record<HistInterval, string> = { '15m': '15', '1h': '60', '4h': '240', '1d': 'D' };
+const BINANCE_INTERVAL: Record<HistInterval, string> = { '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d' };
+const OKX_INTERVAL: Record<HistInterval, string> = { '15m': '15m', '1h': '1H', '4h': '4H', '1d': '1D' };
+
+/** One venue's kline page as raw bars (venue order, not sorted). */
+async function klinePage(
+  venue: 'bybit' | 'binance' | 'okx',
+  asset: FeedAsset,
+  interval: HistInterval,
+  limit: number,
+  endTime?: number,
+): Promise<HistBar[]> {
+  if (venue === 'bybit') {
+    const r = await fetchJson<{ result: { list: string[][] } }>(
+      `https://api.bybit.com/v5/market/kline?category=spot&symbol=${asset}USDT` +
+        `&interval=${BYBIT_INTERVAL[interval]}&limit=${limit}` +
+        (endTime ? `&end=${endTime}` : ''),
+      9000,
+    );
+    const rows = r.result?.list ?? [];
+    return rows.map((x) => ({ t: Number(x[0]), o: Number(x[1]), h: Number(x[2]), l: Number(x[3]), c: Number(x[4]), v: Number(x[5]) }));
+  }
+  if (venue === 'binance') {
+    const r = await fetchJson<(string | number)[][]>(
+      `https://api.binance.com/api/v3/klines?symbol=${asset}USDT` +
+        `&interval=${BINANCE_INTERVAL[interval]}&limit=${Math.min(limit, 1000)}` +
+        (endTime ? `&endTime=${endTime}` : ''),
+      9000,
+    );
+    const rows = r ?? [];
+    return rows.map((x) => ({ t: Number(x[0]), o: Number(x[1]), h: Number(x[2]), l: Number(x[3]), c: Number(x[4]), v: Number(x[5]) }));
+  }
+  const r = await fetchJson<{ data: string[][] }>(
+    `https://www.okx.com/api/v5/market/candles?instId=${asset}-USDT` +
+      `&bar=${OKX_INTERVAL[interval]}&limit=${Math.min(limit, 300)}` +
+      (endTime ? `&after=${endTime}` : ''),
+    9000,
+  );
+  const rows = r.data ?? [];
+  // OKX row: [ts, o, h, l, c, vol(base), volCcy, ...] — use base volume like Bybit
+  return rows.map((x) => ({ t: Number(x[0]), o: Number(x[1]), h: Number(x[2]), l: Number(x[3]), c: Number(x[4]), v: Number(x[5]) }));
+}
 
 /**
- * Real spot OHLCV history from Bybit (public, no auth). Up to `bars` bars
- * (paginated 1000/call), cached 10 min.
+ * Real spot OHLCV history with venue fallback: Bybit → Binance → OKX
+ * (all public, no auth — whichever venue is reachable serves the bars).
+ * Up to `bars` bars (paginated), cached 10 min.
  */
 export async function getHistory(asset: FeedAsset, interval: HistInterval, bars = 400): Promise<HistBar[]> {
   return cached(`hist:${asset}:${interval}:${bars}`, 600_000, async () => {
-    const all: HistBar[] = [];
-    let endTime: number | undefined;
-    const perCall = Math.min(bars, 1000);
-    while (all.length < bars) {
-      const url =
-        `https://api.bybit.com/v5/market/kline?category=spot&symbol=${asset}USDT` +
-        `&interval=${BYBIT_INTERVAL[interval]}&limit=${perCall}` +
-        (endTime ? `&end=${endTime}` : '');
-      const r = await fetchJson<{ result: { list: string[][] } }>(url, 9000);
-      const rows = r.result?.list ?? [];
-      if (rows.length === 0) break;
-      // newest-first → chronological
-      const page: HistBar[] = rows
-        .map((x) => ({ t: Number(x[0]), o: Number(x[1]), h: Number(x[2]), l: Number(x[3]), c: Number(x[4]), v: Number(x[5]) }))
-        .sort((a, b) => a.t - b.t);
-      all.unshift(...page);
-      endTime = page[0].t - 1;
-      if (rows.length < perCall) break;
+    const venues: ('bybit' | 'binance' | 'okx')[] = ['bybit', 'binance', 'okx'];
+    let lastErr: unknown = null;
+    for (const venue of venues) {
+      try {
+        const all: HistBar[] = [];
+        let endTime: number | undefined;
+        const perCall = venue === 'okx' ? 300 : Math.min(bars, 1000);
+        let guard = 0;
+        while (all.length < bars && guard++ < 20) {
+          const page = await klinePage(venue, asset, interval, Math.min(perCall, bars - all.length), endTime);
+          if (page.length === 0) break;
+          // venue pages arrive newest-first → chronological
+          const chrono = [...page].sort((a, b) => a.t - b.t);
+          all.unshift(...chrono);
+          endTime = chrono[0].t - 1;
+          if (page.length < perCall) break;
+        }
+        if (all.length === 0) throw new Error(`${venue} no history`);
+        // chronological + de-dup on timestamp (pagination seams)
+        const sorted = all.sort((a, b) => a.t - b.t);
+        const seen = new Set<number>();
+        const uniq = sorted.filter((b) => (seen.has(b.t) ? false : (seen.add(b.t), true)));
+        return uniq.slice(-bars);
+      } catch (e) {
+        lastErr = e;
+      }
     }
-    if (all.length === 0) throw new Error('no history');
-    return all.slice(-bars);
+    throw lastErr ?? new Error('no history source');
   });
 }
 

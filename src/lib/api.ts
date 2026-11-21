@@ -500,20 +500,3 @@ export function openTradingStream(
   es.onerror = () => onError();
   return () => es.close();
 }
-
-/** Open an SSE stream to the Rust market simulator. Returns a closer. */
-export function openMarketStream(onData: (m: MarketData) => void, onError: () => void): () => void {
-  const es = new EventSource(url('/api/v1/market/stream'));
-  es.onmessage = (ev) => {
-    try {
-      const data = JSON.parse(ev.data) as MarketData;
-      onData({ ...data, source: 'rust' });
-    } catch {
-      /* ignore malformed frames */
-    }
-  };
-  es.onerror = () => {
-    onError();
-  };
-  return () => es.close();
-}
