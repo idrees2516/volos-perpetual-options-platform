@@ -1,9 +1,13 @@
 'use client';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Script Lab store — the whole VolScript studio state: bars dataset, editor
-// draft, run result, floating-window layout, AI chat, user scripts. Layout +
-// draft + inputs persist to localStorage like the rest of the terminal.
+// Script Lab store — the whole VolScript studio state. The studio is ONE
+// unified surface: the indicator/strategy applies to the price chart up top,
+// and everything about that script lives in the panel below the chart — the
+// Pine-style editor (with the AI desk embedded beside it), the backtest
+// results and the performance analytics. There is no separate backtesting
+// module; dataset, draft, run result, AI chat and user scripts persist to
+// localStorage like the rest of the terminal.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { create } from 'zustand';
@@ -12,19 +16,8 @@ import { runScript } from '@/lib/scriptlang/internal';
 import { defaultScript, SCRIPT_CATEGORIES } from '@/lib/scriptlang/library';
 import type { RunResult, ScriptBar } from '@/lib/scriptlang/types';
 
-export type PanelId = 'library' | 'editor' | 'chart' | 'backtest' | 'ai' | 'data';
-
-export interface WindowLayout {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  z: number;
-  minimized: boolean;
-  closed: boolean;
-  maximized: boolean;
-  prev?: { x: number; y: number; w: number; h: number };
-}
+/** The tabs of the panel that lives directly below the chart. */
+export type BottomTab = 'editor' | 'backtest' | 'performance' | 'library' | 'data';
 
 export interface UserScript {
   id: string;
@@ -44,28 +37,14 @@ export interface ChatMessage {
   ts: number;
 }
 
-const PANEL_MIN = { w: 300, h: 240 };
-
-function defaultWindows(w: number, h: number): Record<PanelId, WindowLayout> {
-  // a professional starting layout: chart big center, editor right, library
-  // left, backtest + AI bottom, data small. Everything draggable/resizable.
-  const colL = Math.max(280, Math.round(w * 0.2));
-  const colR = Math.max(320, Math.round(w * 0.26));
-  const bottomH = Math.max(260, Math.round(h * 0.34));
-  const topH = h - bottomH - 8;
-  return {
-    library: { x: 0, y: 0, w: colL, h: topH, z: 1, minimized: false, closed: false, maximized: false },
-    chart: { x: colL + 8, y: 0, w: w - colL - colR - 24, h: topH, z: 2, minimized: false, closed: false, maximized: false },
-    editor: { x: w - colR - 8, y: 0, w: colR, h: topH, z: 3, minimized: false, closed: false, maximized: false },
-    backtest: { x: colL + 8, y: topH + 8, w: Math.max(300, Math.round((w - colL - colR - 24) * 0.6)), h: bottomH, z: 4, minimized: false, closed: false, maximized: false },
-    ai: { x: colL + 8 + Math.max(300, Math.round((w - colL - colR - 24) * 0.6)) + 8, y: topH + 8, w: w - colL - Math.round((w - colL - colR - 24) * 0.6) - colR - 32, h: bottomH, z: 5, minimized: false, closed: false, maximized: false },
-    data: { x: 0, y: topH + 8, w: colL, h: bottomH, z: 6, minimized: false, closed: false, maximized: false },
-  };
-}
-
 export type TfKey2 = '5m' | '15m' | '30m' | '1h' | '4h' | '1d';
 export const SCRIPTLAB_TFS: TfKey2[] = ['5m', '15m', '30m', '1h', '4h', '1d'];
 export const SCRIPTLAB_SYMBOLS = ['BTC', 'ETH', 'SOL'] as const;
+
+/** default share of the workspace the price chart takes (rest = the panel) */
+export const DEFAULT_CHART_SPLIT = 58;
+const SPLIT_MIN = 22;
+const SPLIT_MAX = 82;
 
 interface ScriptLabState {
   // dataset
@@ -90,9 +69,13 @@ interface ScriptLabState {
   result: RunResult | null;
   running: boolean;
 
-  // windows
-  windows: Record<PanelId, WindowLayout> | null;
-  zTop: number;
+  // unified layout — chart on top, one panel below it
+  bottomTab: BottomTab;
+  aiOpen: boolean;
+  chartSplitPct: number;
+  bottomCollapsed: boolean;
+  /** set when a script is loaded from the library / AI / template — auto-reveals backtest results */
+  autoShowBacktest: boolean;
 
   // AI
   chat: ChatMessage[];
@@ -111,20 +94,16 @@ interface ScriptLabState {
   loadScript: (s: { name: string; code: string; category?: string; description?: string }) => void;
   newFromTemplate: (kind: 'indicator' | 'strategy') => void;
 
-  focusPanel: (id: PanelId) => void;
-  openPanel: (id: PanelId) => void;
-  closePanel: (id: PanelId) => void;
-  minimizePanel: (id: PanelId) => void;
-  restorePanel: (id: PanelId) => void;
-  toggleMaximize: (id: PanelId) => void;
-  movePanel: (id: PanelId, x: number, y: number) => void;
-  resizePanel: (id: PanelId, rect: { x?: number; y?: number; w?: number; h?: number }) => void;
-  tilePanels: (w: number, h: number) => void;
-  resetLayout: (w: number, h: number) => void;
-  ensureWindows: (w: number, h: number) => void;
+  setBottomTab: (tab: BottomTab) => void;
+  toggleAiOpen: () => void;
+  setChartSplitPct: (pct: number) => void;
+  resetChartSplit: () => void;
+  toggleBottomCollapsed: () => void;
 
   pushChat: (m: Omit<ChatMessage, 'id' | 'ts'>) => void;
   setAiBusy: (b: boolean) => void;
+  /** the one AI desk action — shared by the AI panel and the editor's fix button */
+  aiSend: (mode: 'generate' | 'explain' | 'improve' | 'translate' | 'fix', text?: string, useCurrentCode?: boolean) => Promise<void>;
 
   fetchUserScripts: () => Promise<void>;
   saveScript: () => Promise<string | null>;
@@ -153,8 +132,11 @@ export const useScriptLab = create<ScriptLabState>()(
       result: null,
       running: false,
 
-      windows: null,
-      zTop: 10,
+      bottomTab: 'editor',
+      aiOpen: true,
+      chartSplitPct: DEFAULT_CHART_SPLIT,
+      bottomCollapsed: false,
+      autoShowBacktest: false,
 
       chat: [],
       aiBusy: false,
@@ -193,7 +175,14 @@ export const useScriptLab = create<ScriptLabState>()(
         const mergedInputs = { ...inputs, ...(opts?.inputs ?? {}) };
         set({ running: true });
         const result = runScript(code, bars, { inputs: mergedInputs });
-        set({ result, running: false, inputs: mergedInputs });
+        const patch: Partial<ScriptLabState> = { result, running: false, inputs: mergedInputs };
+        // a script that just arrived from the library / AI desk / template:
+        // reveal the backtest results below the chart straight away
+        if (get().autoShowBacktest) {
+          patch.autoShowBacktest = false;
+          if (result.ok && result.kind === 'strategy') patch.bottomTab = 'backtest';
+        }
+        set(patch);
         if (result.ok && result.kind === 'strategy') {
           // append-only track record — fire and forget, never blocks the UI
           const { symbol, tf } = get();
@@ -235,6 +224,7 @@ export const useScriptLab = create<ScriptLabState>()(
           scriptDirty: false,
           inputs: {},
           result: null,
+          autoShowBacktest: true,
         }),
 
       newFromTemplate: (kind) => {
@@ -250,114 +240,61 @@ export const useScriptLab = create<ScriptLabState>()(
           scriptDirty: true,
           inputs: {},
           result: null,
+          autoShowBacktest: kind === 'strategy',
         });
       },
 
-      focusPanel: (id) => {
-        const windows = get().windows;
-        if (!windows || windows[id]?.z === get().zTop) return;
-        set({ zTop: get().zTop + 1, windows: { ...windows, [id]: { ...windows[id], z: get().zTop + 1 } } });
-      },
-      openPanel: (id) => {
-        const windows = get().windows;
-        if (!windows) return;
-        const z = get().zTop + 1;
-        set({ zTop: z, windows: { ...windows, [id]: { ...windows[id], closed: false, minimized: false, z } } });
-      },
-      closePanel: (id) => {
-        const windows = get().windows;
-        if (!windows) return;
-        set({ windows: { ...windows, [id]: { ...windows[id], closed: true, minimized: false, maximized: false } } });
-      },
-      minimizePanel: (id) => {
-        const windows = get().windows;
-        if (!windows) return;
-        set({ windows: { ...windows, [id]: { ...windows[id], minimized: true, maximized: false } } });
-      },
-      restorePanel: (id) => {
-        const windows = get().windows;
-        if (!windows) return;
-        const z = get().zTop + 1;
-        set({ zTop: z, windows: { ...windows, [id]: { ...windows[id], minimized: false, z } } });
-      },
-      toggleMaximize: (id) => {
-        const windows = get().windows;
-        if (!windows) return;
-        const cur = windows[id];
-        if (cur.maximized && cur.prev) {
-          set({ windows: { ...windows, [id]: { ...cur, maximized: false, ...cur.prev } } });
-        } else {
-          const z = get().zTop + 1;
-          set({
-            zTop: z,
-            windows: {
-              ...windows,
-              [id]: { ...cur, maximized: true, prev: { x: cur.x, y: cur.y, w: cur.w, h: cur.h }, z },
-            },
-          });
-        }
-      },
-      movePanel: (id, x, y) => {
-        const windows = get().windows;
-        if (!windows) return;
-        set({ windows: { ...windows, [id]: { ...windows[id], x, y } } });
-      },
-      resizePanel: (id, rect) => {
-        const windows = get().windows;
-        if (!windows) return;
-        const cur = windows[id];
-        const w = rect.w ?? cur.w;
-        const h = rect.h ?? cur.h;
-        set({
-          windows: {
-            ...windows,
-            [id]: {
-              ...cur,
-              x: rect.x ?? cur.x,
-              y: rect.y ?? cur.y,
-              w: Math.max(PANEL_MIN.w, w),
-              h: Math.max(PANEL_MIN.h, h),
-            },
-          },
-        });
-      },
-      tilePanels: (w, h) => {
-        // 3 columns × 2 rows grid of the open panels
-        const windows = get().windows;
-        if (!windows) return;
-        const ids = (Object.keys(windows) as PanelId[]).filter((id) => !windows[id].closed && !windows[id].minimized);
-        if (!ids.length) return;
-        const cols = ids.length <= 2 ? 1 : ids.length <= 4 ? 2 : 3;
-        const rows = Math.ceil(ids.length / cols);
-        const cw = Math.floor(w / cols);
-        const ch = Math.floor(h / rows);
-        const next = { ...windows };
-        ids.forEach((id, i) => {
-          const col = i % cols;
-          const row = Math.floor(i / cols);
-          next[id] = {
-            ...next[id],
-            x: col * cw,
-            y: row * ch,
-            w: cw - 4,
-            h: ch - 4,
-            maximized: false,
-            prev: undefined,
-            z: 10 + i,
-          };
-        });
-        set({ windows: next, zTop: 10 + ids.length });
-      },
-      resetLayout: (w, h) => set({ windows: defaultWindows(w, h), zTop: 10 }),
-      ensureWindows: (w, h) => {
-        if (!get().windows) set({ windows: defaultWindows(w, h), zTop: 10 });
-      },
+      setBottomTab: (tab) => set({ bottomTab: tab, bottomCollapsed: false }),
+      toggleAiOpen: () => set({ aiOpen: !get().aiOpen }),
+      setChartSplitPct: (pct) => set({ chartSplitPct: Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, pct)) }),
+      resetChartSplit: () => set({ chartSplitPct: DEFAULT_CHART_SPLIT }),
+      toggleBottomCollapsed: () => set({ bottomCollapsed: !get().bottomCollapsed }),
 
       pushChat: (m) => {
         const chat = [...get().chat, { ...m, id: `m${Date.now()}${Math.random().toString(36).slice(2, 6)}`, ts: Date.now() }];
         set({ chat: chat.slice(-60) });
       },
       setAiBusy: (b) => set({ aiBusy: b }),
+
+      aiSend: async (mode, text, useCurrentCode = false) => {
+        const { scriptCode, scriptName, bars, symbol, tf, result } = get();
+        const p = (text ?? '').trim();
+        const err = result && !result.ok ? result.error : undefined;
+        if (!p && !useCurrentCode && !['explain', 'improve', 'fix'].includes(mode)) return;
+        if ((mode === 'fix' || mode === 'explain' || mode === 'improve') && !scriptCode) return;
+        const userText =
+          mode === 'fix' && err
+            ? `Fix the compile error — line ${err.line}: ${err.message}`
+            : mode === 'explain'
+              ? `Explain the current script (${scriptName})`
+              : mode === 'improve'
+                ? `Improve the current script (${scriptName})`
+                : p;
+        get().pushChat({ role: 'user', text: userText });
+        set({ aiBusy: true });
+        try {
+          const res = await fetch('/api/scriptlab/ai', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              mode,
+              prompt: p,
+              code: useCurrentCode || ['explain', 'improve', 'fix'].includes(mode) ? scriptCode : undefined,
+              symbol,
+              tf,
+              bars: bars?.length ?? 0,
+              error: mode === 'fix' && err ? { line: err.line, message: err.message } : undefined,
+            }),
+          });
+          const j = (await res.json()) as { ok?: boolean; reply?: string; code?: string; error?: { message?: string } };
+          if (!j.ok) throw new Error(j.error?.message ?? 'AI request failed');
+          get().pushChat({ role: 'assistant', text: j.reply ?? '', code: j.code });
+        } catch (e) {
+          get().pushChat({ role: 'assistant', text: e instanceof Error ? e.message : 'AI request failed' });
+        } finally {
+          set({ aiBusy: false });
+        }
+      },
 
       fetchUserScripts: async () => {
         try {
@@ -407,7 +344,14 @@ export const useScriptLab = create<ScriptLabState>()(
       name: 'volos-scriptlab',
       storage: createJSONStorage(() => localStorage),
       skipHydration: true, // rehydrate from an effect — keeps SSR/hydration safe
-      version: 1,
+      version: 2,
+      migrate: (persisted) => {
+        // v1 kept a floating-window layout — retired in favor of the unified
+        // chart + below-panel studio; drop the stale window geometry.
+        const s = persisted as Record<string, unknown>;
+        const { windows: _w, zTop: _z, ...rest } = s;
+        return rest as unknown as ScriptLabState;
+      },
       partialize: (s) => ({
         symbol: s.symbol,
         tf: s.tf,
@@ -417,15 +361,17 @@ export const useScriptLab = create<ScriptLabState>()(
         scriptCategory: s.scriptCategory,
         scriptDescription: s.scriptDescription,
         inputs: s.inputs,
-        windows: s.windows,
-        zTop: s.zTop,
+        bottomTab: s.bottomTab,
+        aiOpen: s.aiOpen,
+        chartSplitPct: s.chartSplitPct,
+        bottomCollapsed: s.bottomCollapsed,
         chat: s.chat.slice(-30),
       }),
     },
   ),
 );
 
-export { PANEL_MIN, defaultWindows };
+export { SPLIT_MIN, SPLIT_MAX };
 export const CATEGORY_KEYS = SCRIPT_CATEGORIES.map((c) => c.key);
 
 /** Call once from a top-level client effect to restore persisted studio state. */

@@ -1,11 +1,12 @@
 'use client';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Script Lab — AiPanel. The script-writing copilot: describe an indicator or
-// strategy in plain English and the desk model writes VolScript for you —
-// grounded in the live dataset (symbol, timeframe, orderflow natives). Also
-// explains, improves and translates Pine Script → VolScript. One click moves
-// generated code straight into the editor and runs it.
+// Script Lab — AiPanel. The script-writing copilot, embedded directly in the
+// Pine editor tab: describe an indicator or strategy in plain English and the
+// desk model writes VolScript for you — grounded in the live dataset (symbol,
+// timeframe, orderflow natives). Also explains, improves, FIXES compile errors
+// and translates Pine Script → VolScript. One click moves generated code
+// straight into the editor and applies it to the chart above.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -16,7 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { CodeBlock } from './code-editor';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
-type Mode = 'generate' | 'explain' | 'improve' | 'translate';
+type Mode = 'generate' | 'explain' | 'improve' | 'translate' | 'fix';
 
 const QUICK_PROMPTS = [
   { label: 'RSI + volume strategy', text: 'Write a strategy that enters long when RSI(14) crosses back above 30 and taker buy ratio is above 0.5, with a 2-ATR stop. Plot the RSI too.' },
@@ -26,42 +27,22 @@ const QUICK_PROMPTS = [
 ];
 
 export function AiPanel() {
-  const { chat, pushChat, setAiBusy, aiBusy, loadScript, rerun, bars, symbol, tf, scriptCode, scriptName } = useScriptLab();
+  const {
+    chat, aiBusy, aiSend, loadScript, rerun, bars, symbol, tf, scriptCode, scriptName, result,
+  } = useScriptLab();
   const [prompt, setPrompt] = useState('');
-  const scrollRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [chat, aiBusy]);
 
-  const send = async (mode: Mode, text?: string, useCurrentCode = false) => {
-    const p = (text ?? prompt).trim();
-    if (!p && !useCurrentCode) return;
-    setPrompt('');
-    pushChat({ role: 'user', text: mode === 'explain' ? `Explain the current script (${scriptName})` : mode === 'improve' ? `Improve the current script (${scriptName})` : p });
-    setAiBusy(true);
-    try {
-      const res = await fetch('/api/scriptlab/ai', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          mode,
-          prompt: p,
-          code: useCurrentCode || mode === 'explain' || mode === 'improve' ? scriptCode : undefined,
-          symbol,
-          tf,
-          bars: bars?.length ?? 0,
-        }),
-      });
-      const j = (await res.json()) as { ok?: boolean; reply?: string; code?: string; error?: { message?: string } };
-      if (!j.ok) throw new Error(j.error?.message ?? 'AI request failed');
-      pushChat({ role: 'assistant', text: j.reply ?? '', code: j.code });
-    } catch (e) {
-      pushChat({ role: 'assistant', text: e instanceof Error ? e.message : 'AI request failed' });
-    } finally {
-      setAiBusy(false);
-    }
+  const send = (mode: Mode, text?: string, useCurrentCode = false) => {
+    // the prompt box's content backs generate/translate when no explicit text
+    const body = text ?? ((mode === 'generate' || mode === 'translate') ? prompt : '');
+    if (!body.trim() && !useCurrentCode && !['explain', 'improve', 'fix'].includes(mode)) return;
+    if (mode === 'generate' || mode === 'translate') setPrompt('');
+    void aiSend(mode, body, useCurrentCode);
   };
 
   const applyCode = (code: string) => {
@@ -71,14 +52,16 @@ export function AiPanel() {
     if (bars) setTimeout(() => rerun({ code, inputs: {} }), 0);
   };
 
+  const hasError = !!result && !result.ok;
+
   return (
     <div className="flex h-full min-h-0 flex-col p-2.5">
       {/* header chips */}
       <div className="mb-1.5 flex flex-wrap gap-1">
-        {QUICK_PROMPTS.map((q) => (
+        {QUICK_PROMPTS.slice(0, 3).map((q) => (
           <button
             key={q.label}
-            onClick={() => void send('generate', q.text)}
+            onClick={() => send('generate', q.text)}
             disabled={aiBusy}
             className="rounded-full border border-zinc-800 bg-zinc-900/50 px-2 py-0.5 text-[8.5px] text-zinc-400 transition hover:border-teal-700/50 hover:text-teal-300 disabled:opacity-40"
           >
@@ -86,19 +69,30 @@ export function AiPanel() {
           </button>
         ))}
         <button
-          onClick={() => void send('explain', undefined, true)}
+          onClick={() => send('explain', undefined, true)}
           disabled={aiBusy || !scriptCode}
           className="flex items-center gap-1 rounded-full border border-zinc-800 bg-zinc-900/50 px-2 py-0.5 text-[8.5px] text-zinc-400 transition hover:border-violet-700/50 hover:text-violet-300 disabled:opacity-40"
         >
           <BookOpenText className="h-2.5 w-2.5" /> explain current
         </button>
         <button
-          onClick={() => void send('improve', 'Make this script more robust and better commented.', true)}
+          onClick={() => send('improve', 'Make this script more robust and better commented.', true)}
           disabled={aiBusy || !scriptCode}
           className="flex items-center gap-1 rounded-full border border-zinc-800 bg-zinc-900/50 px-2 py-0.5 text-[8.5px] text-zinc-400 transition hover:border-violet-700/50 hover:text-violet-300 disabled:opacity-40"
         >
           <Wand2 className="h-2.5 w-2.5" /> improve current
         </button>
+        {/* fix the compile error straight from the chat */}
+        {hasError && (
+          <button
+            onClick={() => send('fix')}
+            disabled={aiBusy || !scriptCode}
+            className="flex items-center gap-1 rounded-full border border-rose-700/50 bg-rose-950/50 px-2 py-0.5 text-[8.5px] text-rose-300 transition hover:bg-rose-900/50 disabled:opacity-40"
+            title={`line ${result?.error?.line ?? '?'}: ${result?.error?.message ?? 'compile error'}`}
+          >
+            <Wand2 className="h-2.5 w-2.5" /> fix line {result?.error?.line ?? '?'}
+          </button>
+        )}
         <button
           onClick={() => setPrompt('Translate this Pine Script to VolScript:\n')}
           disabled={aiBusy}
@@ -110,14 +104,15 @@ export function AiPanel() {
 
       {/* messages */}
       <ScrollArea className="min-h-0 flex-1 rounded-md border border-zinc-800/70 bg-[#07090d]/70">
-        <div ref={scrollRef} className="space-y-2 p-2.5">
+        <div className="space-y-2 p-2.5">
           {chat.length === 0 && (
-            <div className="flex flex-col items-center gap-2 py-6 text-center text-zinc-600">
+            <div className="flex flex-col items-center gap-2 py-4 text-center text-zinc-600">
               <Sparkles className="h-5 w-5 text-violet-400/70" />
               <p className="text-[10.5px] text-zinc-400">the AI writes VolScript for you</p>
-              <p className="max-w-[260px] text-[9px] leading-relaxed text-zinc-600">
-                describe any indicator or backtest strategy — “mean reversion with 2-ATR stop and delta confirmation”, or
-                paste Pine Script to translate. Generated code opens in the editor with one click.
+              <p className="max-w-[240px] text-[9px] leading-relaxed text-zinc-600">
+                describe any indicator or analysis tool — “mean reversion with 2-ATR stop and delta confirmation”, paste
+                Pine Script to translate, or hit <span className="text-rose-300">fix line…</span> when the compile fails.
+                Generated code opens in the editor beside this chat and applies to the chart above.
               </p>
             </div>
           )}
@@ -132,7 +127,7 @@ export function AiPanel() {
                 <p className="whitespace-pre-wrap text-[10px] leading-relaxed text-zinc-300">{m.text}</p>
                 {m.code && (
                   <div className="mt-1.5 space-y-1.5">
-                    <CodeBlock code={m.code} maxH={210} />
+                    <CodeBlock code={m.code} maxH={180} />
                     <div className="flex gap-1.5">
                       <Button
                         size="sm"
@@ -173,7 +168,7 @@ export function AiPanel() {
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
-              void send(prompt.toLowerCase().startsWith('translate') ? 'translate' : 'generate');
+              send(prompt.toLowerCase().startsWith('translate') ? 'translate' : 'generate');
             }
           }}
           placeholder="describe an indicator or strategy… (Enter to send)"
@@ -183,7 +178,7 @@ export function AiPanel() {
         <Button
           size="sm"
           className="absolute bottom-1.5 right-1.5 h-7 gap-1 bg-violet-600 px-2.5 text-[10px] font-semibold text-white hover:bg-violet-500"
-          onClick={() => void send(prompt.toLowerCase().startsWith('translate') ? 'translate' : 'generate')}
+          onClick={() => send(prompt.toLowerCase().startsWith('translate') ? 'translate' : 'generate')}
           disabled={aiBusy || !prompt.trim()}
         >
           {aiBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
@@ -192,6 +187,7 @@ export function AiPanel() {
       </div>
       <p className="mt-1 flex items-center gap-1 text-[8px] text-zinc-700">
         <MessageSquareText className="h-2.5 w-2.5" /> glm desk model · grounded on {symbol} {tf} · {bars?.length ?? 0} bars · Pine-v5-style VolScript
+        {scriptName ? ` · editing “${scriptName}”` : ''}
       </p>
     </div>
   );

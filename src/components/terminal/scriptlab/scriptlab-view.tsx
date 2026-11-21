@@ -1,63 +1,57 @@
 'use client';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Script Lab — the view. A fully adjustable workspace: every panel is a
-// floating window (drag by title bar, resize from any edge/corner, maximize,
-// collapse with mounted content, fullscreen focus with Esc restore, minimize,
-// close & reopen, z-order on focus), with a dock strip, tiling and a persisted
-// layout. The toolbar drives the dataset; the status strip shows provenance +
-// compile health.
+// Script Lab — the unified studio. The indicator/strategy applies directly to
+// the price chart up top (candles + plots + trade markers), and EVERYTHING
+// about that script lives in ONE panel below the chart:
+//
+//   • Pine Editor    — the PineScript-style code editor with the AI desk
+//                     embedded beside it (AI writes / explains / fixes /
+//                     translates any indicator or analysis tool)
+//   • Backtest      — equity curve, trade list, fills (a strategy applied to
+//                     the chart IS the backtest — no separate module)
+//   • Performance   — the deep analytics: drawdown, distributions, streaks,
+//                     monthly returns, buy & hold comparison
+//   • Library       — the 17-category script browser
+//   • Dataset       — bar provenance + coverage
+//
+// The chart/panel split is a draggable divider (double-click resets); the
+// panel collapses to its tab strip. Dataset + draft + layout persist.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import {
-  Braces, LineChart, Code2, Library, FlaskConical, Sparkles, Database,
-  LayoutGrid, RotateCcw, Plus, Maximize2,
+  Braces, Code2, Library, FlaskConical, Sparkles, Database, Gauge,
+  ChevronsDown, ChevronsUp, TrendingUp, TrendingDown,
 } from 'lucide-react';
-import { useScriptLab, SCRIPTLAB_SYMBOLS, SCRIPTLAB_TFS, rehydrateScriptLab, type PanelId } from '@/stores/scriptlab-store';
-import { Button } from '@/components/ui/button';
+import {
+  useScriptLab, SCRIPTLAB_SYMBOLS, SCRIPTLAB_TFS, rehydrateScriptLab, type BottomTab,
+} from '@/stores/scriptlab-store';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { WindowFrame } from './window-frame';
 import { ScriptChart } from './script-chart';
 import { EditorPanel } from './editor-panel';
 import { LibraryPanel } from './library-panel';
 import { BacktestPanel } from './backtest-panel';
-import { AiPanel } from './ai-panel';
+import { PerformancePanel } from './performance-panel';
 import { DataPanel } from './data-panel';
 
-const PANEL_META: Record<PanelId, { title: string; icon: React.ReactNode }> = {
-  library: { title: 'Script Library', icon: <Library className="h-3.5 w-3.5" /> },
-  editor: { title: 'VolScript Editor', icon: <Code2 className="h-3.5 w-3.5" /> },
-  chart: { title: 'Chart', icon: <LineChart className="h-3.5 w-3.5" /> },
-  backtest: { title: 'Backtest', icon: <FlaskConical className="h-3.5 w-3.5" /> },
-  ai: { title: 'AI Script Desk', icon: <Sparkles className="h-3.5 w-3.5" /> },
-  data: { title: 'Dataset', icon: <Database className="h-3.5 w-3.5" /> },
-};
-
-const PANEL_ORDER: PanelId[] = ['library', 'editor', 'chart', 'backtest', 'ai', 'data'];
+const BOTTOM_TABS: { id: BottomTab; label: string; icon: React.ReactNode; hint: string }[] = [
+  { id: 'editor', label: 'Pine Editor', icon: <Code2 className="h-3.5 w-3.5" />, hint: 'pinescript-style code · settings · the AI desk writes it with you' },
+  { id: 'backtest', label: 'Backtest', icon: <FlaskConical className="h-3.5 w-3.5" />, hint: 'equity curve · fills · trade list' },
+  { id: 'performance', label: 'Performance', icon: <Gauge className="h-3.5 w-3.5" />, hint: 'drawdown · distributions · streaks · monthly returns' },
+  { id: 'library', label: 'Library', icon: <Library className="h-3.5 w-3.5" />, hint: '17 categories · templates + saved scripts' },
+  { id: 'data', label: 'Dataset', icon: <Database className="h-3.5 w-3.5" />, hint: 'bars provenance · coverage · refresh' },
+];
 
 export function ScriptLabView() {
-  const store = useScriptLab();
-  const { symbol, tf, limit, bars, barsSource, barsLoading, result, running, windows, zTop } = store;
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const [bounds, setBounds] = useState({ w: 1200, h: 640 });
+  const {
+    symbol, tf, limit, bars, barsSource, barsLoading, result, running,
+    bottomTab, setBottomTab, chartSplitPct, setChartSplitPct, resetChartSplit,
+    bottomCollapsed, toggleBottomCollapsed, scriptName,
+  } = useScriptLab();
 
-  // measure workspace bounds (draggable windows live inside it)
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const r = entries[0].contentRect;
-      setBounds({ w: Math.max(320, r.width), h: Math.max(240, r.height) });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // ensure default layout once bounds are known
-  useEffect(() => {
-    if (bounds.w > 0) store.ensureWindows(bounds.w, bounds.h);
-  }, [bounds.w, bounds.h]);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
 
   // first mount: restore persisted studio state, then fetch bars + scripts
   const booted = useRef(false);
@@ -65,8 +59,8 @@ export function ScriptLabView() {
     if (booted.current) return;
     booted.current = true;
     rehydrateScriptLab();
-    void store.fetchUserScripts();
-    void store.refreshBars();
+    void useScriptLab.getState().fetchUserScripts();
+    void useScriptLab.getState().refreshBars();
   }, []);
 
   // dataset changes re-fetch (then auto re-run inside refreshBars)
@@ -76,35 +70,34 @@ export function ScriptLabView() {
       firstDataset.current = false;
       return;
     }
-    void store.refreshBars();
+    void useScriptLab.getState().refreshBars();
   }, [symbol, tf, limit]);
 
-  const panelBody = useCallback(
-    (id: PanelId) => {
-      switch (id) {
-        case 'library':
-          return <LibraryPanel />;
-        case 'editor':
-          return <EditorPanel />;
-        case 'chart':
-          return <ScriptChart bars={bars} result={result} />;
-        case 'backtest':
-          return <BacktestPanel />;
-        case 'ai':
-          return <AiPanel />;
-        case 'data':
-          return <DataPanel />;
-      }
+  // ── the chart / panel divider (drag to resize, dbl-click to reset) ───────
+  const onDividerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    dragging.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }, []);
+  const onDividerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!dragging.current || !workspaceRef.current) return;
+      const r = workspaceRef.current.getBoundingClientRect();
+      if (r.height <= 0) return;
+      setChartSplitPct(((e.clientY - r.top) / r.height) * 100);
     },
-    [bars, result],
+    [setChartSplitPct],
   );
+  const onDividerUp = useCallback(() => {
+    dragging.current = false;
+  }, []);
 
   const sourceBadge =
     barsSource === 'live' ? { label: 'live sweep', cls: 'text-emerald-300 bg-emerald-950/60 ring-emerald-500/30' } : barsSource
       ? { label: 'kline mirror', cls: 'text-teal-300 bg-teal-950/60 ring-teal-500/30' }
       : { label: 'no data', cls: 'text-zinc-400 bg-zinc-900' };
 
-  const closedPanels = windows ? PANEL_ORDER.filter((id) => windows[id].closed || windows[id].minimized) : [];
+  // glance chip for the tab strip when a strategy is applied to the chart
+  const strat = result?.ok && result.kind === 'strategy' ? result.backtest : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -113,7 +106,7 @@ export function ScriptLabView() {
         <Braces className="h-3.5 w-3.5 text-teal-400" />
         <span className="text-[11px] font-bold tracking-tight text-zinc-100">
           Vol<span className="text-teal-400">Script</span>
-          <span className="ml-1.5 text-[8px] font-semibold uppercase tracking-[0.16em] text-zinc-500">pine-v5-style · backtests · ai codegen</span>
+          <span className="ml-1.5 text-[8px] font-semibold uppercase tracking-[0.16em] text-zinc-500">pine-v5-style · on-chart · ai codegen</span>
         </span>
 
         {/* symbol */}
@@ -121,7 +114,7 @@ export function ScriptLabView() {
           {SCRIPTLAB_SYMBOLS.map((s) => (
             <button
               key={s}
-              onClick={() => store.setDataset({ symbol: s })}
+              onClick={() => useScriptLab.getState().setDataset({ symbol: s })}
               className={`rounded-md px-2 py-0.5 font-mono text-[10px] transition ${
                 symbol === s ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
               }`}
@@ -132,7 +125,7 @@ export function ScriptLabView() {
         </div>
 
         {/* tf */}
-        <Select value={tf} onValueChange={(v) => store.setDataset({ tf: v as (typeof SCRIPTLAB_TFS)[number] })}>
+        <Select value={tf} onValueChange={(v) => useScriptLab.getState().setDataset({ tf: v as (typeof SCRIPTLAB_TFS)[number] })}>
           <SelectTrigger className="h-6 w-[70px] border-zinc-800 bg-zinc-950 font-mono text-[10px]">
             <SelectValue />
           </SelectTrigger>
@@ -145,8 +138,8 @@ export function ScriptLabView() {
           </SelectContent>
         </Select>
 
-        {/* window size */}
-        <Select value={String(limit)} onValueChange={(v) => store.setDataset({ limit: Number(v) })}>
+        {/* bar window */}
+        <Select value={String(limit)} onValueChange={(v) => useScriptLab.getState().setDataset({ limit: Number(v) })}>
           <SelectTrigger className="h-6 w-[64px] border-zinc-800 bg-zinc-950 font-mono text-[10px]" title="Bar window">
             <SelectValue />
           </SelectTrigger>
@@ -159,12 +152,14 @@ export function ScriptLabView() {
           </SelectContent>
         </Select>
 
-        {/* status */}
+        {/* provenance */}
         <span className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wider ring-1 ${sourceBadge.cls}`}>
           <Database className="h-2.5 w-2.5" />
           {sourceBadge.label}
           {bars ? ` · ${bars.length} bars` : ''}
         </span>
+
+        {/* compile health */}
         {result && (
           <span
             className={`rounded-full px-1.5 py-0.5 font-mono text-[8.5px] font-bold ring-1 ${
@@ -178,98 +173,124 @@ export function ScriptLabView() {
           </span>
         )}
 
-        {/* layout controls */}
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 gap-1 border-zinc-800 bg-zinc-950 px-2 text-[9px]"
-            onClick={() => store.tilePanels(bounds.w, bounds.h)}
-            title="Tile open panels into a grid"
-          >
-            <LayoutGrid className="h-2.5 w-2.5" /> tile
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 gap-1 border-zinc-800 bg-zinc-950 px-2 text-[9px]"
-            onClick={() => store.resetLayout(bounds.w, bounds.h)}
-            title="Reset to the default studio layout"
-          >
-            <RotateCcw className="h-2.5 w-2.5" /> reset
-          </Button>
-        </div>
-      </div>
-
-      {/* ── floating-window workspace ──────────────────────────────────── */}
-      <div ref={wrapRef} className="relative min-h-0 flex-1 overflow-hidden bg-[#04060a]">
-        {/* dot grid backdrop */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-[0.55]"
-          style={{
-            backgroundImage: 'radial-gradient(rgba(113,113,122,0.14) 1px, transparent 1px)',
-            backgroundSize: '22px 22px',
-          }}
-        />
-        {barsLoading && (
-          <div className="absolute right-3 top-3 flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-950/90 px-2 py-1 text-[9px] text-zinc-400">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-teal-400" />
-            loading bars…
-          </div>
-        )}
-        {windows &&
-          PANEL_ORDER.map((id) => {
-            const meta = PANEL_META[id];
-            const w = windows[id];
-            if (!w) return null;
-            return (
-              <WindowFrame
-                key={id}
-                id={id}
-                title={meta.title}
-                icon={meta.icon}
-                layout={{ ...w, z: w.maximized ? zTop : w.z }}
-                bounds={bounds}
-                onMove={(x, y) => store.movePanel(id, x, y)}
-                onResize={(rect) => store.resizePanel(id, rect)}
-                onClose={() => store.closePanel(id)}
-                onMinimize={() => store.minimizePanel(id)}
-                onMaximize={() => store.toggleMaximize(id)}
-                onFocus={() => store.focusPanel(id)}
-              >
-                {panelBody(id)}
-              </WindowFrame>
-            );
-          })}
-
-        {/* empty workspace state */}
-        {windows && PANEL_ORDER.every((id) => windows[id].closed || windows[id].minimized) && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-zinc-600">
-            <Maximize2 className="h-5 w-5" />
-            <p className="text-[11px]">all panels docked</p>
-          </div>
-        )}
-      </div>
-
-      {/* ── dock strip: minimized + closed panels ────────────────────────── */}
-      <div className="flex min-h-[34px] items-center gap-1.5 border-t border-zinc-800/70 bg-zinc-950/70 px-2.5 py-1">
-        <span className="text-[7.5px] font-bold uppercase tracking-[0.16em] text-zinc-600">dock</span>
-        {closedPanels.map((id) => (
-          <button
-            key={id}
-            onClick={() => (windows?.[id].minimized ? store.restorePanel(id) : store.openPanel(id))}
-            className="flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1 text-[9.5px] text-zinc-400 transition hover:border-teal-700/50 hover:text-teal-300"
-            title={`${windows?.[id].minimized ? 'Restore' : 'Open'} ${PANEL_META[id].title}`}
-          >
-            {PANEL_META[id].icon}
-            {PANEL_META[id].title}
-          </button>
-        ))}
-        <span className="ml-auto flex items-center gap-2 font-mono text-[8px] text-zinc-600">
-          <span className="rounded border border-zinc-800 px-1 py-0.5">drag title bars · resize edges · collapse ▾ · fullscreen ⤢ · dbl-click = maximize</span>
-          <span>{running ? 'running…' : 'idle'}</span>
+        {/* applied script */}
+        <span className="ml-auto hidden max-w-[260px] items-center gap-1.5 truncate font-mono text-[9px] text-zinc-500 md:flex">
+          <span className="rounded bg-zinc-800/80 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-zinc-400">
+            applied
+          </span>
+          <span className="truncate text-zinc-300">{scriptName}</span>
         </span>
+      </div>
+
+      {/* ── workspace: chart on top · the script panel below ────────────── */}
+      <div ref={workspaceRef} className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#04060a]">
+        {/* chart — the applied indicator/strategy draws right here */}
+        <div
+          className={`relative min-h-[240px] overflow-hidden ${bottomCollapsed ? 'flex-1' : 'flex-none'}`}
+          style={bottomCollapsed ? undefined : { height: `${chartSplitPct}%` }}
+        >
+          <ScriptChart bars={bars} result={result} />
+          {barsLoading && (
+            <div className="absolute right-3 top-3 flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-950/90 px-2 py-1 text-[9px] text-zinc-400">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-teal-400" />
+              loading bars…
+            </div>
+          )}
+        </div>
+
+        {/* the divider between the chart and the script panel */}
+        {!bottomCollapsed && (
+          <div
+            role="separator"
+            aria-label="Resize chart versus script panel"
+            aria-orientation="horizontal"
+            tabIndex={0}
+            className="group relative z-10 h-1.5 shrink-0 cursor-row-resize select-none bg-zinc-900/80 transition-colors hover:bg-teal-700/40"
+            onPointerDown={onDividerDown}
+            onPointerMove={onDividerMove}
+            onPointerUp={onDividerUp}
+            onPointerCancel={onDividerUp}
+            onDoubleClick={() => resetChartSplit()}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowUp') setChartSplitPct(chartSplitPct + 2);
+              if (e.key === 'ArrowDown') setChartSplitPct(chartSplitPct - 2);
+            }}
+            title="Drag to resize · double-click resets · ↑/↓ nudges"
+          >
+            <span className="absolute left-1/2 top-1/2 h-[3px] w-9 -translate-x-1/2 -translate-y-1/2 rounded bg-zinc-700 group-hover:bg-teal-500" />
+          </div>
+        )}
+
+        {/* ── the panel: code + backtest + performance, all below the chart ─ */}
+        <div className={`flex min-h-0 flex-col ${bottomCollapsed ? 'shrink-0' : 'flex-1'}`}>
+          {/* tab strip */}
+          <div className="flex min-h-[34px] flex-wrap items-center gap-1 border-y border-zinc-800/70 bg-zinc-950/70 px-2 py-1">
+            {BOTTOM_TABS.map((t) => {
+              const active = !bottomCollapsed && bottomTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => (bottomCollapsed && bottomTab === t.id ? toggleBottomCollapsed() : setBottomTab(t.id))}
+                  title={`${t.label} — ${t.hint}`}
+                  className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-medium transition ${
+                    active
+                      ? 'bg-teal-950/50 text-teal-300 ring-1 ring-teal-500/30'
+                      : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
+                  }`}
+                >
+                  {t.icon}
+                  <span>{t.label}</span>
+                </button>
+              );
+            })}
+
+            {/* strategy glance — jump straight to the backtest */}
+            {strat && (
+              <button
+                onClick={() => setBottomTab('backtest')}
+                className={`ml-1 flex items-center gap-2 rounded-full px-2 py-0.5 font-mono text-[9px] font-bold ring-1 transition ${
+                  strat.stats.netProfitPct >= 0
+                    ? 'bg-emerald-950/60 text-emerald-300 ring-emerald-500/30 hover:bg-emerald-900/50'
+                    : 'bg-rose-950/60 text-rose-300 ring-rose-500/30 hover:bg-rose-900/50'
+                }`}
+                title={`${strat.stats.trades} trades · win rate ${strat.stats.winRate.toFixed(1)}% · PF ${strat.stats.profitFactor.toFixed(2)} — open the backtest tab`}
+              >
+                {strat.stats.netProfitPct >= 0 ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+                {strat.stats.netProfitPct >= 0 ? '+' : ''}{strat.stats.netProfitPct.toFixed(2)}%
+                <span className="font-normal text-zinc-500">{strat.stats.trades} trades</span>
+              </button>
+            )}
+
+            {/* collapse toggle */}
+            <button
+              onClick={toggleBottomCollapsed}
+              className="ml-auto flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950 px-1.5 py-1 text-[9px] text-zinc-500 transition hover:text-zinc-200"
+              title={bottomCollapsed ? 'Expand the script panel' : 'Collapse the script panel to its tab strip'}
+            >
+              {bottomCollapsed ? <ChevronsUp className="h-3 w-3" /> : <ChevronsDown className="h-3 w-3" />}
+              <span className="hidden sm:inline">{bottomCollapsed ? 'expand' : 'collapse'}</span>
+            </button>
+          </div>
+
+          {/* tab body */}
+          {!bottomCollapsed && (
+            <div className="min-h-[240px] flex-1 overflow-hidden">
+              {bottomTab === 'editor' && <EditorPanel />}
+              {bottomTab === 'backtest' && <BacktestPanel />}
+              {bottomTab === 'performance' && <PerformancePanel />}
+              {bottomTab === 'library' && <LibraryPanel />}
+              {bottomTab === 'data' && <DataPanel />}
+            </div>
+          )}
+        </div>
+
+        {/* running pulse */}
+        {running && (
+          <div className="pointer-events-none absolute bottom-2 left-2 flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-950/90 px-2 py-1 text-[9px] text-zinc-400">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-teal-400" />
+            compiling…
+          </div>
+        )}
       </div>
     </div>
   );
