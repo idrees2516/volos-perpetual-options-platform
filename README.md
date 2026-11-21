@@ -493,6 +493,34 @@ Legs creation is a first-class capability across the whole terminal:
 - **Analytics** — RFQ tab shows the package leg count
 - **Trading view** — the RFQ desk quotes the whole 25-leg package atomically
 
+## The Chart Desk — TradingView-style price charts (OpenAlgo Charts, NEW)
+
+The terminal now has a real **price-chart surface** (rail: `Chart Desk`), built on the
+open-source **OpenAlgo Charts** engine (npm `openalgo-charts`, Apache-2.0, zero
+dependencies — candles, 112 built-in indicators, 90 drawing tools, 13 chart types,
+bar replay, alerts, objects/data panels, touch layout):
+
+- **Candles like TradingView**: top bar with symbol search (24 USDT-perps), interval
+  pills (5m→1d), chart-type selector, drawing rail, status line with live OHLCV,
+  per-bar countdown, crosshair + legends.
+- **Bars ride our own data plane** — `GET /api/chartdesk/bars` (windowed SQLite
+  kline mirror → live Binance → **OKX USDT-perp fallback** when Binance geo-blocks
+  the host; endTime-paged history up to 5000 bars back, taker-buy volume carried for
+  the orderflow natives).
+- **112 built-in indicators** with settings dialogs, searchable picker.
+- **ANY VolScript/Pine script runs as a chart study** — the whole Script Lab
+  (24 builtin scripts + every saved user script + the current editor draft)
+  registers as studies in the SAME picker: `plot()/plotshape()/plotcandle()/
+  plotbar()/plotchar()/plotarrow()/fill()/bgcolor()/barcolor()/hline()` all
+  render (bands, per-bar shading, recolored candles, signal markers), and
+  `strategy()` scripts paint their backtest entries/exits on the chart.
+- **The deep loop**: a study's legend **SOURCE** button opens its code in the
+  Script Lab editor; the editor's **"on price chart"** button pushes the running
+  script onto this chart (works even when the desk is closed — queued and added
+  on boot). Saved layouts restore studies across reloads.
+
+Captures: `docs/assets/chartdesk-captures/`.
+
 ## Next.js API (port 3000)
 
 ```
@@ -502,6 +530,9 @@ POST /api/strategies/backtest    strategy backtest on real exchange history
                                  → stats + equity curve + sample cycles
 GET  /api/venues                 live health of every connected options exchange
 GET  /api/chain                  normalized live chains across venues
+GET  /api/chartdesk/bars         deep paged OHLCV for the Chart Desk widget
+                                 (SQLite mirror → Binance → OKX fallback;
+                                 from/to/countBack, up to 5000 bars back)
 ```
 
 ## HTTP API (port 3031, all camelCase JSON)

@@ -10,7 +10,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ExprNode, StmtNode } from './parser';
-import type { ScriptBar, InputSpec, PlotSpec, ShapeSpec, HLineSpec, PlotStyle, ShapeStyle } from './types';
+import type {
+  ScriptBar,
+  InputSpec,
+  PlotSpec,
+  ShapeSpec,
+  HLineSpec,
+  FillSpec,
+  BackgroundSpec,
+  BarColorSpec,
+  PlotStyle,
+  ShapeStyle,
+} from './types';
 import {
   TA_BUILTINS,
   MATH_BUILTINS,
@@ -25,6 +36,7 @@ import {
   PALETTE,
   type Val,
   type ColorObj,
+  type SeriesColorObj,
 } from './builtins';
 
 export class RuntimeError extends Error {
@@ -33,6 +45,25 @@ export class RuntimeError extends Error {
     super(message);
     this.line = line;
   }
+}
+
+/** A per-bar color: `cond ? colorA : colorB` where the branches are colors —
+ * what bgcolor()/barcolor()/plot(color=…) receive from typical Pine scripts. */
+type SeriesColor = SeriesColorObj;
+
+function isSeriesColor(v: Val): v is SeriesColorObj {
+  return typeof v === 'object' && v !== null && 'a' in v && 'b' in v && 'cond' in v;
+}
+
+/** Turn a color-ish value into per-bar css strings (null = leave untouched). */
+function colorSeries(v: Val, n: number): (string | null)[] | null {
+  if (isColor(v)) return new Array<string | null>(n).fill(v.css);
+  if (isSeriesColor(v)) {
+    const out: (string | null)[] = new Array(n).fill(null);
+    for (let i = 0; i < n; i++) out[i] = v.cond[i] !== 0 ? v.a.css : v.b.css;
+    return out;
+  }
+  return null;
 }
 
 export interface InterpEvents {
@@ -50,6 +81,9 @@ export interface InterpResult {
   plots: PlotSpec[];
   shapes: ShapeSpec[];
   hlines: HLineSpec[];
+  fills: FillSpec[];
+  background: BackgroundSpec | null;
+  barColors: BarColorSpec | null;
   inputs: InputSpec[];
   logs: string[];
   events: InterpEvents;
@@ -63,7 +97,10 @@ const SOURCE_SERIES = [
 
 const PLOT_STYLES: Record<string, PlotStyle> = {
   'plot.style_line': 'line',
+  'plot.style_linebr': 'line',
+  'plot.style_stepline': 'stepline',
   'plot.style_histogram': 'histogram',
+  'plot.style_columns': 'column',
   'plot.style_area': 'area',
   'plot.style_circles': 'circles',
   'plot.style_cross': 'cross',
@@ -74,8 +111,14 @@ const SHAPE_STYLES: Record<string, ShapeStyle> = {
   'shape.triangledown': 'triangledown',
   'shape.circle': 'circle',
   'shape.cross': 'cross',
+  'shape.xcross': 'cross',
   'shape.square': 'square',
   'shape.diamond': 'diamond',
+  'shape.arrowup': 'arrowup',
+  'shape.arrowdown': 'arrowdown',
+  'shape.labelup': 'label',
+  'shape.labeldown': 'label',
+  'shape.label': 'label',
 };
 
 /** constants like color.teal / strategy.long / plot.style_line */
@@ -87,7 +130,10 @@ const CONSTANTS: Record<string, Val> = (() => {
     'strategy.long': 1,
     'strategy.short': -1,
     'plot.style_line': 'line',
+    'plot.style_linebr': 'line',
+    'plot.style_stepline': 'stepline',
     'plot.style_histogram': 'histogram',
+    'plot.style_columns': 'column',
     'plot.style_area': 'area',
     'plot.style_circles': 'circles',
     'plot.style_cross': 'cross',
@@ -95,17 +141,101 @@ const CONSTANTS: Record<string, Val> = (() => {
     'shape.triangledown': 'triangledown',
     'shape.circle': 'circle',
     'shape.cross': 'cross',
+    'shape.xcross': 'cross',
     'shape.square': 'square',
     'shape.diamond': 'diamond',
+    'shape.arrowup': 'arrowup',
+    'shape.arrowdown': 'arrowdown',
+    'shape.labelup': 'label',
+    'shape.labeldown': 'label',
+    'shape.label': 'label',
     'location.belowbar': 'belowbar',
     'location.abovebar': 'abovebar',
-    'location.absolute': 'belowbar',
+    'location.absolute': 'absolute',
+    'location.top': 'abovebar',
+    'location.bottom': 'belowbar',
     'hline.style_solid': 'solid',
     'hline.style_dashed': 'dashed',
     'hline.style_dotted': 'dotted',
     'display.none': 'none',
+    'display.all': 'all',
+    'display.data_window': 'none',
+    'display.pane': 'none',
+    'display.price_scale': 'none',
+    'display.status_line': 'none',
     'barmerge.gaps_off': 0,
     'barmerge.gaps_on': 0,
+    'barmerge.lookahead_off': 0,
+    'barmerge.lookahead_on': 0,
+    'size.auto': 'auto',
+    'size.tiny': 'tiny',
+    'size.small': 'small',
+    'size.normal': 'normal',
+    'size.large': 'large',
+    'size.huge': 'huge',
+    'syminfo.ticker': '',
+    'syminfo.tickerid': '',
+    'syminfo.type': '',
+    'syminfo.currency': '',
+    'timeframe.period': '',
+    'timeframe.multiplier': 0,
+    'timeframe.isminutes': 0,
+    'timeframe.isdaily': 0,
+    'timeframe.isweekly': 0,
+    'timeframe.ismonthly': 0,
+    'timeframe.isintraday': 0,
+    'timeframe.isdwm': 0,
+    'chart.is_standard': 1,
+    'chart.is_heikinashi': 0,
+    'chart.is_renko': 0,
+    'alert.freq_once_per_bar': 0,
+    'alert.freq_once_per_bar_close': 0,
+    'alert.freq_all_bars': 0,
+    'extend.none': 0,
+    'extend.right': 1,
+    'extend.both': 1,
+    'xloc.bar_index': 0,
+    'xloc.bar_time': 1,
+    'yloc.price': 0,
+    'yloc.abovebar': 1,
+    'yloc.belowbar': 2,
+    'yloc.top': 3,
+    'yloc.bottom': 4,
+    'text.align_center': 0,
+    'text.align_left': 0,
+    'text.align_right': 0,
+    'label.style_none': 0,
+    'label.style_label_down': 0,
+    'label.style_label_up': 0,
+    'line.style_solid': 'solid',
+    'line.style_dashed': 'dashed',
+    'line.style_dotted': 'dotted',
+    'line.style_arrow_both': 'solid',
+    'line.style_arrow_left': 'solid',
+    'line.style_arrow_right': 'solid',
+    'format.price': 0,
+    'format.percent': 1,
+    'format.volume': 2,
+    'format.inherit': 0,
+    'position.top_left': 0,
+    'position.top_center': 0,
+    'position.top_right': 0,
+    'position.middle_left': 0,
+    'position.middle_center': 0,
+    'position.middle_right': 0,
+    'position.bottom_left': 0,
+    'position.bottom_center': 0,
+    'position.bottom_right': 0,
+    'bar_index.h': 0,
+    'barstate.isfirst': 0,
+    'barstate.islast': 0,
+    'barstate.ishistory': 1,
+    'barstate.isrealtime': 0,
+    'barstate.isnew': 0,
+    'barstate.isconfirmed': 1,
+    'scale.left': 'left',
+    'scale.right': 'right',
+    'scale.none': 'none',
   };
   for (const name of Object.keys(COLORS)) m[`color.${name}`] = colorVal(name, 1);
   return m;
@@ -181,6 +311,8 @@ class Interpreter {
   private n: number;
   private globals: Map<string, Float64Array>;
   private vars = new Map<string, Float64Array>();
+  /** scalar variables: strings (plot/hline handles, input options), colors */
+  private scalars = new Map<string, Val>();
   private varDecls = new Set<string>();
   private mask: Float64Array | null = null;
 
@@ -190,6 +322,9 @@ class Interpreter {
   plots: PlotSpec[] = [];
   shapes: ShapeSpec[] = [];
   hlines: HLineSpec[] = [];
+  fills: FillSpec[] = [];
+  background: BackgroundSpec | null = null;
+  barColors: BarColorSpec | null = null;
   inputs: InputSpec[] = [];
   logs: string[] = [];
   strategyCfg = { initialCapital: 100_000, commissionPct: 0 };
@@ -276,6 +411,16 @@ class Interpreter {
     const val = preEvaluated ?? this.eval(expr);
     const line = (expr as { line?: number }).line ?? 0;
 
+    // scalar values (strings, colors, series-colors, plain lists) never become per-bar series:
+    // they are identities (plot handles for fill()) or constants (input option lists)
+    if (typeof val === 'string' || isColor(val) || isSeriesColor(val) || Array.isArray(val)) {
+      if (decl === 're' && !this.scalars.has(name) && !this.vars.has(name)) {
+        throw new RuntimeError(`cannot assign to '${name}' — declare it first with '${name} = …'`, line);
+      }
+      this.scalars.set(name, val);
+      return;
+    }
+
     if (decl === 'var') {
       // initialize ONCE: first bar where the mask runs and the value is finite
       const v = asSeries(val, this.n);
@@ -352,6 +497,7 @@ class Interpreter {
       case 'ident': {
         if (this.vars.has(e.name)) return this.vars.get(e.name) as Float64Array;
         if (this.globals.has(e.name)) return this.globals.get(e.name) as Float64Array;
+        if (this.scalars.has(e.name)) return this.scalars.get(e.name) as Val;
         if (e.name in CONSTANTS) return CONSTANTS[e.name];
         throw new RuntimeError(`unknown identifier '${e.name}'`, (e as { line?: number }).line ?? 0);
       }
@@ -375,6 +521,14 @@ class Interpreter {
         const c = this.eval(e.c);
         const a = this.eval(e.a);
         const b = this.eval(e.b);
+        // color branches (bgcolor(cond ? color.teal : color.orange) — very common;
+        // Pine also writes `… ? color.teal : na`, so na among colors = transparent)
+        const aC = isColor(a) ? a : typeof a === 'number' && !Number.isFinite(a) ? { css: 'transparent', alpha: 0 } : null;
+        const bC = isColor(b) ? b : typeof b === 'number' && !Number.isFinite(b) ? { css: 'transparent', alpha: 0 } : null;
+        if (aC && bC) {
+          if (isSeries(c)) return { a: aC, b: bC, cond: asSeries(c, this.n) } satisfies SeriesColor;
+          return truthy(asNum(c)) ? aC : bC;
+        }
         if (isSeries(c) || isSeries(a) || isSeries(b)) {
           const cs = asSeries(c, this.n);
           const as = asSeries(a, this.n);
@@ -594,19 +748,32 @@ class Interpreter {
       const colorV = get(2, 'color');
       const widthV = get(3, 'linewidth');
       const styleV = get(4, 'style');
+      const offsetV = get(undefined, 'offset');
       const color = this.resolveColor(colorV, PALETTE[this.plots.length % PALETTE.length], 'plot');
       const style = this.resolveStyle(styleV, PLOT_STYLES, 'line');
       const width = typeof widthV === 'number' && Number.isFinite(widthV) ? Math.max(1, Math.min(4, widthV)) : 1.25;
+      // plot(offset=…) shifts the drawn series by whole bars (positive = right)
+      let shifted = data;
+      if (typeof offsetV === 'number' && Number.isFinite(offsetV) && Math.round(offsetV) !== 0) {
+        const off = Math.round(offsetV);
+        const s = new Float64Array(this.n).fill(NaN);
+        for (let i = 0; i < this.n; i++) {
+          const j = i + off;
+          if (j >= 0 && j < this.n) s[j] = data[i];
+        }
+        shifted = s;
+      }
       this.plots.push({
         title: typeof titleV === 'string' && titleV ? titleV : `plot ${this.plots.length + 1}`,
-        data: Array.from(data),
+        data: Array.from(shifted),
         color: color.css,
         alpha: color.alpha,
         width,
         style: style as PlotSpec['style'],
         overlay: this.overlay,
       });
-      return 0;
+      // identity token — fill() takes plot handles exactly like Pine
+      return `plot:${this.plots.length - 1}`;
     }
 
     if (name === 'plotshape') {
@@ -617,17 +784,19 @@ class Interpreter {
       const styleV = get(2, 'style');
       const locV = get(3, 'location');
       const colorV = get(4, 'color');
+      const textV = get(undefined, 'text');
       const color = this.resolveColor(colorV, 'teal', 'plotshape');
       const style = this.resolveStyle(styleV, SHAPE_STYLES, 'triangleup');
-      const locRaw = this.resolveStyle(locV, { belowbar: 'belowbar', abovebar: 'abovebar' } as Record<string, string>, 'belowbar');
+      const locRaw = this.resolveStyle(locV, { belowbar: 'belowbar', abovebar: 'abovebar', absolute: 'absolute' } as Record<string, string>, 'belowbar');
       this.shapes.push({
         title: typeof titleV === 'string' && titleV ? titleV : `shape ${this.shapes.length + 1}`,
         cond: Array.from(cond).map((v) => v !== 0 && Number.isFinite(v)),
         style: style as ShapeSpec['style'],
-        location: locRaw === 'abovebar' ? 'abovebar' : 'belowbar',
+        location: locRaw === 'abovebar' ? 'abovebar' : locRaw === 'absolute' ? 'absolute' : 'belowbar',
         color: color.css,
         alpha: color.alpha,
         overlay: this.overlay,
+        text: typeof textV === 'string' && textV ? textV : undefined,
       });
       return 0;
     }
@@ -658,11 +827,167 @@ class Interpreter {
         dashed: this.resolveStyle(styleV, { dashed: 'dashed', dotted: 'dashed', solid: 'solid' } as Record<string, string>, 'solid') === 'dashed',
         overlay: this.overlay,
       });
+      // identity token — fill() takes hline handles exactly like Pine
+      return `hline:${this.hlines.length - 1}`;
+    }
+
+    // ── fill / bgcolor / barcolor / candle plots / chars / arrows ──────────
+    if (name === 'fill') {
+      const aV = pos[0];
+      const bV = pos[1];
+      const colorV = get(2, 'color');
+      const titleV = get(undefined, 'title');
+      const parseToken = (v: Val, what: string): { kind: 'plot' | 'hline'; index: number } => {
+        if (typeof v !== 'string' || !/^(plot|hline):\d+$/.test(v)) {
+          throw new RuntimeError(`fill() ${what} must be a plot()/hline() handle`, line);
+        }
+        const [kind, idx] = v.split(':');
+        return { kind: kind as 'plot' | 'hline', index: Number(idx) };
+      };
+      const a = parseToken(aV, 'first argument');
+      const b = parseToken(bV, 'second argument');
+      const color = this.resolveColor(colorV, 'teal', 'fill');
+      this.fills.push({
+        title: typeof titleV === 'string' && titleV ? titleV : `${a.kind === 'plot' ? this.plots[a.index]?.title : this.hlines[a.index]?.title} → ${b.kind === 'plot' ? this.plots[b.index]?.title : this.hlines[b.index]?.title}`,
+        a,
+        b,
+        color: color.css,
+        alpha: color.alpha,
+        overlay: this.overlay,
+      });
       return 0;
     }
 
-    if (name === 'fill' || name === 'bgcolor' || name === 'barcolor' || name === 'plotchar' || name === 'plotcandle' || name === 'plotbar' || name === 'alert' || name === 'label.new' || name === 'line.new' || name === 'box.new' || name === 'table.new' || name === 'request.security' || name === 'for' || name === 'while') {
-      rt(`'${name}' is not supported in VolScript yet — use plot(), plotshape() or hline()`);
+    if (name === 'bgcolor') {
+      const colorV = pos[0] ?? get(undefined, 'color');
+      if (colorV === undefined) throw new RuntimeError('bgcolor() needs a color', line);
+      const colors = colorSeries(colorV, this.n);
+      if (!colors) throw new RuntimeError('bgcolor() needs a color or a conditional color', line);
+      const alpha = isColor(colorV) ? colorV.alpha : isSeriesColor(colorV) ? Math.max(colorV.a.alpha, colorV.b.alpha) : 0.35;
+      this.background = { color: colors.find((c) => c) ?? '#22d3ee', alpha: Math.min(alpha, 0.9), colors, overlay: this.overlay };
+      return 0;
+    }
+
+    if (name === 'barcolor') {
+      const colorV = pos[0] ?? get(undefined, 'color');
+      if (colorV === undefined) throw new RuntimeError('barcolor() needs a color', line);
+      const colors = colorSeries(colorV, this.n);
+      if (!colors) throw new RuntimeError('barcolor() needs a color or a conditional color', line);
+      this.barColors = { colors, overlay: this.overlay };
+      return 0;
+    }
+
+    if (name === 'plotchar') {
+      const condV = get(0, 'series');
+      if (condV === undefined) throw new RuntimeError('plotchar() needs a series', line);
+      const cond = this.gated(asSeries(condV, this.n));
+      const charV = get(2, 'char');
+      const titleV = get(1, 'title');
+      const locV = get(undefined, 'location');
+      const colorV = get(undefined, 'color');
+      const color = this.resolveColor(colorV, 'amber', 'plotchar');
+      const locRaw = this.resolveStyle(locV, { belowbar: 'belowbar', abovebar: 'abovebar', absolute: 'absolute' } as Record<string, string>, 'abovebar');
+      this.shapes.push({
+        title: typeof titleV === 'string' && titleV ? titleV : `char ${this.shapes.length + 1}`,
+        cond: Array.from(cond).map((v) => v !== 0 && Number.isFinite(v)),
+        style: 'label',
+        location: locRaw === 'belowbar' ? 'belowbar' : locRaw === 'absolute' ? 'absolute' : 'abovebar',
+        color: color.css,
+        alpha: color.alpha,
+        overlay: this.overlay,
+        text: typeof charV === 'string' ? charV.slice(0, 3) : undefined,
+      });
+      return 0;
+    }
+
+    if (name === 'plotarrow') {
+      const valV = get(0, 'series');
+      if (valV === undefined) throw new RuntimeError('plotarrow() needs a series', line);
+      const vals = this.gated(asSeries(valV, this.n));
+      const upV = get(undefined, 'colorup');
+      const downV = get(undefined, 'colordown');
+      const up = this.resolveColor(upV, 'teal', 'plotarrow');
+      const down = this.resolveColor(downV, 'rose', 'plotarrow');
+      this.shapes.push({
+        title: `arrow up`,
+        cond: Array.from(vals).map((v) => Number.isFinite(v) && v > 0),
+        style: 'arrowup',
+        location: 'abovebar',
+        color: up.css,
+        alpha: up.alpha,
+        overlay: this.overlay,
+        sizeData: Array.from(vals),
+      });
+      this.shapes.push({
+        title: `arrow down`,
+        cond: Array.from(vals).map((v) => Number.isFinite(v) && v < 0),
+        style: 'arrowdown',
+        location: 'belowbar',
+        color: down.css,
+        alpha: down.alpha,
+        overlay: this.overlay,
+        sizeData: Array.from(vals).map((v) => (Number.isFinite(v) ? Math.abs(v) : NaN)),
+      });
+      return 0;
+    }
+
+    if (name === 'plotcandle' || name === 'plotbar') {
+      const oV = get(0, 'open');
+      const hV = get(1, 'high');
+      const lV = get(2, 'low');
+      const cV = get(3, 'close');
+      if (oV === undefined || hV === undefined || lV === undefined || cV === undefined) {
+        throw new RuntimeError(`${name}() needs open, high, low and close series`, line);
+      }
+      const o = this.gated(asSeries(oV, this.n));
+      const h = this.gated(asSeries(hV, this.n));
+      const l = this.gated(asSeries(lV, this.n));
+      const c = this.gated(asSeries(cV, this.n));
+      const titleV = get(4, 'title');
+      const colorV = get(undefined, 'color');
+      const color = this.resolveColor(colorV, 'sky', name);
+      const data: number[] = new Array(this.n).fill(NaN);
+      for (let i = 0; i < this.n; i++) {
+        if (Number.isFinite(o[i]) && Number.isFinite(h[i]) && Number.isFinite(l[i]) && Number.isFinite(c[i])) data[i] = c[i];
+      }
+      this.plots.push({
+        title: typeof titleV === 'string' && titleV ? titleV : `candles ${this.plots.length + 1}`,
+        data,
+        color: color.css,
+        alpha: color.alpha,
+        width: 1.25,
+        style: 'line',
+        overlay: this.overlay,
+        ohlc: { open: Array.from(o), high: Array.from(h), low: Array.from(l), close: Array.from(c) },
+        ohlcKind: name === 'plotcandle' ? 'candles' : 'bars',
+      });
+      return `plot:${this.plots.length - 1}`;
+    }
+
+    // ── tolerated no-ops (kept so copied Pine scripts run) ───────────────
+    if (
+      name === 'alertcondition' || name === 'alert' || name.startsWith('label.') || name.startsWith('line.') ||
+      name.startsWith('box.') || name.startsWith('table.') || name.startsWith('polyline.') || name.startsWith('map.') ||
+      name === 'log.error' || name === 'log.info' || name === 'log.warning'
+    ) {
+      this.logs.push(`${name}() ignored — ${name.startsWith('label') || name.startsWith('line') || name.startsWith('box') || name.startsWith('table') ? 'drawing objects' : 'alerts'} are not drawn by this engine`);
+      return 0;
+    }
+    if (name === 'runtime.log') {
+      const mV = pos[0];
+      this.logs.push(typeof mV === 'string' ? mV : 'runtime.log()');
+      return 0;
+    }
+    if (name === 'runtime.error') {
+      const mV = pos[0];
+      rt(`runtime.error: ${typeof mV === 'string' ? mV : 'script error'}`);
+    }
+
+    if (name === 'request.security' || name === 'request.security_lower_tf' || name === 'for' || name === 'while' || name === 'switch' || name.startsWith('array.') || name.startsWith('matrix.') || name.startsWith('str.') || name.startsWith('input.symbol')) {
+      if (name === 'request.security') {
+        rt(`request.security() is not supported yet — this engine computes on one symbol/timeframe; inline the higher-timeframe logic or ask the AI desk to restructure it`);
+      }
+      rt(`'${name}' is not supported in VolScript yet — use plot(), plotshape(), hline(), fill(), bgcolor() or barcolor()`);
     }
 
     // ── strategy orders ────────────────────────────────────────────────────
@@ -810,6 +1135,9 @@ export function interpret(stmts: StmtNode[], bars: ScriptBar[], inputValues: Rec
     plots: it.plots,
     shapes: it.shapes,
     hlines: it.hlines,
+    fills: it.fills,
+    background: it.background,
+    barColors: it.barColors,
     inputs: it.inputs,
     logs: it.logs,
     events: it.events,

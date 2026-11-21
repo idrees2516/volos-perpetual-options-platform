@@ -30,12 +30,13 @@ import { PaperView } from '@/components/terminal/paper-view';
 import { ScriptLabView } from '@/components/terminal/scriptlab/scriptlab-view';
 import { MentalModelsView } from '@/components/terminal/models/mental-models-view';
 import { StudioView } from '@/components/terminal/studio/studio-view';
+import { PriceChartView } from '@/components/terminal/chartdesk/price-chart-view';
 import { CopilotPanel, MarketSpotBridge, CopilotContextBridge } from '@/components/terminal/copilot/copilot-panel';
 import { useCopilot } from '@/stores/copilot-store';
 import { rehydrateStrategy } from '@/stores/strategy-store';
 import { usePersistedFlag } from '@/hooks/use-persisted-flag';
 
-const VALID_VIEWS: ViewId[] = ['strategies', 'models', 'studio', 'gamma', 'quant', 'orderflow', 'forecast', 'chain', 'trade', 'paper', 'scriptlab'];
+const VALID_VIEWS: ViewId[] = ['strategies', 'models', 'studio', 'gamma', 'quant', 'orderflow', 'forecast', 'chain', 'trade', 'paper', 'scriptlab', 'chartdesk'];
 
 function Terminal() {
   // The active workspace persisted as an external store — restored without a
@@ -67,6 +68,7 @@ function Terminal() {
           {view === 'trade' && <TradeView onOpenBuilder={() => setView('strategies')} />}
           {view === 'paper' && <PaperView />}
           {view === 'scriptlab' && <ScriptLabView />}
+          {view === 'chartdesk' && <PriceChartView />}
         </Workbench>
         <CopilotPanel view={view} onView={setView} />
       </div>

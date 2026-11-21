@@ -17,7 +17,7 @@ export interface ScriptBar {
   tb: number; // taker-buy volume (aggressor buys)
 }
 
-export type PlotStyle = 'line' | 'histogram' | 'area' | 'circles' | 'cross';
+export type PlotStyle = 'line' | 'histogram' | 'area' | 'circles' | 'cross' | 'stepline' | 'column';
 
 export interface PlotSpec {
   title: string;
@@ -27,18 +27,26 @@ export interface PlotSpec {
   width: number;
   style: PlotStyle;
   overlay: boolean; // true → price pane, false → sub pane
+  /** plotcandle()/plotbar(): four aligned arrays instead of the scalar column */
+  ohlc?: { open: number[]; high: number[]; low: number[]; close: number[] };
+  /** plotcandle/plotbar use this flag (Pine distinguishes candles vs OHLC bars) */
+  ohlcKind?: 'candles' | 'bars';
 }
 
-export type ShapeStyle = 'triangleup' | 'triangledown' | 'circle' | 'cross' | 'square' | 'diamond';
+export type ShapeStyle = 'triangleup' | 'triangledown' | 'circle' | 'cross' | 'square' | 'diamond' | 'arrowup' | 'arrowdown' | 'label';
 
 export interface ShapeSpec {
   title: string;
   cond: boolean[]; // per-bar marker
   style: ShapeStyle;
-  location: 'belowbar' | 'abovebar';
+  location: 'belowbar' | 'abovebar' | 'absolute';
   color: string;
   alpha: number;
   overlay: boolean;
+  /** plotchar()/label text: tiny character or short label drawn with the shape */
+  text?: string;
+  /** plotarrow(): the arrow height is this value (else 1 at every marked bar) */
+  sizeData?: number[];
 }
 
 export interface HLineSpec {
@@ -47,6 +55,32 @@ export interface HLineSpec {
   color: string;
   alpha: number;
   dashed: boolean;
+  overlay: boolean;
+}
+
+/** fill() between two plots, two hlines, or one of each (Pine plot/hline ids). */
+export interface FillSpec {
+  title: string;
+  /** index into plots[] / hlines[] of the two edges */
+  a: { kind: 'plot' | 'hline'; index: number };
+  b: { kind: 'plot' | 'hline'; index: number };
+  color: string;
+  alpha: number;
+  overlay: boolean;
+}
+
+/** bgcolor(): per-bar full-height shading behind everything in the pane. */
+export interface BackgroundSpec {
+  color: string;
+  alpha: number;
+  /** per-bar: null = untouched, else css color for that bar */
+  colors: (string | null)[];
+  overlay: boolean;
+}
+
+/** barcolor(): recolor the price candles per bar (null = own color). */
+export interface BarColorSpec {
+  colors: (string | null)[];
   overlay: boolean;
 }
 
@@ -123,6 +157,9 @@ export interface RunResult {
   plots: PlotSpec[];
   shapes: ShapeSpec[];
   hlines: HLineSpec[];
+  fills: FillSpec[];
+  background: BackgroundSpec | null;
+  barColors: BarColorSpec | null;
   inputs: InputSpec[];
   logs: string[];
   backtest?: BacktestResult;
