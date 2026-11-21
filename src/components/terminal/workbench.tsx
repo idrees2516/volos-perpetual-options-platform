@@ -24,7 +24,7 @@ import React, { useEffect } from 'react';
 import {
   Activity, Brain, CircleDot, LineChart, ChartLine, Layers, FlaskConical, Atom, Flame, Sigma,
   BarChart3, Dna, ChevronsLeft, ChevronsRight, ChevronRight, Braces,
-  TrendingUp, TrendingDown, Radio,
+  TrendingUp, TrendingDown, Radio, ChartCandlestick,
 } from 'lucide-react';
 import type { ViewId } from './topbar';
 import type { UnderlyingId } from '@/lib/types';
@@ -50,6 +50,7 @@ const LAB_ITEMS: RailItem[] = [
 
 /** Analytics group — everything else, below the Strategy Lab group. */
 const ANALYTICS_ITEMS: RailItem[] = [
+  { id: 'chartdesk', label: 'Chart Desk', icon: <ChartCandlestick className="h-4 w-4" />, hint: 'tradingview-style candles · openalgo charts · 112 indicators · 90 drawing tools · pine/volscript studies · bar replay' },
   { id: 'studio', label: 'Studio', icon: <ChartLine className="h-4 w-4" />, hint: 'any series × any chart kind · any model on any data · outputs loop back as charts' },
   { id: 'models', label: 'Mental Models', icon: <Brain className="h-4 w-4" />, hint: 'options mental models · 3D surfaces · greeks · vol surface · exotics zoo · gamma scalper · course map' },
   { id: 'gamma', label: 'Gamma & Flow', icon: <Activity className="h-4 w-4" />, hint: 'GEX · dealer positioning · heatmaps · options flow · 0DTE · skew' },
@@ -62,6 +63,7 @@ const ANALYTICS_ITEMS: RailItem[] = [
 ];
 
 export const SIDE_OF_VIEW: Record<ViewId, SideId> = {
+  chartdesk: 'analytics',
   studio: 'analytics',
   models: 'analytics',
   gamma: 'analytics',
@@ -81,6 +83,7 @@ const SIDE_META: Record<SideId, { label: string; icon: React.ReactNode }> = {
 };
 
 const VIEW_LABEL: Record<ViewId, string> = {
+  chartdesk: 'Chart Desk',
   studio: 'Studio',
   models: 'Mental Models',
   scriptlab: 'Script Lab',
@@ -123,7 +126,7 @@ export function Workbench({ view, onView, collapsed, onToggleCollapsed, children
       {/* ── CENTER · active workspace ─────────────────────────────────────── */}
       <section className="flex min-w-0 flex-1 flex-col">
         <BreadcrumbHeader view={view} />
-        {view === 'scriptlab' ? (
+        {view === 'scriptlab' || view === 'chartdesk' || view === 'studio' ? (
           <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto">

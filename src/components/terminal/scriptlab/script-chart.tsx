@@ -9,7 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { RunResult, ScriptBar } from '@/lib/scriptlang/types';
+import type { FillSpec, RunResult, ScriptBar } from '@/lib/scriptlang/types';
 
 const UP = '#2dd4bf';
 const DOWN = '#fb7185';
@@ -130,12 +130,69 @@ export function ScriptChart({ bars, result }: Props) {
     const plots = result?.plots ?? [];
     const shapes = result?.shapes ?? [];
     const hlines = result?.hlines ?? [];
+    const fills = result?.fills ?? [];
+    const background = result?.background ?? null;
+    const barColors = result?.barColors ?? null;
     const markers = result?.backtest?.markers ?? [];
     const overlayPlots = plots.filter((p) => p.overlay);
     const subPlots = plots.filter((p) => !p.overlay);
     const subShapes = shapes.filter((s) => !s.overlay);
     const subHlines = hlines.filter((h) => !h.overlay);
-    const hasSub = subPlots.length + subShapes.length + subHlines.length > 0;
+    const hasSub =
+      subPlots.length + subShapes.length + subHlines.length > 0 || (background !== null && !background.overlay);
+
+    /** value array (or constant) for one fill edge */
+    const edgeValues = (e: { kind: 'plot' | 'hline'; index: number }): number[] => {
+      const arr = e.kind === 'plot' ? plots[e.index]?.data : null;
+      if (arr) return arr;
+      const hl = e.kind === 'hline' ? hlines[e.index] : null;
+      return hl ? new Array(n).fill(hl.price) : new Array(n).fill(NaN);
+    };
+
+    const drawFillBand = (
+      f: FillSpec,
+      yOf: (v: number) => number,
+      top: number,
+      height: number,
+    ) => {
+      const a = edgeValues(f.a);
+      const b = edgeValues(f.b);
+      const step = x(1) - x(0);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, top, plotW, height);
+      ctx.clip();
+      ctx.fillStyle = f.color;
+      ctx.globalAlpha = Math.min(0.9, Math.max(0.05, f.alpha * 0.35));
+      const sliceW = Math.max(1, step);
+      for (let i = 0; i < n; i++) {
+        const va = a[i];
+        const vb = b[i];
+        if (!Number.isFinite(va) || !Number.isFinite(vb)) continue;
+        const ya = yOf(va);
+        const yb = yOf(vb);
+        const topY = Math.min(ya, yb);
+        const h = Math.max(0.5, Math.abs(yb - ya));
+        ctx.fillRect(x(i) - sliceW / 2, topY, sliceW, h);
+      }
+      ctx.restore();
+    };
+
+    const drawBackground = (colors: (string | null)[], alpha: number, top: number, height: number) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, top, plotW, height);
+      ctx.clip();
+      ctx.globalAlpha = Math.min(0.85, Math.max(0.05, alpha));
+      const sliceW = Math.max(1, x(1) - x(0));
+      for (let i = 0; i < n; i++) {
+        const c = colors[i];
+        if (!c || c === 'transparent') continue;
+        ctx.fillStyle = c;
+        ctx.fillRect(x(i) - sliceW / 2, top, sliceW, height);
+      }
+      ctx.restore();
+    };
 
     const bodyH = size.h - TIME_H;
     const SUB_GAP = 10;
@@ -223,7 +280,11 @@ export function ScriptChart({ bars, result }: Props) {
     ctx.rect(0, 0, plotW, priceH);
     ctx.clip();
 
-    // ── overlay plots ──────────────────────────────────────────────────────
+    // ── fills between plots/hlines on the price pane (under everything) ───
+    for (const f of fills) {
+      if (!f.overlay) continue;
+      drawFillBand(f, yP, 0, priceH);
+    }
     for (const p of overlayPlots) {
       if (p.style === 'histogram') continue;
       if (p.style === 'area') {
@@ -277,6 +338,48 @@ export function ScriptChart({ bars, result }: Props) {
       drawSeries(ctx, p.data, x, yP, p.color, p.alpha, p.width);
     }
 
+    // ── plotcandle()/plotbar() overlays on the price pane ───────────────
+    for (const p of overlayPlots) {
+      const ohlc = p.ohlc;
+      if (!ohlc) continue;
+      for (let i = 0; i < n; i++) {
+        const o = ohlc.open[i];
+        const h = ohlc.high[i];
+        const l = ohlc.low[i];
+        const c = ohlc.close[i];
+        if (!Number.isFinite(o) || !Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(c)) continue;
+        const cx = x(i);
+        const up = c >= o;
+        ctx.save();
+        ctx.globalAlpha = p.alpha * 0.9;
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 1;
+        if (p.ohlcKind === 'bars') {
+          ctx.beginPath();
+          ctx.moveTo(cx, yP(h));
+          ctx.lineTo(cx, yP(l));
+          ctx.moveTo(cx - bw / 2, yP(o));
+          ctx.lineTo(cx, yP(o));
+          ctx.moveTo(cx, yP(c));
+          ctx.lineTo(cx + bw / 2, yP(c));
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(cx, yP(h));
+          ctx.lineTo(cx, yP(l));
+          ctx.stroke();
+          const yo = yP(o);
+          const yc = yP(c);
+          const top = Math.min(yo, yc);
+          const bh = Math.max(1, Math.abs(yc - yo));
+          ctx.fillStyle = up ? p.color : p.color;
+          ctx.globalAlpha = p.alpha * (up ? 0.55 : 0.8);
+          ctx.fillRect(cx - bw / 2, top, bw, bh);
+        }
+        ctx.restore();
+      }
+    }
+
     // ── hlines (price pane) ────────────────────────────────────────────────
     for (const h of hlines) {
       if (!h.overlay || !Number.isFinite(h.price)) continue;
@@ -302,7 +405,8 @@ export function ScriptChart({ bars, result }: Props) {
     for (let i = 0; i < n; i++) {
       const b = bars[i];
       const up = b.c >= b.o;
-      const col = up ? UP : DOWN;
+      const bc = barColors?.colors[i];
+      const col = bc && bc !== 'transparent' ? bc : up ? UP : DOWN;
       const cx = x(i);
       ctx.strokeStyle = col;
       ctx.lineWidth = 1;
@@ -321,7 +425,7 @@ export function ScriptChart({ bars, result }: Props) {
     }
 
     // ── shapes on the price pane ────────────────────────────────────────────
-    const drawShape = (style: string, cx: number, cy: number, color: string, alpha: number, below: boolean) => {
+    const drawShape = (style: string, cx: number, cy: number, color: string, alpha: number, below: boolean, text?: string) => {
       const dir = below ? 1 : -1;
       ctx.save();
       ctx.fillStyle = color;
@@ -355,10 +459,34 @@ export function ScriptChart({ bars, result }: Props) {
           ctx.lineTo(cx - 3.5, cy + 3.5);
           ctx.stroke();
           break;
+        case 'arrowup':
+          ctx.moveTo(cx, cy - 1);
+          ctx.lineTo(cx - 4, cy - 9);
+          ctx.lineTo(cx + 4, cy - 9);
+          ctx.closePath();
+          break;
+        case 'arrowdown':
+          ctx.moveTo(cx, cy + 1);
+          ctx.lineTo(cx - 4, cy + 9);
+          ctx.lineTo(cx + 4, cy + 9);
+          ctx.closePath();
+          break;
+        case 'label':
+          ctx.moveTo(cx, cy + dir * 2);
+          ctx.lineTo(cx - 4, cy + dir * 5);
+          ctx.lineTo(cx + 4, cy + dir * 5);
+          ctx.closePath();
+          break;
         default:
           ctx.arc(cx, cy, 3.2, 0, Math.PI * 2);
       }
       ctx.fill();
+      if (text) {
+        ctx.font = '700 8px var(--font-geist-mono), ui-monospace, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, cx, cy - dir * 14);
+      }
       ctx.restore();
     };
     for (const s of shapes) {
@@ -367,7 +495,7 @@ export function ScriptChart({ bars, result }: Props) {
         if (!s.cond[i]) continue;
         const b = bars[i];
         const cy = s.location === 'belowbar' ? yP(b.l) + 12 : yP(b.h) - 12;
-        drawShape(s.style, x(i), Math.max(10, Math.min(priceH - 10, cy)), s.color, s.alpha, s.location === 'belowbar');
+        drawShape(s.style, x(i), Math.max(10, Math.min(priceH - 10, cy)), s.color, s.alpha, s.location === 'belowbar', s.text);
       }
     }
 
@@ -461,6 +589,15 @@ export function ScriptChart({ bars, result }: Props) {
       ctx.rect(0, subTop, plotW, subH);
       ctx.clip();
 
+      // sub-pane fills and background under everything
+      for (const f of fills) {
+        if (f.overlay) continue;
+        drawFillBand(f, yS, subTop, subH);
+      }
+      if (background && !background.overlay) {
+        drawBackground(background.colors, background.alpha, subTop, subH);
+      }
+
       // zero line if in domain
       if (sLo <= 0 && sHi >= 0) {
         ctx.strokeStyle = GRID;
@@ -470,9 +607,9 @@ export function ScriptChart({ bars, result }: Props) {
         ctx.stroke();
       }
 
-      // histograms
+      // histograms + columns
       for (const p of subPlots) {
-        if (p.style !== 'histogram') continue;
+        if (p.style !== 'histogram' && p.style !== 'column') continue;
         const base = sLo <= 0 ? yS(0) : subTop + subH;
         for (let i = 0; i < n; i++) {
           const v = p.data[i];
@@ -487,9 +624,9 @@ export function ScriptChart({ bars, result }: Props) {
         ctx.globalAlpha = 1;
       }
 
-      // lines / circles / area
+      // lines / circles / area / stepline
       for (const p of subPlots) {
-        if (p.style === 'histogram') continue;
+        if (p.style === 'histogram' || p.style === 'column') continue;
         if (p.style === 'area') {
           ctx.save();
           ctx.fillStyle = p.color;
@@ -509,6 +646,30 @@ export function ScriptChart({ bars, result }: Props) {
           ctx.closePath();
           ctx.fill();
           ctx.restore();
+        }
+        if (p.style === 'stepline') {
+          ctx.save();
+          ctx.strokeStyle = p.color;
+          ctx.globalAlpha = p.alpha;
+          ctx.lineWidth = p.width;
+          ctx.beginPath();
+          let prev: number | null = null;
+          for (let i = 0; i < p.data.length; i++) {
+            const v = p.data[i];
+            if (!Number.isFinite(v)) {
+              prev = null;
+              continue;
+            }
+            if (prev === null) ctx.moveTo(x(i), yS(v));
+            else {
+              ctx.lineTo(x(i), yS(prev));
+              ctx.lineTo(x(i), yS(v));
+            }
+            prev = v;
+          }
+          ctx.stroke();
+          ctx.restore();
+          continue;
         }
         if (p.style === 'circles' || p.style === 'cross') {
           ctx.save();

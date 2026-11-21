@@ -333,3 +333,201 @@ describe('library conformance', () => {
     expect(r.inputs.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+// ── the Pine-compatibility round: fill/bgcolor/barcolor/candles/chars/arrows ──
+
+describe('pine v5 compatibility round', () => {
+  it('fill() between two plot handles shades the band and keeps the plots', () => {
+    const code = [
+      'indicator("BB fill", overlay=true)',
+      'length = input.int(20, "Length")',
+      'mult = input.float(2.0, "Mult")',
+      '[basis, upper, lower] = ta.bb(close, length, mult)',
+      'pU = plot(upper, "Upper", color.teal)',
+      'pL = plot(lower, "Lower", color.teal)',
+      'fill(pU, pL, color=color.new(color.teal, 85))',
+    ].join('\n');
+    const r = runScript(code, synthBars());
+    expect(r.ok).toBe(true);
+    expect(r.plots.map((p) => p.title)).toEqual(['Upper', 'Lower']);
+    expect(r.fills).toHaveLength(1);
+    expect(r.fills[0].a).toEqual({ kind: 'plot', index: 0 });
+    expect(r.fills[0].b).toEqual({ kind: 'plot', index: 1 });
+  });
+
+  it('fill() works between hline handles (RSI bands)', () => {
+    const code = [
+      'indicator("rsi")',
+      'r = ta.rsi(close, 14)',
+      'top = hline(70, "OB", color.rose, linestyle=hline.style_dashed)',
+      'bot = hline(30, "OS", color.teal, linestyle=hline.style_dashed)',
+      'fill(top, bot, color=color.new(color.zinc, 92))',
+      'plot(r, "RSI", color.violet)',
+    ].join('\n');
+    const r = runScript(code, synthBars());
+    expect(r.ok).toBe(true);
+    expect(r.fills).toHaveLength(1);
+    expect(r.fills[0].a.kind).toBe('hline');
+    expect(r.fills[0].b).toEqual({ kind: 'hline', index: 1 });
+    expect(r.hlines).toHaveLength(2);
+  });
+
+  it('bgcolor(cond ? color : na) produces per-bar background columns', () => {
+    const code = [
+      'indicator("bg")',
+      'bgcolor(close > open ? color.new(color.teal, 82) : color.new(color.rose, 82))',
+    ].join('\n');
+    const r = runScript(code, synthBars());
+    expect(r.ok).toBe(true);
+    expect(r.background).not.toBeNull();
+    const colored = r.background!.colors.filter(Boolean).length;
+    expect(colored).toBeGreaterThan(100); // most bars have a side
+  });
+
+  it('barcolor() recolors the candles per bar', () => {
+    const code = [
+      'indicator("bc", overlay=true)',
+      'barcolor(close > ta.sma(close, 20) ? color.teal : color.rose)',
+    ].join('\n');
+    const r = runScript(code, synthBars());
+    expect(r.ok).toBe(true);
+    expect(r.barColors).not.toBeNull();
+    expect(r.barColors!.colors.length).toBe(240);
+    expect(r.barColors!.colors.some((c) => c === '#2dd4bf')).toBe(true);
+    expect(r.barColors!.colors.some((c) => c === '#fb7185')).toBe(true);
+  });
+
+  it('plotcandle()/plotbar() produce OHLC plots with four aligned arrays', () => {
+    const candleCode = [
+      'indicator("heikin", overlay=true)',
+      'o = open',
+      'hc = (open + high + low + close) / 4',
+      'plotcandle(o, high, low, hc, title="HA", color=color.new(color.sky, 30))',
+    ].join('\n');
+    const r = runScript(candleCode, synthBars());
+    expect(r.ok).toBe(true);
+    expect(r.plots).toHaveLength(1);
+    expect(r.plots[0].ohlc).toBeDefined();
+    expect(r.plots[0].ohlcKind).toBe('candles');
+    expect(r.plots[0].ohlc!.open.length).toBe(240);
+
+    const barCode = [
+      'indicator("obars", overlay=true)',
+      'plotbar(open, high, low, close, title="OB")',
+    ].join('\n');
+    const rb = runScript(barCode, synthBars());
+    expect(rb.ok).toBe(true);
+    expect(rb.plots[0].ohlcKind).toBe('bars');
+  });
+
+  it('plotchar/plotarrow/plotshape produce shapes (chars/labels/arrows)', () => {
+    const code = [
+      'indicator("shapes")',
+      'trend = ta.ema(close, 20)',
+      'plotchar(close > trend, "up", "▲", location.abovebar, color.teal)',
+      'plotarrow(ta.change(close), colorup=color.teal, colordown=color.rose)',
+      'plotshape(close < trend, style=shape.triangledown, location=location.belowbar, color.rose, text="SELL")',
+    ].join('\n');
+    const r = runScript(code, synthBars());
+    expect(r.ok).toBe(true);
+    const styles = r.shapes.map((s) => s.style);
+    expect(styles).toContain('label'); // plotchar
+    expect(styles).toContain('arrowup'); // plotarrow
+    expect(styles).toContain('arrowdown');
+    expect(styles).toContain('triangledown'); // plotshape
+    const sell = r.shapes.find((s) => s.style === 'triangledown');
+    expect(sell?.text).toBe('SELL');
+    const ch = r.shapes.find((s) => s.style === 'label');
+    expect(ch?.text).toBe('▲');
+  });
+
+  it('alertcondition/label.new/table.new no-op with a log line instead of failing', () => {
+    const code = [
+      'indicator("copied from tradingview")',
+      'x = ta.rsi(close, 14)',
+      'plot(x)',
+      'alertcondition(x > 70, title="OB", message="overbought")',
+      'lbl = label.new(bar_index, x, "hi")',
+      'if x > 70',
+      '    label.new(bar_index, x, "OB")',
+      'table.new(position.top_right, 1, 1)',
+    ].join('\n');
+    const r = runScript(code, synthBars());
+    expect(r.ok).toBe(true);
+    expect(r.logs.some((l) => l.includes('alertcondition() ignored'))).toBe(true);
+    expect(r.logs.some((l) => l.includes('label.new() ignored'))).toBe(true);
+    expect(r.logs.some((l) => l.includes('table.new() ignored'))).toBe(true);
+  });
+
+  it('new ta kernels: bb tuple, kc tuple, pivothigh/pivotlow, valuewhen, sar, hma, alma', () => {
+    const code = [
+      'indicator("kernels")',
+      '[bbM, bbU, bbL] = ta.bb(close, 20, 2)',
+      '[kcM, kcU, kcL] = ta.kc(20, 2)',
+      'ph = ta.pivothigh(high, 3, 3)',
+      'pl = ta.pivotlow(low, 3, 3)',
+      'vh = ta.valuewhen(not na(pl), pl, 0)',
+      'sarv = ta.sar(0.02, 0.02, 0.2)',
+      'h = ta.hma(close, 9)',
+      'al = ta.alma(close, 9, 0.85, 6)',
+      'wpr = ta.wpr(14)',
+      'cmov = ta.cmo(close, 9)',
+      'vwm = ta.vwma(close, 20)',
+      'plot(bbU, "BB up")',
+      'plot(kcU, "KC up")',
+      'plot(h, "Hull")',
+    ].join('\n');
+    const r = runScript(code, synthBars());
+    expect(r.ok).toBe(true);
+    // bb upper must exceed basis on most bars
+    const bbU = r.plots.find((p) => p.title === 'BB up')!.data;
+    const hma = r.plots.find((p) => p.title === 'Hull')!.data;
+    let above = 0;
+    let seen = 0;
+    for (let i = 0; i < 240; i++) {
+      if (Number.isFinite(bbU[i])) {
+        seen++;
+        if (bbU[i] > 100) above++;
+      }
+    }
+    expect(seen).toBeGreaterThan(200);
+    expect(above / seen).toBeGreaterThan(0.9);
+    expect(hma.filter(Number.isFinite).length).toBeGreaterThan(220);
+  });
+
+  it('a realistic copied Pine v5 script runs end to end (squeeze + divergence)', () => {
+    const code = [
+      '// This is a Pine Script copied from a public library',
+      '//@version=5',
+      'indicator("Volatility Squeeze [tanikedev]", overlay=true)',
+      'length = input.int(20, "BB Length", minval=1)',
+      'mult = input.float(2.0, "BB StdDev", minval=0.001, step=0.1)',
+      'bbDev = mult * ta.stdev(close, length)',
+      'bbBasis = ta.sma(close, length)',
+      'kcBasis = ta.ema(close, length)',
+      'kcRange = mult * ta.atr(length)',
+      'squeezeOn = bbDev < kcRange',
+      'bbUpper = bbBasis + bbDev',
+      'bbLower = bbBasis - bbDev',
+      'kcUpper = kcBasis + kcRange',
+      'kcLower = kcBasis - kcRange',
+      'u1 = plot(bbUpper, "BB Upper", color=color.new(color.teal, 20))',
+      'l1 = plot(bbLower, "BB Lower", color=color.new(color.teal, 20))',
+      'u2 = plot(kcUpper, "KC Upper", color=color.new(color.amber, 40))',
+      'l2 = plot(kcLower, "KC Lower", color=color.new(color.amber, 40))',
+      'fill(u1, u2, color=color.new(color.teal, 92))',
+      'fill(l1, l2, color=color.new(color.teal, 92))',
+      'bgcolor(squeezeOn ? color.new(color.violet, 88) : na)',
+      'barcolor(squeezeOn ? color.zinc : na)',
+      'plotshape(squeezeOn, title="Squeeze", style=shape.circle, location=location.belowbar, color=color.violet)',
+      'alertcondition(squeezeOn, "Squeeze on", "squeeze is on")',
+    ].join('\n');
+    const r = runScript(code, synthBars());
+    expect(r.ok).toBe(true);
+    expect(r.plots).toHaveLength(4);
+    expect(r.fills).toHaveLength(2);
+    expect(r.background).not.toBeNull();
+    expect(r.barColors).not.toBeNull();
+    expect(r.shapes).toHaveLength(1);
+  });
+});

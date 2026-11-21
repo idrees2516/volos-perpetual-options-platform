@@ -118,6 +118,19 @@ export function usePersistedState<T>(key: string, initial: T): [T, (v: T | ((pre
   return [value, set];
 }
 
+/** Set a raw string store from OUTSIDE React (a plain helper, not a hook) —
+ *  notifies every `usePersistedString` subscriber of the same key. */
+export function setPersistedString(key: string, value: string): void {
+  const s = getRawStore(key);
+  s.value = value;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    /* private mode — memory store only */
+  }
+  for (const c of s.listeners) c();
+}
+
 /** localStorage-backed raw string (no JSON round-trip) — `useState` semantics,
  *  persisted; safe for keys previously written as plain text (e.g. `volos-view`). */
 export function usePersistedString(key: string, initial: string): [string, (v: string | ((prev: string) => string)) => void] {

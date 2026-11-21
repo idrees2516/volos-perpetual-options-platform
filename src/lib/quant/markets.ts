@@ -46,18 +46,125 @@ async function jget<T>(url: string, timeoutMs = 12000, headers?: Record<string, 
   }
 }
 
-/** USDT-perp klines with taker buy volume (CVD source). */
-export async function candles(symbol: string, interval = '5m', limit = 480): Promise<Candle[]> {
-  const r = await jget<unknown[][]>(`${BINANCE_F}/fapi/v1/klines?symbol=${symbol}USDT&interval=${interval}&limit=${limit}`);
-  return r.map((k) => ({
-    ts: Number(k[0]),
-    o: Number(k[1]),
-    h: Number(k[2]),
-    l: Number(k[3]),
-    c: Number(k[4]),
-    v: Number(k[5]),
-    takerBuy: Number(k[9]),
-  }));
+/** USDT-perp klines with taker buy volume (CVD source).
+ *  `startTime`/`endTime` (epoch ms) make paged history possible for chart feeds.
+ *  Binance fapi first; when the host's egress is geo-blocked (HTTP 451) the same
+ *  perp history is served by OKX (taker-buy approximated from the bar body —
+ *  the documented heuristic: bullish bars carry more taker buys). */
+export async function candles(symbol: string, interval = '5m', limit = 480, range?: { startTime?: number; endTime?: number }): Promise<Candle[]> {
+  try {
+    let url = `${BINANCE_F}/fapi/v1/klines?symbol=${symbol}USDT&interval=${interval}&limit=${limit}`;
+    if (range?.startTime) url += `&startTime=${Math.floor(range.startTime)}`;
+    if (range?.endTime) url += `&endTime=${Math.floor(range.endTime)}`;
+    const r = await jget<unknown[][]>(url);
+    if (r.length) {
+      return r.map((k) => ({
+        ts: Number(k[0]),
+        o: Number(k[1]),
+        h: Number(k[2]),
+        l: Number(k[3]),
+        c: Number(k[4]),
+        v: Number(k[5]),
+        takerBuy: Number(k[9]),
+      }));
+    }
+  } catch {
+    /* geo-blocked / transient — OKX fallback below */
+  }
+  return okxCandles(symbol, interval, limit, range);
+}
+
+const OKX_INTERVAL: Record<string, string> = {
+  '1m': '1m',
+  '3m': '3m',
+  '5m': '5m',
+  '15m': '15m',
+  '30m': '30m',
+  '1h': '1H',
+  '2h': '2H',
+  '4h': '4H',
+  '1d': '1D',
+  '1w': '1W',
+};
+
+/** OKX USDT-perp candles — the Binance fallback. Rows arrive NEWEST-first
+ *  (paginate older with `after`); we sort ascending and keep the newest
+ *  `limit` inside the requested window. */
+async function okxCandles(symbol: string, interval: string, limit: number, range?: { startTime?: number; endTime?: number }): Promise<Candle[]> {
+  const instId = `${symbol.replace('USDT', '')}-USDT-SWAP`;
+  const bar = OKX_INTERVAL[interval] ?? interval;
+  const want = Math.max(1, Math.min(1000, Math.round(limit)));
+  const out: Candle[] = [];
+  let after: string | undefined = range?.endTime ? String(Math.floor(range.endTime)) : undefined;
+  for (let page = 0; page < 10 && out.length < want; page++) {
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 12_000);
+    try {
+      const url = new URL(`${OKX}/api/v5/market/candles`);
+      url.searchParams.set('instId', instId);
+      url.searchParams.set('bar', bar);
+      url.searchParams.set('limit', String(Math.min(300, want - out.length)));
+      if (after) url.searchParams.set('after', after);
+      const res = await fetch(url, { signal: ctl.signal, cache: 'no-store', headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error(`okx ${res.status}`);
+      const body = (await res.json()) as { code?: string; data?: unknown[][] };
+      if (body.code !== '0' || !body.data?.length) break;
+      const rows = body.data;
+      for (const r of rows) {
+        const ts = Number(r[0]);
+        const o = Number(r[1]);
+        const h = Number(r[2]);
+        const l = Number(r[3]);
+        const c = Number(r[4]);
+        const v = Number(r[5]);
+        if (![ts, o, h, l, c, v].every(Number.isFinite)) continue;
+        if (range?.startTime && ts < Math.floor(range.startTime)) continue;
+        const rng = Math.max(1e-12, h - l);
+        const share = Math.min(0.9, Math.max(0.1, 0.5 + 0.4 * ((c - o) / rng)));
+        out.push({ ts, o, h, l, c, v, takerBuy: v * share });
+      }
+      after = String(rows[rows.length - 1][0]); // walk older
+      if (range?.startTime && Number(after) < Math.floor(range.startTime)) break;
+    } catch (e) {
+      if (out.length) break; // partial history beats none
+      throw e;
+    } finally {
+      clearTimeout(to);
+    }
+  }
+  if (!out.length) throw new Error(`okx candles empty for ${instId} ${bar}`);
+  const dedup = new Map<number, Candle>();
+  for (const c of out) dedup.set(c.ts, c);
+  return [...dedup.values()].sort((a, b) => a.ts - b.ts).slice(-want);
+}
+
+/** Paged history sweep: `countBack` bars ending at `to` (or now), walking
+ *  startTime backwards in ≤1000-bar slices — the chart desk's deep history. */
+export async function candlesPaged(symbol: string, interval: string, countBack: number, to?: number): Promise<Candle[]> {
+  const out: Candle[] = [];
+  let end = to ?? Date.now();
+  let remaining = Math.max(60, Math.min(5000, Math.round(countBack)));
+  const guard = Date.now() - 1000 * 60 * 60 * 24 * 365 * 8; // 8-year floor
+  while (remaining > 0 && end > guard) {
+    const slice = Math.min(remaining, 1000);
+    const batch = await candles(symbol, interval, slice, { endTime: end }).catch(() => [] as Candle[]);
+    if (!batch.length) break;
+    // batches arrive ascending; keep the newest `slice` of them
+    const kept = batch.slice(-slice);
+    for (const c of kept) {
+      if (!out.length || c.ts < out[0].ts) out.unshift(c);
+      else if (c.ts > out[out.length - 1].ts) out.push(c);
+    }
+    const oldest = kept[0].ts;
+    if (out.length >= remaining + 1) break;
+    remaining -= kept.length;
+    end = oldest - 1;
+    if (batch.length < slice) break; // venue exhausted this window
+  }
+  // dedupe by ts, ascending
+  const seen = new Map<number, Candle>();
+  for (const c of out) seen.set(c.ts, c);
+  return [...seen.values()].sort((a, b) => a.ts - b.ts);
 }
 
 // ── whole-market sweep (one call each — the breadth/treemap sources) ────────

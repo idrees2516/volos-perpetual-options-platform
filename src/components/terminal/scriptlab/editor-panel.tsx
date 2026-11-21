@@ -8,9 +8,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useMemo, useRef, useState } from 'react';
-import { Play, Save, FilePlus2, CircleAlert, CircleCheck, Loader2 } from 'lucide-react';
+import { Play, Save, FilePlus2, CircleAlert, CircleCheck, Loader2, ChartCandlestick } from 'lucide-react';
 import { useScriptLab } from '@/stores/scriptlab-store';
 import { SCRIPT_CATEGORIES } from '@/lib/scriptlang/library';
+import { pushScriptToChart } from '@/components/terminal/chartdesk/price-chart-view';
 import { CodeEditor } from './code-editor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -123,6 +124,23 @@ export function EditorPanel() {
         >
           {running ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
           run
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1 border-teal-800/60 bg-teal-950/40 px-2 text-[10px] text-teal-300 hover:bg-teal-900/40"
+          onClick={() => {
+            if (scriptCode) {
+              const ok = pushScriptToChart(scriptCode, scriptName);
+              setSaveMsg(ok ? (ok === 'queued' ? 'queued — opening the Chart Desk…' : 'pushed onto the Chart Desk price chart') : 'push failed');
+              if (saveTimer.current) clearTimeout(saveTimer.current);
+              saveTimer.current = setTimeout(() => setSaveMsg(null), 4000);
+            }
+          }}
+          disabled={!result?.ok || !scriptCode}
+          title="Register this script as a study on the TradingView-style Chart Desk (candles, 112 built-ins, drawings) — the chart\u2019s SOURCE button brings you back here"
+        >
+          <ChartCandlestick className="h-3 w-3" /> on price chart
         </Button>
         <Button
           variant="outline"

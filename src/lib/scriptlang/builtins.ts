@@ -14,7 +14,14 @@ export interface ColorObj {
   alpha: number;
 }
 
-export type Val = number | Float64Array | string | ColorObj | Val[];
+/** `cond ? colorA : colorB` — a per-bar color (bgcolor/barcolor/plot color). */
+export interface SeriesColorObj {
+  a: ColorObj;
+  b: ColorObj;
+  cond: Float64Array;
+}
+
+export type Val = number | Float64Array | string | ColorObj | SeriesColorObj | Val[];
 
 export const COLORS: Record<string, string> = {
   teal: '#2dd4bf',
@@ -638,6 +645,148 @@ export const TA_BUILTINS: Record<string, BuiltinFn> = {
     return supertrend(a.bars, factor, atrLen) as unknown as Val;
   },
   barssince: (a) => barssince(seriesArg(a, 0, undefined, 'ta.barssince')),
+  bb: (a) => {
+    const src = seriesArg(a, 0, undefined, 'ta.bb');
+    const len = intArg(a, 1, undefined, 'ta.bb', 20);
+    const mult = numArg(a, 2, undefined, 'ta.bb', 2);
+    const basis = sma(src, len);
+    const dev = stdev(src, len);
+    const upper = new Float64Array(a.n).fill(NaN);
+    const lower = new Float64Array(a.n).fill(NaN);
+    for (let i = 0; i < a.n; i++) {
+      if (Number.isFinite(basis[i]) && Number.isFinite(dev[i])) {
+        upper[i] = basis[i] + mult * dev[i];
+        lower[i] = basis[i] - mult * dev[i];
+      }
+    }
+    return [basis, upper, lower] as unknown as Val;
+  },
+  bbw: (a) => {
+    const t = (TA_BUILTINS.bb as (a: BuiltinArgs) => Val)(a) as unknown as [Float64Array, Float64Array, Float64Array];
+    const [basis, upper, lower] = t;
+    const out = new Float64Array(a.n).fill(NaN);
+    for (let i = 0; i < a.n; i++) {
+      if (Number.isFinite(basis[i]) && Number.isFinite(upper[i]) && Number.isFinite(lower[i]) && basis[i] !== 0) {
+        out[i] = (upper[i] - lower[i]) / basis[i];
+      }
+    }
+    return out;
+  },
+  kc: (a) => {
+    const len = intArg(a, 0, undefined, 'ta.kc', 20);
+    const mult = numArg(a, 1, undefined, 'ta.kc', 2);
+    const hl2 = new Float64Array(a.n);
+    for (let i = 0; i < a.n; i++) hl2[i] = (a.bars[i].h + a.bars[i].l) / 2;
+    const basis = ema(hl2, len);
+    const range = rma(trSeries(a.bars), len);
+    const upper = new Float64Array(a.n).fill(NaN);
+    const lower = new Float64Array(a.n).fill(NaN);
+    for (let i = 0; i < a.n; i++) {
+      if (Number.isFinite(basis[i]) && Number.isFinite(range[i])) {
+        upper[i] = basis[i] + mult * range[i];
+        lower[i] = basis[i] - mult * range[i];
+      }
+    }
+    return [basis, upper, lower] as unknown as Val;
+  },
+  pivothigh: (a) => pivots(seriesArg(a, 0, undefined, 'ta.pivothigh'), intArg(a, 1, undefined, 'ta.pivothigh', 5), intArg(a, 2, undefined, 'ta.pivothigh', 5), true),
+  pivotlow: (a) => pivots(seriesArg(a, 0, undefined, 'ta.pivotlow'), intArg(a, 1, undefined, 'ta.pivotlow', 5), intArg(a, 2, undefined, 'ta.pivotlow', 5), false),
+  valuewhen: (a) => {
+    const cond = seriesArg(a, 0, undefined, 'ta.valuewhen');
+    const src = seriesArg(a, 1, undefined, 'ta.valuewhen');
+    const occ = intArg(a, 2, undefined, 'ta.valuewhen', 0);
+    const out = new Float64Array(a.n).fill(NaN);
+    const seen: number[] = [];
+    for (let i = 0; i < a.n; i++) {
+      if (cond[i] !== 0 && Number.isFinite(cond[i])) seen.push(Number.isFinite(src[i]) ? src[i] : NaN);
+      const k = seen.length - 1 - occ;
+      out[i] = k >= 0 && Number.isFinite(seen[k]) ? seen[k] : i > 0 ? out[i - 1] : NaN;
+    }
+    return out;
+  },
+  falling: (a) => monotonic(seriesArg(a, 0, undefined, 'ta.falling'), intArg(a, 1, undefined, 'ta.falling'), false),
+  rising: (a) => monotonic(seriesArg(a, 0, undefined, 'ta.rising'), intArg(a, 1, undefined, 'ta.rising'), true),
+  mom: (a) => change(seriesArg(a, 0, undefined, 'ta.mom'), intArg(a, 1, undefined, 'ta.mom', 1)),
+  roc: (a) => {
+    const src = seriesArg(a, 0, undefined, 'ta.roc');
+    const len = intArg(a, 1, undefined, 'ta.roc', 1);
+    const out = new Float64Array(a.n).fill(NaN);
+    for (let i = len; i < a.n; i++) {
+      const base = src[i - len];
+      if (Number.isFinite(src[i]) && Number.isFinite(base) && base !== 0) out[i] = ((src[i] - base) / base) * 100;
+    }
+    return out;
+  },
+  dev: (a) => meanAbsDev(seriesArg(a, 0, undefined, 'ta.dev'), intArg(a, 1, undefined, 'ta.dev')),
+  median: (a) => rollingMedian(seriesArg(a, 0, undefined, 'ta.median'), intArg(a, 1, undefined, 'ta.median')),
+  range: (a) => rollRange(seriesArg(a, 0, undefined, 'ta.range'), intArg(a, 1, undefined, 'ta.range')),
+  hma: (a) => {
+    const src = seriesArg(a, 0, undefined, 'ta.hma');
+    const len = intArg(a, 1, undefined, 'ta.hma', 9);
+    const half = wma(src, Math.max(1, Math.floor(len / 2)));
+    const full = wma(src, len);
+    const diff = new Float64Array(a.n).fill(NaN);
+    for (let i = 0; i < a.n; i++) {
+      if (Number.isFinite(half[i]) && Number.isFinite(full[i])) diff[i] = 2 * half[i] - full[i];
+    }
+    return wma(diff, Math.max(1, Math.round(Math.sqrt(len))));
+  },
+  alma: (a) => alma(seriesArg(a, 0, undefined, 'ta.alma'), intArg(a, 1, undefined, 'ta.alma', 9), numArg(a, 2, undefined, 'ta.alma', 0.85), numArg(a, 3, undefined, 'ta.alma', 6)),
+  vwma: (a) => {
+    const src = seriesArg(a, 0, undefined, 'ta.vwma');
+    const len = intArg(a, 1, undefined, 'ta.vwma', 20);
+    const vol = new Float64Array(a.n);
+    for (let i = 0; i < a.n; i++) vol[i] = a.bars[i].v;
+    const pv = new Float64Array(a.n);
+    for (let i = 0; i < a.n; i++) pv[i] = src[i] * vol[i];
+    const num = sma(pv, len);
+    const den = sma(vol, len);
+    const out = new Float64Array(a.n).fill(NaN);
+    for (let i = 0; i < a.n; i++) {
+      if (Number.isFinite(num[i]) && Number.isFinite(den[i]) && den[i] !== 0) out[i] = num[i] / den[i];
+    }
+    return out;
+  },
+  wpr: (a) => {
+    const len = intArg(a, 0, undefined, 'ta.wpr', 14);
+    const hh = new Float64Array(a.n);
+    const ll = new Float64Array(a.n);
+    for (let i = 0; i < a.n; i++) {
+      hh[i] = a.bars[i].h;
+      ll[i] = a.bars[i].l;
+    }
+    const hi = highest(hh, len);
+    const lo = lowest(ll, len);
+    const out = new Float64Array(a.n).fill(NaN);
+    for (let i = 0; i < a.n; i++) {
+      if (Number.isFinite(hi[i]) && Number.isFinite(lo[i]) && hi[i] !== lo[i]) {
+        out[i] = ((hi[i] - a.bars[i].c) / (hi[i] - lo[i])) * -100;
+      }
+    }
+    return out;
+  },
+  cmo: (a) => {
+    const src = seriesArg(a, 0, undefined, 'ta.cmo');
+    const len = intArg(a, 1, undefined, 'ta.cmo', 9);
+    const ch = change(src, 1);
+    const out = new Float64Array(a.n).fill(NaN);
+    for (let i = len; i < a.n; i++) {
+      let up = 0;
+      let dn = 0;
+      let ok = true;
+      for (let j = i - len + 1; j <= i; j++) {
+        if (!Number.isFinite(ch[j])) {
+          ok = false;
+          break;
+        }
+        if (ch[j] > 0) up += ch[j];
+        else if (ch[j] < 0) dn += -ch[j];
+      }
+      if (ok && up + dn !== 0) out[i] = ((up - dn) / (up + dn)) * 100;
+    }
+    return out;
+  },
+  sar: (a) => parabolicSar(a.bars, numArg(a, 0, undefined, 'ta.sar', 0.02), numArg(a, 1, undefined, 'ta.sar', 0.02), numArg(a, 2, undefined, 'ta.sar', 0.2)),
 };
 
 /** math.* namespace — scalars AND series in, matching Pine semantics. */
@@ -737,3 +886,177 @@ function mapN(a: BuiltinArgs, fn: (vs: number[]) => number): Val {
 }
 
 export { mkArgs, sma, ema, rma, wma, stdev, highest, lowest, cum, change, rsi, trSeries, macd, crossover, crossunder, stoch, cci, vwap, obv, linreg, correlation, percentrank, kama, supertrend, barssince };
+
+// ── kernels added for the Pine-compatibility round ─────────────────────────
+
+/** Pivothigh/pivotlow: the extreme value, printed at the CONFIRMING bar
+ *  (leftbars + rightbars later), exactly like Pine. */
+function pivots(x: Float64Array, left: number, right: number, isHigh: boolean): Float64Array {
+  const n = x.length;
+  const out = new Float64Array(n).fill(NaN);
+  for (let i = left + right; i < n; i++) {
+    const p = i - right;
+    let ok = true;
+    for (let j = p - left; j < p; j++) {
+      if (!Number.isFinite(x[j]) || !Number.isFinite(x[p]) || (isHigh ? x[j] >= x[p] : x[j] <= x[p])) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    for (let j = p + 1; j <= i; j++) {
+      if (!Number.isFinite(x[j]) || !Number.isFinite(x[p]) || (isHigh ? x[j] > x[p] : x[j] < x[p])) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) out[i] = x[p];
+  }
+  return out;
+}
+
+function monotonic(x: Float64Array, len: number, rising: boolean): Float64Array {
+  const n = x.length;
+  const out = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let ok = i >= len - 1;
+    if (ok) {
+      for (let j = i - len + 1; j <= i; j++) {
+        if (!Number.isFinite(x[j])) {
+          ok = false;
+          break;
+        }
+      }
+    }
+    if (!ok) {
+      out[i] = i > 0 ? out[i - 1] : 0;
+      continue;
+    }
+    let mono = true;
+    for (let j = i - len + 2; j <= i; j++) {
+      if (rising ? x[j] <= x[j - 1] : x[j] >= x[j - 1]) {
+        mono = false;
+        break;
+      }
+    }
+    out[i] = mono ? 1 : 0;
+  }
+  return out;
+}
+
+function meanAbsDev(x: Float64Array, len: number): Float64Array {
+  const n = x.length;
+  const out = new Float64Array(n).fill(NaN);
+  for (let i = len - 1; i < n; i++) {
+    let mean = 0;
+    let ok = true;
+    for (let j = i - len + 1; j <= i; j++) {
+      if (!Number.isFinite(x[j])) {
+        ok = false;
+        break;
+      }
+      mean += x[j];
+    }
+    if (!ok) continue;
+    mean /= len;
+    let acc = 0;
+    for (let j = i - len + 1; j <= i; j++) acc += Math.abs(x[j] - mean);
+    out[i] = acc / len;
+  }
+  return out;
+}
+
+function rollingMedian(x: Float64Array, len: number): Float64Array {
+  const n = x.length;
+  const out = new Float64Array(n).fill(NaN);
+  const win: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (!Number.isFinite(x[i])) {
+      win.length = 0;
+      continue;
+    }
+    win.push(x[i]);
+    if (win.length > len) win.shift();
+    if (win.length === len) {
+      const sorted = [...win].sort((a, b) => a - b);
+      out[i] = len % 2 ? sorted[(len - 1) / 2] : (sorted[len / 2 - 1] + sorted[len / 2]) / 2;
+    }
+  }
+  return out;
+}
+
+function rollRange(x: Float64Array, len: number): Float64Array {
+  const hi = highest(x, len);
+  const lo = lowest(x, len);
+  const out = new Float64Array(x.length).fill(NaN);
+  for (let i = 0; i < x.length; i++) {
+    if (Number.isFinite(hi[i]) && Number.isFinite(lo[i])) out[i] = hi[i] - lo[i];
+  }
+  return out;
+}
+
+function alma(x: Float64Array, len: number, offset = 0.85, sigma = 6): Float64Array {
+  const n = x.length;
+  const out = new Float64Array(n).fill(NaN);
+  const m = offset * (len - 1);
+  const s = len / sigma;
+  const w: number[] = [];
+  let wSum = 0;
+  for (let j = 0; j < len; j++) {
+    const wj = Math.exp(-((j - m) ** 2) / (2 * s * s));
+    w.push(wj);
+    wSum += wj;
+  }
+  for (let i = len - 1; i < n; i++) {
+    let acc = 0;
+    let ok = true;
+    for (let j = 0; j < len; j++) {
+      const v = x[i - len + 1 + j];
+      if (!Number.isFinite(v)) {
+        ok = false;
+        break;
+      }
+      acc += v * w[j];
+    }
+    if (ok) out[i] = acc / wSum;
+  }
+  return out;
+}
+
+/** Parabolic SAR (Wilder) over the full OHLC bars. */
+function parabolicSar(bars: ScriptBar[], start = 0.02, inc = 0.02, max = 0.2): Float64Array {
+  const n = bars.length;
+  const out = new Float64Array(n).fill(NaN);
+  if (n < 3) return out;
+  let up = bars[1].c >= bars[0].c;
+  let af = start;
+  let ep = up ? bars[0].h : bars[0].l;
+  let sar = up ? bars[0].l : bars[0].h;
+  out[0] = sar;
+  for (let i = 1; i < n; i++) {
+    sar = sar + af * (ep - sar);
+    if (up) {
+      if (bars[i].l < sar) {
+        up = false;
+        sar = ep;
+        ep = bars[i].l;
+        af = start;
+      } else if (bars[i].h > ep) {
+        ep = bars[i].h;
+        af = Math.min(af + inc, max);
+      }
+    } else {
+      if (bars[i].h > sar) {
+        up = true;
+        sar = ep;
+        ep = bars[i].h;
+        af = start;
+      } else if (bars[i].l < ep) {
+        ep = bars[i].l;
+        af = Math.min(af + inc, max);
+      }
+    }
+    out[i] = sar;
+  }
+  return out;
+}
