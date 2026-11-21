@@ -26,7 +26,8 @@ export interface AssetMarket {
 }
 
 export interface MarketData {
-  source: 'rust' | 'local';
+  /** Which REAL venue served this frame (e.g. 'Binance spot', 'OKX spot'). */
+  source: string;
   assets: Record<string, AssetMarket>;
   tick: number;
   tsMs: number;

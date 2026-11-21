@@ -1,10 +1,19 @@
 'use client';
 
-// Live market context: SSE stream from the Rust engine with a transparent
-// client-side simulation fallback — and REAL BTC/ETH/SOL spot prices from
-// public exchange APIs (Binance → Bybit → OKX → Deribit index) overlaid on
-// every frame, so every place the terminal shows a price is live.
-// Exposes smooth interpolated spot for buttery chart motion.
+// Live market context — 100% REAL venue data, no local simulation.
+//
+// Every frame is built from the live-prices polling singleton:
+//   • spot / 24h change / high / low / volume  — Binance → Bybit → OKX → Deribit
+//   • perp funding (8h fraction) + open-interest notional — OKX USDT swaps
+//   • volShift re-centres the pricing surface on the REAL Deribit 30d
+//     historical-vol index (HV / baseline ATM − 1)
+//
+// There is NO client-side price simulation and NO engine fallback: if every
+// public venue is unreachable the frame simply stays on the last known real
+// snapshot and the status line reads "connecting…".
+//
+// Exposes smooth interpolated spot for buttery chart motion (lerp is a
+// presentation-layer effect on the REAL ticks, not a data source).
 //
 // NOTE: this is the ONLY use-market module. A stale use-market.ts used to
 // shadow this file for TypeScript resolution (tsc resolves .ts before .tsx,
@@ -14,21 +23,23 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { AssetMarket, MarketData } from '@/lib/types';
-import { openMarketStream } from '@/lib/api';
-import { MarketSim } from '@/lib/market-sim';
-import { subscribeLivePrices, type LivePriceSnapshot } from '@/lib/live-prices';
+import { subscribeLivePrices, refreshLivePrices, type LivePriceSnapshot } from '@/lib/live-prices';
+import { VOL_CONFIG } from '@/lib/pricing';
 
 const LIVE_ASSETS = ['BTC', 'ETH', 'SOL'] as const;
 
+// Empty until the first REAL quote lands — no invented seed prices.
+const EMPTY_ASSETS: Record<string, AssetMarket> = {
+  BTC: { spot: 0, volShift: 0, fundingRate: 0, change24h: 0, openInterest: 0, volume24h: 0 },
+  ETH: { spot: 0, volShift: 0, fundingRate: 0, change24h: 0, openInterest: 0, volume24h: 0 },
+  SOL: { spot: 0, volShift: 0, fundingRate: 0, change24h: 0, openInterest: 0, volume24h: 0 },
+};
+
 const INITIAL: MarketData = {
-  source: 'local',
+  source: 'connecting',
   tick: 0,
   tsMs: Date.now(),
-  assets: {
-    BTC: { spot: 97450, volShift: 0, fundingRate: 0.091, change24h: 0, openInterest: 4.12e9, volume24h: 1.87e9 },
-    ETH: { spot: 2462, volShift: 0.02, fundingRate: 0.083, change24h: 0, openInterest: 2.31e9, volume24h: 9.6e8 },
-    SOL: { spot: 138.4, volShift: -0.01, fundingRate: 0.104, change24h: 0, openInterest: 6.4e8, volume24h: 3.1e8 },
-  },
+  assets: EMPTY_ASSETS,
 };
 
 interface MarketContextValue {
@@ -36,8 +47,9 @@ interface MarketContextValue {
   /** Smoothed spot for animation (lerped toward the live value). */
   smooth: Record<string, AssetMarket>;
   connected: boolean;
-  source: 'rust' | 'local';
-  /** Real exchange prices (Binance/Bybit/OKX/Deribit) — null until first poll. */
+  /** Real venue serving the frames (e.g. 'Binance spot'). */
+  source: string;
+  /** The raw live-price snapshot (real quotes + perp metrics + HV). */
   live: LivePriceSnapshot | null;
   retry: () => void;
 }
@@ -48,115 +60,54 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
   const [market, setMarket] = useState<MarketData>(INITIAL);
   const [connected, setConnected] = useState(false);
   const [live, setLive] = useState<LivePriceSnapshot | null>(null);
-  const [nonce, setNonce] = useState(0);
-  const simRef = useRef<MarketSim | null>(null);
   const latestRef = useRef<MarketData>(INITIAL);
-  const liveRef = useRef<LivePriceSnapshot | null>(null);
 
-  const retry = useCallback(() => setNonce((n) => n + 1), []);
-
-  // ── REAL live prices: poll public exchange APIs every 10s ─────────────────
-  // Overlaid on whichever market frame is current (engine SSE or sim), so
-  // every displayed spot — ticker, payoff, chains, gamma lab, trading,
-  // paper desk — is the real traded price.
-  const applyLive = (m: MarketData): MarketData => {
-    const snap = liveRef.current;
-    if (!snap?.ok) return m;
-    let touched = false;
-    const assets = { ...m.assets };
-    for (const a of LIVE_ASSETS) {
-      const q = snap.quotes[a];
-      const base = assets[a];
-      if (q && q.spot > 0 && base) {
-        touched = true;
-        assets[a] = {
-          ...base,
-          spot: q.spot,
-          // app convention: change24h is a fraction (0.064 = 6.4%)
-          change24h: q.change24hPct / 100,
-          volume24h: q.volumeUsd24h || base.volume24h,
-        };
-      }
-    }
-    return touched ? { ...m, assets } : m;
-  };
-
-  const push = (m: MarketData) => {
-    const m2 = applyLive(m);
-    latestRef.current = m2;
-    setMarket(m2);
-  };
-
-  useEffect(() => {
-    const unsubscribe = subscribeLivePrices((snap) => {
-      liveRef.current = snap;
-      setLive(snap);
-      // re-apply the fresh quotes on top of the latest frame
-      push(latestRef.current);
-    });
-    return unsubscribe;
+  const retry = useCallback(() => {
+    refreshLivePrices();
   }, []);
 
+  // ── build the market frame from each REAL snapshot ─────────────────────────
+  const push = useCallback((snap: LivePriceSnapshot) => {
+    setLive(snap);
+    setConnected(snap.ok);
+    const prev = latestRef.current;
+    const assets: Record<string, AssetMarket> = {};
+    for (const a of LIVE_ASSETS) {
+      const q = snap.quotes[a];
+      const base = prev.assets[a] ?? EMPTY_ASSETS[a];
+      const perp = snap.perp?.[a];
+      const hv = snap.hv30d?.[a];
+      const cfg = VOL_CONFIG[a];
+      assets[a] = {
+        spot: q?.spot && q.spot > 0 ? q.spot : base.spot,
+        // app convention: change24h is a fraction (0.064 = 6.4%)
+        change24h: q ? q.change24hPct / 100 : base.change24h,
+        volume24h: q?.volumeUsd24h && q.volumeUsd24h > 0 ? q.volumeUsd24h : base.volume24h,
+        // per-8h fraction (Binance convention) from the real OKX swap
+        fundingRate: perp ? perp.fundingRate8h : base.fundingRate,
+        openInterest: perp && perp.openInterestUsd > 0 ? perp.openInterestUsd : base.openInterest,
+        // re-centre the synthetic pricing surface on the REAL Deribit HV
+        volShift: hv && hv > 0 && cfg ? hv / cfg.atm30d - 1 : base.volShift,
+      };
+    }
+    const frame: MarketData = {
+      source: snap.ok ? snap.source : 'unreachable',
+      tick: prev.tick + 1,
+      tsMs: snap.tsMs,
+      assets,
+    };
+    latestRef.current = frame;
+    setMarket(frame);
+  }, []);
 
   useEffect(() => {
-    let closed = false;
-    let closeStream: (() => void) | null = null;
-    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-    let simStarted = false;
-
-    const startFallback = () => {
-      if (closed || simStarted) return;
-      simStarted = true;
-      setConnected(false);
-      const sim = simRef.current ?? new MarketSim();
-      simRef.current = sim;
-      // Seed the simulator from the latest known state for continuity.
-      sim.start((m) => {
-        if (!closed) {
-          push(m);
-        }
-      });
-    };
-
-    const stopFallback = () => {
-      simRef.current?.stop();
-      simStarted = false;
-    };
-
-    // Give the Rust SSE 3.5s to deliver its first frame; else fall back.
-    fallbackTimer = setTimeout(startFallback, 3500);
-
-    try {
-      closeStream = openMarketStream(
-        (m) => {
-          if (closed) return;
-          if (fallbackTimer) {
-            clearTimeout(fallbackTimer);
-            fallbackTimer = null;
-          }
-          stopFallback();
-          setConnected(true);
-          push(m);
-        },
-        () => {
-          if (!closed && !simStarted) startFallback();
-        },
-      );
-    } catch {
-      startFallback();
-    }
-
-    return () => {
-      closed = true;
-      if (fallbackTimer) clearTimeout(fallbackTimer);
-      closeStream?.();
-      stopFallback();
-    };
-  }, [nonce]);
+    const unsubscribe = subscribeLivePrices(push);
+    return unsubscribe;
+  }, [push]);
 
   // Smooth interpolation at 30fps for chart motion.
-  const [smooth, setSmooth] = useState<Record<string, AssetMarket>>(INITIAL.assets);
-  const smoothRef = useRef<Record<string, AssetMarket>>(INITIAL.assets);
+  const [smooth, setSmooth] = useState<Record<string, AssetMarket>>(EMPTY_ASSETS);
+  const smoothRef = useRef<Record<string, AssetMarket>>(EMPTY_ASSETS);
   useEffect(() => {
     const raf = setInterval(() => {
       const target = latestRef.current.assets;

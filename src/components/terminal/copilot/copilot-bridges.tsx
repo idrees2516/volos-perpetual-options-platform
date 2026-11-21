@@ -87,7 +87,7 @@ export function CopilotContextBridge({ view }: { view: ViewId }) {
         })),
       },
       market: {
-        source: live?.ok ? `live · ${live.source}` : market.source === 'rust' ? 'rust engine' : 'local sim',
+        source: live?.ok ? `live · ${live.source}` : 'connecting to venues',
         tsMs: market.tsMs,
         assets,
       },

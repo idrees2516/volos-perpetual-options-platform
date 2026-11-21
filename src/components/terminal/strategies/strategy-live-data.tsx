@@ -100,7 +100,7 @@ export function StrategyLiveData({ analysis, legs, underlying, market, legCount 
             tone={(market.change24h ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}
           />
           <Stat label="ATM IV 30d" value={fmtNum(atmIv * 100, 1) + '%'} sub={`vol shift ${fmtNum((market.volShift ?? 0) * 100, 1)}%`} />
-          <Stat label="Funding" value={fmtNum((market.fundingRate ?? 0) * 100, 3) + '%'} sub={`APR ${fmtNum((market.fundingRate ?? 0) * 365 * 100, 0)}%`} />
+          <Stat label="Funding" value={fmtNum((market.fundingRate ?? 0) * 100, 3) + '%'} sub={`APR ${fmtNum((market.fundingRate ?? 0) * 3 * 365 * 100, 0)}% · per 8h`} />
           <Stat label="Open interest" value={fmtUsd(market.openInterest, { compact: true })} />
           <Stat label="24h volume" value={fmtUsd(market.volume24h, { compact: true })} />
         </div>
