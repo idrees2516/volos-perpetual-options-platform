@@ -53,7 +53,10 @@ function Terminal() {
   }, []);
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#05070a] text-zinc-200">
+    // fixed terminal shell: topbar + scrollable workspace + footer, all inside
+    // the viewport (h-dvh) — every view scrolls internally, the footer always
+    // sits at the bottom and never floats over content.
+    <div className="flex flex-col overflow-hidden bg-[#05070a] text-zinc-200" style={{ height: '100dvh' }}>
       <TopBar />
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <Workbench view={view} onView={(v) => setView(v)} collapsed={railCollapsed} onToggleCollapsed={toggleRail}>

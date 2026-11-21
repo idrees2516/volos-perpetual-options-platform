@@ -57,7 +57,7 @@ const ANALYTICS_ITEMS: RailItem[] = [
   { id: 'orderflow', label: 'Order Flow', icon: <Flame className="h-4 w-4" />, hint: 'resting-liquidity heatmap · absorption & icebergs · tape · venues · liquidations · OI & funding · whole market' },
   { id: 'forecast', label: 'Forecast', icon: <Sigma className="h-4 w-4" />, hint: 'conformal prediction on flow bars · calibrated intervals · cross-validated coverage · expected move' },
   { id: 'quant', label: 'Quant Lab', icon: <Atom className="h-4 w-4" />, hint: 'native realtime engine · GEX levels · IV/PDF/greeks · live SSE tape · perps · ETF/COT/SEC · /api/quant' },
-  { id: 'scriptlab', label: 'Script Lab', icon: <Braces className="h-4 w-4" />, hint: 'volscript — pine-style indicators & strategies · drag/resize workspace · backtests · ai writes code' },
+  { id: 'scriptlab', label: 'Script Lab', icon: <Braces className="h-4 w-4" />, hint: 'pine-style script applied to the chart · editor + backtest + performance in one panel below it · ai writes any indicator' },
   { id: 'chain', label: 'Option Chain', icon: <CircleDot className="h-4 w-4" />, hint: 'live chains with per-strike BUY / SELL' },
   { id: 'trade', label: 'Trading', icon: <LineChart className="h-4 w-4" />, hint: 'engine CLOB · L2 book · $1M demo equity' },
 ];

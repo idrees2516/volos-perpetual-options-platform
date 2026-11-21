@@ -1,18 +1,24 @@
 'use client';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Script Lab — EditorPanel. Name/category toolbar, auto-generated settings
-// form (from input.* declarations — ints, floats, bools, selects, sources),
-// the highlighted code editor, Run / Save / New-template actions and a
-// compile status strip with jump-to-error.
+// Script Lab — EditorPanel. The PineScript-style half of the studio: name/
+// category toolbar, auto-generated settings form (from input.* declarations —
+// ints, floats, bools, selects, sources), the highlighted code editor, Run /
+// Save / New-template actions and a compile status strip with jump-to-error
+// — plus, embedded directly beside the code, the AI desk (toggle in the
+// toolbar; a one-click "fix with AI" appears whenever the script fails to
+// compile). Running a script applies it to the price chart above.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useMemo, useRef, useState } from 'react';
-import { Play, Save, FilePlus2, CircleAlert, CircleCheck, Loader2, ChartCandlestick } from 'lucide-react';
+import {
+  Play, Save, FilePlus2, CircleAlert, CircleCheck, Loader2, ChartCandlestick, Sparkles, Wand2,
+} from 'lucide-react';
 import { useScriptLab } from '@/stores/scriptlab-store';
 import { SCRIPT_CATEGORIES } from '@/lib/scriptlang/library';
 import { pushScriptToChart } from '@/components/terminal/chartdesk/price-chart-view';
 import { CodeEditor } from './code-editor';
+import { AiPanel } from './ai-panel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -38,6 +44,9 @@ export function EditorPanel() {
     newFromTemplate,
     saveScript,
     bars,
+    aiOpen,
+    toggleAiOpen,
+    aiSend,
   } = useScriptLab();
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -55,6 +64,7 @@ export function EditorPanel() {
     const parts = [`${result.plots.length} plot${result.plots.length === 1 ? '' : 's'}`, `${result.runtimeMs} ms`];
     if (result.shapes.length) parts.push(`${result.shapes.length} shapes`);
     if (result.hlines.length) parts.push(`${result.hlines.length} levels`);
+    if (result.backtest) parts.push(`${result.backtest.trades.length} fills`);
     return { t: parts.join(' · '), err: false } as const;
   }, [result, running]);
 
@@ -67,168 +77,205 @@ export function EditorPanel() {
     saveTimer.current = setTimeout(() => setSaveMsg(null), 4000);
   };
 
+  const fixWithAi = () => {
+    if (!aiOpen) toggleAiOpen();
+    void aiSend('fix');
+  };
+
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 p-2.5">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Input
-          value={scriptName}
-          onChange={(e) => setDraftMeta({ name: e.target.value })}
-          aria-label="Script name"
-          className="h-7 w-40 flex-1 min-w-[120px] border-zinc-800 bg-zinc-950 text-[11px]"
-          placeholder="script name"
-        />
-        <Select value={scriptCategory} onValueChange={(v) => setDraftMeta({ category: v })}>
-          <SelectTrigger className="h-7 w-[150px] border-zinc-800 bg-zinc-950 text-[10px]" aria-label="Category">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="max-h-72">
-            {SCRIPT_CATEGORIES.map((c) => (
-              <SelectItem key={c.key} value={c.key} className="text-[11px]">
-                {c.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <span
-          className={`rounded px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider ${
-            kindBadge === 'strategy' ? 'bg-violet-950/70 text-violet-300 ring-1 ring-violet-500/30' : 'bg-teal-950/60 text-teal-300 ring-1 ring-teal-500/30'
-          }`}
-        >
-          {kindBadge}
-        </span>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 gap-1 border-zinc-800 bg-zinc-950 px-2 text-[10px]"
-          onClick={() => newFromTemplate('indicator')}
-          title="Start a fresh indicator from a template"
-        >
-          <FilePlus2 className="h-3 w-3" /> ind
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 gap-1 border-zinc-800 bg-zinc-950 px-2 text-[10px]"
-          onClick={() => newFromTemplate('strategy')}
-          title="Start a fresh strategy from a template"
-        >
-          <FilePlus2 className="h-3 w-3" /> strat
-        </Button>
-        <Button
-          size="sm"
-          className="h-7 gap-1 bg-teal-600 px-2.5 text-[10px] font-semibold text-zinc-950 hover:bg-teal-500"
-          onClick={() => rerun()}
-          disabled={!bars}
-          title="Compile & run — Ctrl/Cmd+Enter"
-        >
-          {running ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-          run
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 gap-1 border-teal-800/60 bg-teal-950/40 px-2 text-[10px] text-teal-300 hover:bg-teal-900/40"
-          onClick={() => {
-            if (scriptCode) {
-              const ok = pushScriptToChart(scriptCode, scriptName);
-              setSaveMsg(ok ? (ok === 'queued' ? 'queued — opening the Chart Desk…' : 'pushed onto the Chart Desk price chart') : 'push failed');
-              if (saveTimer.current) clearTimeout(saveTimer.current);
-              saveTimer.current = setTimeout(() => setSaveMsg(null), 4000);
-            }
-          }}
-          disabled={!result?.ok || !scriptCode}
-          title="Register this script as a study on the TradingView-style Chart Desk (candles, 112 built-ins, drawings) — the chart\u2019s SOURCE button brings you back here"
-        >
-          <ChartCandlestick className="h-3 w-3" /> on price chart
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 gap-1 border-zinc-800 bg-zinc-950 px-2 text-[10px]"
-          onClick={doSave}
-          disabled={saving}
-          title="Save to the script library (SQLite)"
-        >
-          {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-          save
-        </Button>
-      </div>
-
-      {/* auto-generated settings form from input.* declarations */}
-      {result?.ok && result.inputs.length > 0 && (
-        <div className="flex flex-wrap items-end gap-x-3 gap-y-1.5 rounded-md border border-zinc-800/80 bg-zinc-950/50 px-2.5 py-2">
-          {result.inputs.map((inp) => (
-            <label key={inp.key} className="flex min-w-[86px] flex-col gap-1">
-              <span className="text-[8.5px] font-semibold uppercase tracking-wider text-zinc-500">{inp.title}</span>
-              {inp.type === 'int' || inp.type === 'float' ? (
-                <Input
-                  type="number"
-                  value={String(inputs[inp.key] ?? inp.def)}
-                  min={inp.minval}
-                  max={inp.maxval}
-                  step={inp.step ?? (inp.type === 'int' ? 1 : 'any')}
-                  onChange={(e) => setInput(inp.key, Number(e.target.value))}
-                  className="h-6 w-[86px] border-zinc-800 bg-zinc-950 font-mono text-[10.5px]"
-                />
-              ) : inp.type === 'bool' ? (
-                <Switch
-                  checked={inputs[inp.key] === true || inputs[inp.key] === 1 || inputs[inp.key] === undefined ? Boolean(inp.def) : false}
-                  onCheckedChange={(v) => setInput(inp.key, v)}
-                />
-              ) : inp.type === 'source' ? (
-                <Select value={String(inputs[inp.key] ?? inp.def)} onValueChange={(v) => setInput(inp.key, v)}>
-                  <SelectTrigger className="h-6 w-[110px] border-zinc-800 bg-zinc-950 font-mono text-[10.5px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-64">
-                    {SOURCE_SERIES.map((s) => (
-                      <SelectItem key={s} value={s} className="font-mono text-[10.5px]">
-                        {s}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Select value={String(inputs[inp.key] ?? inp.def)} onValueChange={(v) => setInput(inp.key, v)}>
-                  <SelectTrigger className="h-6 w-[130px] border-zinc-800 bg-zinc-950 text-[10.5px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-64">
-                    {(inp.options ?? [String(inp.def)]).map((o) => (
-                      <SelectItem key={o} value={o} className="text-[10.5px]">
-                        {o}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </label>
-          ))}
+    <div className="flex h-full min-h-0 flex-col overflow-hidden lg:flex-row">
+      {/* ── the code half ─────────────────────────────────────────────── */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-2.5">
+        {/* toolbar */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Input
+            value={scriptName}
+            onChange={(e) => setDraftMeta({ name: e.target.value })}
+            aria-label="Script name"
+            className="h-7 w-40 flex-1 min-w-[120px] border-zinc-800 bg-zinc-950 text-[11px]"
+            placeholder="script name"
+          />
+          <Select value={scriptCategory} onValueChange={(v) => setDraftMeta({ category: v })}>
+            <SelectTrigger className="h-7 w-[150px] border-zinc-800 bg-zinc-950 text-[10px]" aria-label="Category">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="max-h-72">
+              {SCRIPT_CATEGORIES.map((c) => (
+                <SelectItem key={c.key} value={c.key} className="text-[11px]">
+                  {c.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span
+            className={`rounded px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider ${
+              kindBadge === 'strategy' ? 'bg-violet-950/70 text-violet-300 ring-1 ring-violet-500/30' : 'bg-teal-950/60 text-teal-300 ring-1 ring-teal-500/30'
+            }`}
+          >
+            {kindBadge}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 border-zinc-800 bg-zinc-950 px-2 text-[10px]"
+            onClick={() => newFromTemplate('indicator')}
+            title="Start a fresh indicator from a template"
+          >
+            <FilePlus2 className="h-3 w-3" /> ind
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 border-zinc-800 bg-zinc-950 px-2 text-[10px]"
+            onClick={() => newFromTemplate('strategy')}
+            title="Start a fresh strategy from a template"
+          >
+            <FilePlus2 className="h-3 w-3" /> strat
+          </Button>
+          <Button
+            size="sm"
+            className="h-7 gap-1 bg-teal-600 px-2.5 text-[10px] font-semibold text-zinc-950 hover:bg-teal-500"
+            onClick={() => rerun()}
+            disabled={!bars}
+            title="Compile & apply to the chart above — Ctrl/Cmd+Enter"
+          >
+            {running ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+            run
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 border-teal-800/60 bg-teal-950/40 px-2 text-[10px] text-teal-300 hover:bg-teal-900/40"
+            onClick={() => {
+              if (scriptCode) {
+                const ok = pushScriptToChart(scriptCode, scriptName);
+                setSaveMsg(ok ? (ok === 'queued' ? 'queued — opening the Chart Desk…' : 'pushed onto the Chart Desk price chart') : 'push failed');
+                if (saveTimer.current) clearTimeout(saveTimer.current);
+                saveTimer.current = setTimeout(() => setSaveMsg(null), 4000);
+              }
+            }}
+            disabled={!result?.ok || !scriptCode}
+            title="Register this script as a study on the TradingView-style Chart Desk (candles, 112 built-ins, drawings) — the chart\u2019s SOURCE button brings you back here"
+          >
+            <ChartCandlestick className="h-3 w-3" /> on price chart
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 border-zinc-800 bg-zinc-950 px-2 text-[10px]"
+            onClick={doSave}
+            disabled={saving}
+            title="Save to the script library (SQLite)"
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+            save
+          </Button>
+          {/* the AI desk toggle — the copilot lives right beside the code */}
+          <Button
+            variant="outline"
+            size="sm"
+            className={`h-7 gap-1 px-2 text-[10px] ${
+              aiOpen
+                ? 'border-violet-600/50 bg-violet-950/50 text-violet-300 hover:bg-violet-900/40'
+                : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-violet-300'
+            }`}
+            onClick={toggleAiOpen}
+            title="The AI desk — writes, explains, fixes and translates any indicator or analysis tool, right beside your code"
+          >
+            <Sparkles className="h-3 w-3" /> ai desk
+          </Button>
         </div>
-      )}
 
-      {/* code */}
-      <CodeEditor code={scriptCode} onChange={setCode} onRun={() => rerun()} errorLine={result?.ok ? undefined : result?.error?.line} />
+        {/* auto-generated settings form from input.* declarations */}
+        {result?.ok && result.inputs.length > 0 && (
+          <div className="flex flex-wrap items-end gap-x-3 gap-y-1.5 rounded-md border border-zinc-800/80 bg-zinc-950/50 px-2.5 py-2">
+            {result.inputs.map((inp) => (
+              <label key={inp.key} className="flex min-w-[86px] flex-col gap-1">
+                <span className="text-[8.5px] font-semibold uppercase tracking-wider text-zinc-500">{inp.title}</span>
+                {inp.type === 'int' || inp.type === 'float' ? (
+                  <Input
+                    type="number"
+                    value={String(inputs[inp.key] ?? inp.def)}
+                    min={inp.minval}
+                    max={inp.maxval}
+                    step={inp.step ?? (inp.type === 'int' ? 1 : 'any')}
+                    onChange={(e) => setInput(inp.key, Number(e.target.value))}
+                    className="h-6 w-[86px] border-zinc-800 bg-zinc-950 font-mono text-[10.5px]"
+                  />
+                ) : inp.type === 'bool' ? (
+                  <Switch
+                    checked={inputs[inp.key] === true || inputs[inp.key] === 1 || inputs[inp.key] === undefined ? Boolean(inp.def) : false}
+                    onCheckedChange={(v) => setInput(inp.key, v)}
+                  />
+                ) : inp.type === 'source' ? (
+                  <Select value={String(inputs[inp.key] ?? inp.def)} onValueChange={(v) => setInput(inp.key, v)}>
+                    <SelectTrigger className="h-6 w-[110px] border-zinc-800 bg-zinc-950 font-mono text-[10.5px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-64">
+                      {SOURCE_SERIES.map((s) => (
+                        <SelectItem key={s} value={s} className="font-mono text-[10.5px]">
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Select value={String(inputs[inp.key] ?? inp.def)} onValueChange={(v) => setInput(inp.key, v)}>
+                    <SelectTrigger className="h-6 w-[130px] border-zinc-800 bg-zinc-950 text-[10.5px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-64">
+                      {(inp.options ?? [String(inp.def)]).map((o) => (
+                        <SelectItem key={o} value={o} className="text-[10.5px]">
+                          {o}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </label>
+            ))}
+          </div>
+        )}
 
-      {/* status strip */}
-      <div className="flex min-h-[22px] items-center gap-2 rounded border border-zinc-800/80 bg-zinc-950/50 px-2 font-mono text-[9.5px]">
-        {status.err ? (
-          <>
-            <CircleAlert className="h-3 w-3 shrink-0 text-rose-400" />
-            <span className="truncate text-rose-300">{status.t}</span>
-          </>
-        ) : (
-          <>
-            <CircleCheck className="h-3 w-3 shrink-0 text-emerald-400" />
-            <span className="truncate text-zinc-400">{status.t}</span>
-          </>
-        )}
-        {saveMsg && <span className="ml-auto shrink-0 text-teal-300">{saveMsg}</span>}
-        {scriptCode !== undefined && scriptCode.length > 0 && (
-          <span className="ml-auto shrink-0 text-zinc-600">{scriptCode.split('\n').length} lines · {scriptCode.length} chars</span>
-        )}
+        {/* code */}
+        <CodeEditor code={scriptCode} onChange={setCode} onRun={() => rerun()} errorLine={result?.ok ? undefined : result?.error?.line} />
+
+        {/* status strip */}
+        <div className="flex min-h-[22px] items-center gap-2 rounded border border-zinc-800/80 bg-zinc-950/50 px-2 font-mono text-[9.5px]">
+          {status.err ? (
+            <>
+              <CircleAlert className="h-3 w-3 shrink-0 text-rose-400" />
+              <span className="truncate text-rose-300">{status.t}</span>
+              {/* the AI fixes the script for you — one click, code stays beside the chart */}
+              <button
+                onClick={fixWithAi}
+                className="ml-1 flex shrink-0 items-center gap-1 rounded-full border border-violet-700/50 bg-violet-950/60 px-2 py-0.5 text-[9px] font-bold text-violet-300 transition hover:bg-violet-900/60"
+                title="Send the script + error to the AI desk — it returns the corrected code"
+              >
+                <Wand2 className="h-2.5 w-2.5" /> fix with AI
+              </button>
+            </>
+          ) : (
+            <>
+              <CircleCheck className="h-3 w-3 shrink-0 text-emerald-400" />
+              <span className="truncate text-zinc-400">{status.t}</span>
+            </>
+          )}
+          {saveMsg && <span className="ml-auto shrink-0 text-teal-300">{saveMsg}</span>}
+          {scriptCode !== undefined && scriptCode.length > 0 && (
+            <span className="ml-auto shrink-0 text-zinc-600">{scriptCode.split('\n').length} lines · {scriptCode.length} chars</span>
+          )}
+        </div>
       </div>
+
+      {/* ── the AI half — the copilot embedded in the pine editor ──────── */}
+      {aiOpen && (
+        <aside className="flex h-[44%] min-h-0 shrink-0 flex-col border-t border-zinc-800/70 lg:h-auto lg:w-[360px] lg:border-l lg:border-t-0 xl:w-[400px]">
+          <AiPanel />
+        </aside>
+      )}
     </div>
   );
 }
