@@ -13,28 +13,58 @@
 // and the active view, rail state and the selected strategy all persist across
 // reloads. The AI Copilot is grounded in the live terminal context via
 // CopilotContextBridge.
+//
+// PERFORMANCE: every workspace view and the copilot drawer are lazy-loaded
+// (next/dynamic, ssr off, one skeleton) — the initial payload ships only the
+// shell + the persisted view's chunk instead of all twelve terminals at once;
+// each chunk is browser-cached for later switches.
 
 import { useEffect } from 'react';
+import dynamic from 'next/dynamic';
+import type React from 'react';
 import { MarketProvider } from '@/hooks/use-market';
 import { usePersistedString } from '@/hooks/use-persisted-state';
 import { TopBar, type ViewId } from '@/components/terminal/topbar';
 import { Workbench, useRailHotkeys } from '@/components/terminal/workbench';
-import { StrategiesView } from '@/components/terminal/strategies/strategies-view';
-import { GammaLabView } from '@/components/terminal/gamma-lab/gamma-lab-view';
-import { QuantLabView } from '@/components/terminal/quantlab/quantlab-view';
-import { OrderFlowView } from '@/components/terminal/orderflow/orderflow-view';
-import { ForecastView } from '@/components/terminal/forecast/forecast-view';
-import { ChainView } from '@/components/terminal/chain-view';
-import { TradeView } from '@/components/terminal/trade-view';
-import { PaperView } from '@/components/terminal/paper-view';
-import { ScriptLabView } from '@/components/terminal/scriptlab/scriptlab-view';
-import { MentalModelsView } from '@/components/terminal/models/mental-models-view';
-import { StudioView } from '@/components/terminal/studio/studio-view';
-import { PriceChartView } from '@/components/terminal/chartdesk/price-chart-view';
-import { CopilotPanel, MarketSpotBridge, CopilotContextBridge } from '@/components/terminal/copilot/copilot-panel';
 import { useCopilot } from '@/stores/copilot-store';
 import { rehydrateStrategy } from '@/stores/strategy-store';
 import { usePersistedFlag } from '@/hooks/use-persisted-flag';
+
+/** One shared loading skeleton for every lazily-mounted view. */
+function ViewLoading() {
+  return (
+    <div className="flex h-full w-full items-center justify-center">
+      <div className="flex flex-col items-center gap-3">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-400" />
+        <p className="font-mono text-[10px] tracking-widest text-zinc-600">LOADING TERMINAL…</p>
+      </div>
+    </div>
+  );
+}
+
+/** Lazy-load a named view export (every view is a named export in this codebase). */
+function lazyNamed<P>(loader: () => Promise<Record<string, unknown>>, pick: string) {
+  return dynamic(() => loader().then((m) => ({ default: m[pick] as React.ComponentType<P> })), {
+    ssr: false,
+    loading: ViewLoading,
+  });
+}
+
+const StrategiesView = lazyNamed<{ onOpenTrade: () => void }>(() => import('@/components/terminal/strategies/strategies-view'), 'StrategiesView');
+const MentalModelsView = lazyNamed<object>(() => import('@/components/terminal/models/mental-models-view'), 'MentalModelsView');
+const StudioView = lazyNamed<object>(() => import('@/components/terminal/studio/studio-view'), 'StudioView');
+const GammaLabView = lazyNamed<object>(() => import('@/components/terminal/gamma-lab/gamma-lab-view'), 'GammaLabView');
+const QuantLabView = lazyNamed<object>(() => import('@/components/terminal/quantlab/quantlab-view'), 'QuantLabView');
+const OrderFlowView = lazyNamed<object>(() => import('@/components/terminal/orderflow/orderflow-view'), 'OrderFlowView');
+const ForecastView = lazyNamed<object>(() => import('@/components/terminal/forecast/forecast-view'), 'ForecastView');
+const ChainView = lazyNamed<{ onOpenBuilder: () => void }>(() => import('@/components/terminal/chain-view'), 'ChainView');
+const TradeView = lazyNamed<{ onOpenBuilder: () => void }>(() => import('@/components/terminal/trade-view'), 'TradeView');
+const PaperView = lazyNamed<object>(() => import('@/components/terminal/paper-view'), 'PaperView');
+const ScriptLabView = lazyNamed<object>(() => import('@/components/terminal/scriptlab/scriptlab-view'), 'ScriptLabView');
+const PriceChartView = lazyNamed<object>(() => import('@/components/terminal/chartdesk/price-chart-view'), 'PriceChartView');
+
+const CopilotPanel = lazyNamed<{ view: ViewId; onView: (v: ViewId) => void }>(() => import('@/components/terminal/copilot/copilot-panel'), 'CopilotPanel');
+import { MarketSpotBridge, CopilotContextBridge } from '@/components/terminal/copilot/copilot-bridges';
 
 const VALID_VIEWS: ViewId[] = ['strategies', 'models', 'studio', 'gamma', 'quant', 'orderflow', 'forecast', 'chain', 'trade', 'paper', 'scriptlab', 'chartdesk'];
 

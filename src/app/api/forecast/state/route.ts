@@ -22,9 +22,15 @@
 
 import { buildProjectedState } from '@/lib/forecast/state';
 import { json, parseAsset, parseTimeframe } from '@/lib/orderflow/wire';
+import { ttlCache } from '@/lib/server/ttl-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+// the projected-state surface (fan + bands + rolled-forward indicators +
+// climatology) recomputes ~100 ms per request — the UI polls it, so identical
+// queries are served from a 10 s single-flight cache
+const payloadCache = ttlCache<Awaited<ReturnType<typeof buildProjectedState>>>('forecast:state', 10_000);
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -40,7 +46,8 @@ export async function GET(req: Request) {
   const backfill = Math.max(60, Math.min(1500, Number(url.searchParams.get('backfill')) || 720));
 
   try {
-    const state = await buildProjectedState(asset, tf, { h, levels: useLevels, nWindows, backfill });
+    const cacheKey = `${asset}:${tf}:${h}:${useLevels.join(',')}:${nWindows}:${backfill}`;
+    const state = await payloadCache.get(cacheKey, async () => buildProjectedState(asset, tf, { h, levels: useLevels, nWindows, backfill }));
     return json({ ...state, builtAt: Date.now() });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : 'projected state failed' }, 500);

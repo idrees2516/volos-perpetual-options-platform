@@ -1,9 +1,14 @@
 // GET /api/quant/tape?symbol=BTC&view=prints|aggregates|flow&hours=24
 import { ensureTape, flowByStrike, tapeAggregates, tapePrints, tapeInfo } from '@/lib/quant/tape';
 import { guard, qOk, searchParams } from '@/lib/quant/http';
+import { ttlCache } from '@/lib/server/ttl-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+// the aggregates view folds thousands of in-memory prints per request (~100 ms)
+// — the tape tab polls it, so identical queries share a 5 s single-flight cache
+const aggCache = ttlCache<Awaited<ReturnType<typeof tapeAggregates>>>('volquant:tape-agg', 5_000);
 
 export async function GET(req: Request) {
   return guard(async () => {
@@ -29,7 +34,7 @@ export async function GET(req: Request) {
       return qOk({ symbol, asOf: Date.now(), windowHours: hours * 7, strike, byStrike: flow.slice(0, 40) }, { symbol, computeMs: Date.now() - t0, sources: ['deribit'] });
     }
 
-    const agg = await tapeAggregates(symbol, hours, whaleUsd);
+    const agg = await aggCache.get(`${symbol}:${hours}:${whaleUsd}`, async () => tapeAggregates(symbol, hours, whaleUsd));
     const prints = tapePrints(symbol, { hours, minPremiumUsd, side, kind, limit: 60 });
     return qOk(
       { symbol, ...agg, recentPrints: prints, engineTape: tapeInfo().find((t) => t.symbol === symbol) ?? null, venue: 'deribit (only free keyless options tape)' },

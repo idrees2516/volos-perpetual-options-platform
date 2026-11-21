@@ -10,11 +10,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { db } from '@/lib/db';
+import { ttlCache } from '@/lib/server/ttl-cache';
 import { getChainSnapshot } from './engine';
 import { getPerpBundle, probTouch } from './perps';
 import { ensureTape, tapeAggregates } from './tape';
 import { historicalVolatility } from './deribit';
 import type { QuantSymbol } from './types';
+
+// the decision brief rides perp bundle + chain snapshot + tape aggregates
+// (~60 ms of venue work per call) and is consumed by the signals route, the
+// screener rows and the autopilot — identical symbols share a 15 s
+// single-flight cache
+const briefCache = ttlCache<unknown>('volquant:brief', 15_000);
 
 const YEAR_MS = 365 * 24 * 3600 * 1000;
 
@@ -90,8 +97,12 @@ function slopePct(pts: { ts: number; v: number }[]): number {
   return ((b - a) / a) * 100;
 }
 
-/** The full decision brief for one symbol. */
+/** The full decision brief for one symbol (cached 15 s, single-flight). */
 export async function decisionBrief(symbol: QuantSymbol): Promise<DecisionBrief> {
+  return briefCache.get(`brief:${symbol}`, () => decisionBriefUncached(symbol)) as Promise<DecisionBrief>;
+}
+
+async function decisionBriefUncached(symbol: QuantSymbol): Promise<DecisionBrief> {
   const t0 = Date.now();
   const hasOpts = symbol === 'BTC' || symbol === 'ETH';
   const [perp, snap] = await Promise.all([

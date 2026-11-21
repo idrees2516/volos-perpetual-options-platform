@@ -55,9 +55,23 @@ export interface ScreenerResult {
 
 const SYMBOLS: QuantSymbol[] = ['BTC', 'ETH', 'SOL'];
 
-export async function marketScreener(): Promise<ScreenerResult> {
-  const rowsRaw = await Promise.all(SYMBOLS.map((s) => oneRow(s)));
-  const rows = rowsRaw.filter((r): r is ScreenerRow => r !== null);
+// whole-market scan (3 symbols × perp bundle + chain snapshot + tape + daily
+// candles) — cached 20 s on the server singleton: the UI polls it, and a
+// fresh scan costs ~0.8 s of venue round-trips per hit. Stale-while-refresh
+// keeps the first request fast after TTL expiry.
+const SCREEN_TTL_MS = 20_000;
+const gScreen = globalThis as unknown as {
+  __volquantScreener?: { hit?: ScreenerResult; ts: number; inflight?: Promise<ScreenerResult> };
+};
+
+export async function marketScreener(force = false): Promise<ScreenerResult> {
+  const hit = gScreen.__volquantScreener;
+  if (!force && hit?.hit && Date.now() - hit.ts < SCREEN_TTL_MS) return hit.hit;
+  if (hit?.inflight) return hit.inflight; // single-flight: collapse bursts
+
+  const run = (async (): Promise<ScreenerResult> => {
+    const rowsRaw = await Promise.all(SYMBOLS.map((s) => oneRow(s)));
+    const rows = rowsRaw.filter((r): r is ScreenerRow => r !== null);
 
   // ── cross-symbol z-scores on comparable metrics ────────────────────────────
   const metrics: (keyof ScreenerRow)[] = ['chg24hPct', 'fundingApr', 'basisPct', 'rv30Pct', 'iv30Pct', 'vrpPct', 'pcrOi', 'tapeImbalance', 'netGexUsd1pct', 'em1sPct'];
@@ -93,12 +107,23 @@ export async function marketScreener(): Promise<ScreenerResult> {
     pick('shortest gamma', 'netGexUsd1pct', 'min', (v) => `$${(v / 1e6).toFixed(1)}M/1%`),
   ].filter((r): r is { label: string; symbol: string; value: number; format: string } => r !== null);
 
-  return {
-    asOf: Date.now(),
-    rows,
-    rankings,
-    note: 'z-scores computed cross-symbol on live metrics — click a row to focus that market in every Quant Lab tab',
-  };
+    const result: ScreenerResult = {
+      asOf: Date.now(),
+      rows,
+      rankings,
+      note: 'z-scores computed cross-symbol on live metrics — click a row to focus that market in every Quant Lab tab',
+    };
+    gScreen.__volquantScreener = { hit: result, ts: Date.now() };
+    return result;
+  })();
+
+  // park the inflight promise so burst callers await this very run; a
+  // rejection clears the slot so later callers retry fresh
+  gScreen.__volquantScreener = { hit: hit?.hit, ts: hit?.ts ?? 0, inflight: run };
+  run.catch(() => {
+    if (gScreen.__volquantScreener?.inflight === run) delete gScreen.__volquantScreener.inflight;
+  });
+  return run;
 }
 
 async function oneRow(symbol: QuantSymbol): Promise<ScreenerRow | null> {

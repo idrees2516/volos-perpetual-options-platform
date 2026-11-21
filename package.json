@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
     "build": "next build && APPDIR=$(dirname \"$(find .next/standalone -maxdepth 2 -name server.js | head -1)\")/ && cp -r .next/static \"${APPDIR}.next/\" && cp -r public \"${APPDIR}\"",
-    "start": "NODE_ENV=production node \"$(dirname \"$(find .next/standalone -maxdepth 2 -name server.js | head -1)\")/server.js\"",
+    "start": "NODE_ENV=production node scripts/perf/prod-server.js",
     "lint": "eslint .",
     "db:push": "prisma db push --accept-data-loss",
     "db:generate": "prisma generate",
