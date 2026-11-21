@@ -14,8 +14,9 @@
 // reloads. The AI Copilot is grounded in the live terminal context via
 // CopilotContextBridge.
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { MarketProvider } from '@/hooks/use-market';
+import { usePersistedString } from '@/hooks/use-persisted-state';
 import { TopBar, type ViewId } from '@/components/terminal/topbar';
 import { Workbench, useRailHotkeys } from '@/components/terminal/workbench';
 import { StrategiesView } from '@/components/terminal/strategies/strategies-view';
@@ -28,46 +29,36 @@ import { TradeView } from '@/components/terminal/trade-view';
 import { PaperView } from '@/components/terminal/paper-view';
 import { ScriptLabView } from '@/components/terminal/scriptlab/scriptlab-view';
 import { MentalModelsView } from '@/components/terminal/models/mental-models-view';
+import { StudioView } from '@/components/terminal/studio/studio-view';
 import { CopilotPanel, MarketSpotBridge, CopilotContextBridge } from '@/components/terminal/copilot/copilot-panel';
 import { useCopilot } from '@/stores/copilot-store';
 import { rehydrateStrategy } from '@/stores/strategy-store';
 import { usePersistedFlag } from '@/hooks/use-persisted-flag';
 
-const VALID_VIEWS: ViewId[] = ['strategies', 'models', 'gamma', 'quant', 'orderflow', 'forecast', 'chain', 'trade', 'paper', 'scriptlab'];
+const VALID_VIEWS: ViewId[] = ['strategies', 'models', 'studio', 'gamma', 'quant', 'orderflow', 'forecast', 'chain', 'trade', 'paper', 'scriptlab'];
 
 function Terminal() {
-  const [view, setView] = useState<ViewId>('strategies');
+  // The active workspace persisted as an external store — restored without a
+  // setState-in-effect (SSR snapshot `strategies`, reconciled after hydration).
+  const [savedView, setView] = usePersistedString('volos-view', 'strategies');
+  const view: ViewId = VALID_VIEWS.includes(savedView as ViewId) ? (savedView as ViewId) : 'strategies';
   const [railCollapsed, toggleRail] = usePersistedFlag('volos-rail-collapsed', false);
   const copilotOpen = useCopilot((s) => s.open);
   useRailHotkeys(toggleRail);
 
-  // Restore the persisted view + strategy selection after mount.
+  // Restore the persisted strategy selection after mount (zustand store — not React state).
   useEffect(() => {
     rehydrateStrategy();
-    try {
-      const saved = localStorage.getItem('volos-view') as ViewId | null;
-      if (saved && VALID_VIEWS.includes(saved)) setView(saved);
-    } catch {
-      /* private mode */
-    }
   }, []);
-
-  // Persist the active workspace.
-  useEffect(() => {
-    try {
-      localStorage.setItem('volos-view', view);
-    } catch {
-      /* private mode */
-    }
-  }, [view]);
 
   return (
     <div className="flex min-h-screen flex-col bg-[#05070a] text-zinc-200">
       <TopBar />
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <Workbench view={view} onView={setView} collapsed={railCollapsed} onToggleCollapsed={toggleRail}>
+        <Workbench view={view} onView={(v) => setView(v)} collapsed={railCollapsed} onToggleCollapsed={toggleRail}>
           {view === 'strategies' && <StrategiesView onOpenTrade={() => setView('trade')} />}
           {view === 'models' && <MentalModelsView />}
+          {view === 'studio' && <StudioView />}
           {view === 'gamma' && <GammaLabView />}
           {view === 'quant' && <QuantLabView />}
           {view === 'orderflow' && <OrderFlowView />}

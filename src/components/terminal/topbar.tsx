@@ -22,7 +22,7 @@ import { useDensity } from '@/stores/density-store';
 import { fmtNum } from '@/lib/format';
 import { LiveNum, LivePct } from '@/components/ui/live-num';
 
-export type ViewId = 'strategies' | 'gamma' | 'chain' | 'trade' | 'paper' | 'quant' | 'orderflow' | 'forecast' | 'scriptlab' | 'models';
+export type ViewId = 'strategies' | 'gamma' | 'chain' | 'trade' | 'paper' | 'quant' | 'orderflow' | 'forecast' | 'scriptlab' | 'models' | 'studio';
 
 export function TopBar() {
   const { market, smooth, connected, live, retry } = useMarket();

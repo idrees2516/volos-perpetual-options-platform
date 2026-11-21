@@ -239,7 +239,11 @@ export function CopilotPanel({ view, onView }: CopilotPanelProps) {
   );
   const suggestions = useMemo(() => buildSuggestions(stableInput), [stableInput]);
   const inputRef = useRef(stableInput);
-  inputRef.current = stableInput;
+  // keep the latest quantized input for ChatTab's async getInput() reads —
+  // written post-commit (never during render)
+  useEffect(() => {
+    inputRef.current = stableInput;
+  });
 
   const loadStrategyById = useCallback(
     (strategyId: string, u: string, size: number) => {
@@ -539,7 +543,6 @@ function ChatTab({ onLoadStrategy, onLoadLegs, onPaperDeploy, suggestions, getIn
   useEffect(() => {
     const pending = consumePendingPrompt();
     if (pending) ask(pending);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [consumePendingPrompt, ask, messages.length]);
 
   const sendCapability = useCallback(

@@ -11,7 +11,7 @@
 // The former two-sided shell (LEFT Analytics rail + RIGHT Strategy Lab rail)
 // is RETIRED — both panels are collapsed into this single rail (keyboard `[`
 // or `]` toggles it). The center column renders the active view under a
-// professional breadcrumb header; the AI Copilot keeps its own drawer on the
+// professional breadcrumb header; the AI Copilot keeps its own drawer on the (studio edit)
 // far right.
 //
 // The rail also carries two live footers: the loaded strategy (from the old
@@ -22,7 +22,7 @@
 
 import React, { useEffect } from 'react';
 import {
-  Activity, Brain, CircleDot, LineChart, Layers, FlaskConical, Atom, Flame, Sigma,
+  Activity, Brain, CircleDot, LineChart, ChartLine, Layers, FlaskConical, Atom, Flame, Sigma,
   BarChart3, Dna, ChevronsLeft, ChevronsRight, ChevronRight, Braces,
   TrendingUp, TrendingDown, Radio,
 } from 'lucide-react';
@@ -50,6 +50,7 @@ const LAB_ITEMS: RailItem[] = [
 
 /** Analytics group — everything else, below the Strategy Lab group. */
 const ANALYTICS_ITEMS: RailItem[] = [
+  { id: 'studio', label: 'Studio', icon: <ChartLine className="h-4 w-4" />, hint: 'any series × any chart kind · any model on any data · outputs loop back as charts' },
   { id: 'models', label: 'Mental Models', icon: <Brain className="h-4 w-4" />, hint: 'options mental models · 3D surfaces · greeks · vol surface · exotics zoo · gamma scalper · course map' },
   { id: 'gamma', label: 'Gamma & Flow', icon: <Activity className="h-4 w-4" />, hint: 'GEX · dealer positioning · heatmaps · options flow · 0DTE · skew' },
   { id: 'orderflow', label: 'Order Flow', icon: <Flame className="h-4 w-4" />, hint: 'resting-liquidity heatmap · absorption & icebergs · tape · venues · liquidations · OI & funding · whole market' },
@@ -61,6 +62,7 @@ const ANALYTICS_ITEMS: RailItem[] = [
 ];
 
 export const SIDE_OF_VIEW: Record<ViewId, SideId> = {
+  studio: 'analytics',
   models: 'analytics',
   gamma: 'analytics',
   orderflow: 'analytics',
@@ -79,6 +81,7 @@ const SIDE_META: Record<SideId, { label: string; icon: React.ReactNode }> = {
 };
 
 const VIEW_LABEL: Record<ViewId, string> = {
+  studio: 'Studio',
   models: 'Mental Models',
   scriptlab: 'Script Lab',
   gamma: 'Gamma & Flow',

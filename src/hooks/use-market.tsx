@@ -95,7 +95,6 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
       push(latestRef.current);
     });
     return unsubscribe;
-     
   }, []);
 
 
@@ -153,7 +152,6 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
       closeStream?.();
       stopFallback();
     };
-     
   }, [nonce]);
 
   // Smooth interpolation at 30fps for chart motion.

@@ -43,8 +43,6 @@ export function useProjection(config: ProjectionConfig, enabled = true) {
     builtAt: null,
   });
   const abortRef = useRef<AbortController | null>(null);
-  const enabledRef = useRef(enabled);
-  enabledRef.current = enabled;
 
   useEffect(() => {
     if (!enabled) {
@@ -89,7 +87,6 @@ export function useProjection(config: ProjectionConfig, enabled = true) {
       clearInterval(timer);
       ctl.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, enabled]);
 
   return state;

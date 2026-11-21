@@ -146,7 +146,6 @@ export function Surface3D({ xLabels, yLabels, values, height = 300, zLabel = '',
       }
     }
     return out.sort((a, b) => a.depth - b.depth);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nx, ny, values, yaw, pitch, maxAbs, zMin, zMax, diverging, tile, zH]);
 
   const axisColor = 'rgba(113,113,122,0.65)';

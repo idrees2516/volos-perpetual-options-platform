@@ -135,8 +135,9 @@ export function PaperView() {
   const [tQty, setTQty] = useState('0.1');
   const [tType, setTType] = useState<'market' | 'limit'>('market');
   const [tLimit, setTLimit] = useState('');
-  const [preview, setPreview] = useState<PreviewQuote | null>(null);
-  const [previewing, setPreviewing] = useState(false);
+  // the last resolved quote, stamped with the ticket it belongs to — a stale
+  // record renders as "resolving" instead of being cleared in the effect body
+  const [pv, setPv] = useState<{ key: string; quote: PreviewQuote | null } | null>(null);
   const [placing, setPlacing] = useState(false);
   const [deploying, setDeploying] = useState(false);
 
@@ -180,18 +181,16 @@ export function PaperView() {
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tAsset]);
 
   // live preview of the ticket quote
   const strikeNum = Number(tStrike);
+  const pvKey = `${tVenue}|${tAsset}|${tExpiry}|${strikeNum}|${tKind}|${tSide}`;
+  const preview = strikeNum > 0 && pv?.key === pvKey ? (pv?.quote ?? null) : null;
+  const previewing = strikeNum > 0 && pv?.key !== pvKey;
   useEffect(() => {
-    if (!(strikeNum > 0)) {
-      setPreview(null);
-      return;
-    }
+    if (!(strikeNum > 0)) return;
     let alive = true;
-    setPreviewing(true);
     const load = () => {
       fetch('/api/paper', {
         method: 'POST',
@@ -208,10 +207,9 @@ export function PaperView() {
       })
         .then((r) => (r.ok ? r.json() : null))
         .then((j) => {
-          if (alive) setPreview(j?.quote ?? null);
+          if (alive) setPv({ key: pvKey, quote: j?.quote ?? null });
         })
-        .catch(() => {})
-        .finally(() => alive && setPreviewing(false));
+        .catch(() => {});
     };
     load();
     const iv = setInterval(load, 8000);

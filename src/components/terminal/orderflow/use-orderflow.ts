@@ -338,9 +338,16 @@ export function useOrderFlow(
       alertSettings: opts.alertSettings,
       minutes: opts.minutes,
     });
-    setStore(s);
-    return () => s.dispose();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // the store becomes render-visible through its own notify callbacks —
+    // the same bump pattern useOrderFlowStore uses above (the store connects
+    // itself in its constructor; no synchronous setState in the effect body)
+    const bump = () => setStore(s);
+    const off = s.subscribe(bump);
+    bump();
+    return () => {
+      off();
+      s.dispose();
+    };
   }, [asset, opts.tf, opts.minNotional, alertKey, opts.minutes]);
   useOrderFlowStore(store);
   const state = useMemo<OfClientState>(
