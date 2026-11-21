@@ -36,6 +36,7 @@ export const SCRIPT_CATEGORIES: ScriptCategory[] = [
   { key: 'risk_exits', label: 'Risk & Exits', description: 'ATR stops, chandelier, sizing' },
   { key: 'meta', label: 'Meta', description: 'bar anatomy, gaps, data quality' },
   { key: 'validation', label: 'Validation', description: 'signal stability, anomaly guards' },
+  { key: 'options', label: 'Options', description: 'Strategy Lab structures compiled into VolScript — the options bridge' },
 ];
 
 export const BUILTIN_SCRIPTS: LibraryScript[] = [
@@ -877,6 +878,57 @@ spread = (high - low) / close * 100
 z = (spread - ta.sma(spread, len)) / ta.stdev(spread, len)
 outlier = z > 4
 plotshape(outlier, "Bad print?", shape.cross, location.abovebar, color.rose)`,
+  },
+  {
+    name: 'Long Call — options bridge',
+    category: 'options',
+    kind: 'indicator',
+    description: 'The Strategy Lab → Script Lab bridge sample: a long call marked with Black-Scholes, P&L vs its entry marks. Full structures compile from the Options tab.',
+    code: `//@version=1
+// Strategy Lab → Script Lab bridge · EXPERIMENTAL
+// Marks: Black-Scholes (r=0) at the iv input.
+indicator("Long Call — options bridge", overlay=false)
+iv = input.float(0.60, "Implied vol (decimal, 0.60 = 60%)", minval=0.05, maxval=3.0, step=0.05)
+entryB = input.int(0, "Entry bar index", minval=0)
+entrySpot = ta.valuewhen(bar_index == entryB, close, 0)
+entryTime = ta.valuewhen(bar_index == entryB, time, 0)
+k1 = entrySpot * 1.0
+t1 = math.max(0, (entryTime + 30 * 86400000 - time) / 31557600000)
+m1 = options.bs_call(close, k1, t1, iv)
+me1 = ta.valuewhen(bar_index == entryB, m1, 0)
+p1 = (m1 - me1) * 1 * 1
+pnl = p1
+plot(pnl, "Structure P&L", color.teal, 2, plot.style_area)
+plotshape(bar_index == entryB, "Entry", shape.diamond, location.top, color.amber)
+hline(0, "Zero", color.zinc, hline.style_dotted)`,
+  },
+  {
+    name: 'Everlasting Straddle — options bridge',
+    category: 'options',
+    kind: 'indicator',
+    description: 'The bridge on everlasting natives: a long straddle of perp-option legs, marked with a rolling synthetic expiry equal to the funding period.',
+    code: `//@version=1
+// Strategy Lab → Script Lab bridge · EXPERIMENTAL
+// Everlasting legs: rolling synthetic expiry = funding period.
+indicator("Everlasting Straddle — options bridge", overlay=false)
+iv = input.float(0.60, "Implied vol (decimal, 0.60 = 60%)", minval=0.05, maxval=3.0, step=0.05)
+entryB = input.int(0, "Entry bar index", minval=0)
+entrySpot = ta.valuewhen(bar_index == entryB, close, 0)
+k1 = entrySpot * 0.95
+k2 = entrySpot * 1.05
+t = 7 / 365.25
+m1 = options.bs_call(close, k1, t, iv)
+m2 = options.bs_put(close, k2, t, iv)
+me1 = ta.valuewhen(bar_index == entryB, m1, 0)
+me2 = ta.valuewhen(bar_index == entryB, m2, 0)
+p1 = (m1 - me1) * 1 * 1
+p2 = (m2 - me2) * 1 * 1
+pnl = p1 + p2
+plot(pnl, "Structure P&L", color.teal, 2, plot.style_area)
+plot(p1, "leg 1 · buy perp_option", color.teal, 1)
+plot(p2, "leg 2 · buy perp_option", color.amber, 1)
+plotshape(bar_index == entryB, "Entry", shape.diamond, location.top, color.amber)
+hline(0, "Zero", color.zinc, hline.style_dotted)`,
   },
 ];
 

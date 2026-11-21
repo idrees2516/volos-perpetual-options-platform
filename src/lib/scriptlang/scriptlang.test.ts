@@ -6,6 +6,8 @@ import { tokenize } from './lexer';
 import { parseProgram, ParseError } from './parser';
 import { runScript } from './internal';
 import { BUILTIN_SCRIPTS, defaultScript, SCRIPT_CATEGORIES } from './library';
+import { compileStrategyToScript, buildBridgePreview } from './options-bridge';
+import { STRATEGIES } from '../strategies';
 import type { ScriptBar } from './types';
 
 function synthBars(n = 240, seed = 7): ScriptBar[] {
@@ -529,5 +531,125 @@ describe('pine v5 compatibility round', () => {
     expect(r.background).not.toBeNull();
     expect(r.barColors).not.toBeNull();
     expect(r.shapes).toHaveLength(1);
+  });
+});
+
+// ── options.* namespace — Black-Scholes pricers (the Strategy Lab bridge) ────
+
+describe('options namespace (the options bridge)', () => {
+  const bars = synthBars(120);
+
+  it('prices a call with put-call parity at r=0', () => {
+    const code = `//@version=1
+indicator("pcp", overlay=false)
+c = options.bs_call(close, 100, 0.25, 0.6)
+p = options.bs_put(close, 100, 0.25, 0.6)
+parity = c - p - close + 100
+plot(parity, "parity", color.teal, 2)`;
+    const r = runScript(code, bars);
+    expect(r.ok).toBe(true);
+    const parity = r.plots[0].data;
+    // |C − P − S + K| ≤ tiny numeric noise on every bar
+    for (const v of parity) expect(Math.abs(v)).toBeLessThan(1e-9);
+  });
+
+  it('collapses to intrinsic at zero years and respects monotonicity in vol', () => {
+    const intrinsic = `//@version=1
+indicator("t", overlay=false)
+plot(options.bs_call(close, 80, 0, 0.6), "c0", color.teal, 2)`;
+    const r0 = runScript(intrinsic, bars);
+    expect(r0.ok).toBe(true);
+    // every bar here trades above 80? not guaranteed — check against payoff
+    r0.plots[0].data.forEach((v, i) => expect(v).toBeCloseTo(Math.max(bars[i].c - 80, 0), 6));
+
+    const vol = (iv: number) =>
+      runScript(
+        `//@version=1
+indicator("t", overlay=false)
+plot(options.bs_call(100, 100, 0.5, ${iv}), "c", color.teal, 2)`,
+        bars,
+      );
+    const lo = vol(0.2);
+    const hi = vol(1.2);
+    expect(lo.ok && hi.ok).toBe(true);
+    expect(hi.plots[0].data[0]).toBeGreaterThan(lo.plots[0].data[0]);
+    // ATM call at 1y, iv 0.2: price ≈ 0.0796·S (classic rule of thumb ~8%)
+    expect(lo.plots[0].data[0]).toBeGreaterThan(5);
+    expect(lo.plots[0].data[0]).toBeLessThan(11);
+  });
+
+  it('broadcasts series spot/strike/years together (per-bar marks)', () => {
+    const code = `//@version=1
+indicator("t", overlay=false)
+k = close * 1.05
+t = 0.5
+m = options.bs_put(close, k, t, 0.8)
+plot(m, "put", color.rose, 2)`;
+    const r = runScript(code, bars);
+    expect(r.ok).toBe(true);
+    r.plots[0].data.forEach((v) => expect(v).toBeGreaterThan(0));
+  });
+
+  it('valuewhen occ=0 returns the most recent occurrence (regression: occ=0 silently became 1)', () => {
+    const code = `//@version=1
+indicator("t", overlay=false)
+e = ta.valuewhen(bar_index == 50, close, 0)
+plot(e, "e", color.teal, 2)`;
+    const r = runScript(code, bars);
+    expect(r.ok).toBe(true);
+    const d = r.plots[0].data;
+    expect(Number.isFinite(d[50])).toBe(true);
+    expect(d[50]).toBeCloseTo(bars[50].c, 9);
+    // carries forward after the trigger, NaN strictly before
+    expect(d[49]).toBeNaN();
+    expect(d[100]).toBeCloseTo(bars[50].c, 9);
+  });
+});
+
+// ── the Strategy Lab → Script Lab bridge ─────────────────────────────────────
+
+describe('options bridge (Strategy Lab → Script Lab)', () => {
+  it('compiles the long call and replays its marks across the bars', () => {
+    const spec = STRATEGIES.find((s) => s.id === 'long-call');
+    expect(spec).toBeDefined();
+    const code = compileStrategyToScript(spec!, { iv: 0.6, entryBar: 10 });
+    const r = runScript(code, synthBars(160, 7));
+    expect(r.ok).toBe(true);
+    expect(r.kind).toBe('indicator');
+    const pnl = r.plots.find((p) => p.title === 'Structure P&L');
+    expect(pnl).toBeDefined();
+    const d = pnl!.data;
+    // P&L is na before the entry bar (structure not open yet)
+    expect(d[5]).toBeNaN();
+    // zero at the entry mark bar
+    expect(Math.abs(d[10])).toBeLessThan(1e-6);
+    // inputs registered and editable
+    const keys = r.inputs.map((i) => i.key);
+    expect(keys.some((k) => k.toLowerCase().includes('implied vol'))).toBe(true);
+    expect(keys.some((k) => k.toLowerCase().includes('entry bar'))).toBe(true);
+  });
+
+  it('compiles EVERY catalog strategy into a script that runs clean', () => {
+    const bars = synthBars(140, 3);
+    for (const spec of STRATEGIES) {
+      const code = compileStrategyToScript(spec, { iv: 0.8, entryBar: 0 });
+      const r = runScript(code, bars);
+      expect(r.ok, `${spec.id}: ${r.error?.message}`).toBe(true);
+      expect(r.plots.length, `${spec.id} plots`).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('builds a sensible preview for an iron condor (credit, 2 breakevens, capped both ways)', () => {
+    const spec = STRATEGIES.find((s) => s.id === 'iron-condor');
+    expect(spec).toBeDefined();
+    const pv = buildBridgePreview(spec!, { entrySpot: 100, iv: 0.6 });
+    expect(pv.netPremium).toBeGreaterThan(0); // net credit
+    expect(pv.breakevens.length).toBe(2);
+    expect(pv.maxProfit).toBeGreaterThan(0);
+    expect(pv.maxLoss).toBeLessThan(0);
+    // expiry payoff is capped within the wings on both sides
+    const vals = pv.payoff.map((p) => p.value);
+    expect(Math.max(...vals)).toBeLessThan(1e6);
+    expect(pv.maxProfit).toBeLessThanOrEqual(pv.netPremium * 1.05 + 1e-9);
   });
 });
