@@ -118,13 +118,15 @@ const ERA_CHIPS: { id: EraFilter; label: string; icon: React.ReactNode }[] = [
 ];
 
 export function StrategiesView({ onOpenTrade }: { onOpenTrade: () => void }) {
-  const { market, smooth } = useMarket();
+  const { market } = useMarket();
   const {
     underlying, loadStrategy, strategyName,
     catalogId, setCatalogId,
     mode, setMode,
   } = useStrategy();
-  const asset = smooth[underlying] ?? market.assets[underlying];
+  // REAL 5s frames — the payoff chart animates off its own rAF loop;
+  // no 30fps state in the workspace tree.
+  const asset = market.assets[underlying];
   const spot = asset.spot;
 
   // One workspace, two modes (PERSISTED in the store): explore the catalog

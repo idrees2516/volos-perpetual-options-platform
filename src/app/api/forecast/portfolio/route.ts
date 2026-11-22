@@ -13,9 +13,14 @@ import { buildPortfolioRisk } from '@/lib/forecast/portfolio';
 import { isOfAsset } from '@/lib/orderflow/catalog';
 import type { OfAsset } from '@/lib/orderflow/types';
 import { json } from '@/lib/orderflow/wire';
+import { ttlCache } from '@/lib/server/ttl-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+// portfolio risk runs the whole forecast fan per asset (~150 ms) — identical
+// queries share a 15 s single-flight cache
+const payloadCache = ttlCache<Awaited<ReturnType<typeof buildPortfolioRisk>>>('forecast:portfolio', 15_000);
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -43,7 +48,10 @@ export async function GET(req: Request) {
   }
 
   try {
-    const payload = await buildPortfolioRisk({ h, tfSec, levels, weights, notionalUsd, assets, nWindows });
+    const payload = await payloadCache.get(
+      `${h}:${tfSec}:${levels.join(',')}:${notionalUsd}:${nWindows}:${assets?.join('+') ?? 'def'}:${JSON.stringify(weights)}`,
+      async () => buildPortfolioRisk({ h, tfSec, levels, weights, notionalUsd, assets, nWindows }),
+    );
     return json(payload);
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : 'portfolio risk failed' }, 500);

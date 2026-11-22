@@ -52,6 +52,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning className="dark">
+      <head>
+        {/* warm the venue connections the moment HTML lands — the first real
+            price poll (api.binance.com → bybit → okx → deribit) starts ~1s
+            later from the browser, so DNS+TLS for the primary venue is free */}
+        <link rel="preconnect" href="https://api.binance.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://www.okx.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://api.bybit.com" />
+        <link rel="dns-prefetch" href="https://www.deribit.com" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#05070a] text-zinc-200`}
       >

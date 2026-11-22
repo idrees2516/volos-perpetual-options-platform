@@ -16,6 +16,7 @@ import { buildForecastPanel } from '@/lib/forecast/panel';
 import { DEFAULT_FC_SPECS, Forecaster, resolveSpecs, specsFromModelIds } from '@/lib/forecast/forecaster';
 import { FC_TARGETS, type FcTargetId } from '@/lib/forecast/types';
 import { json, parseAsset, parseTimeframe } from '@/lib/orderflow/wire';
+import { ttlCache } from '@/lib/server/ttl-cache';
 import { recordForecastEvalRun } from '@/lib/store/writer';
 
 export const runtime = 'nodejs';
@@ -26,6 +27,11 @@ const TARGET_IDS = new Set<string>(FC_TARGETS.map((t) => t.id as string));
 // evaluation runs are heavier — one per config per 10 minutes is plenty
 const storeDedupe = new Map<string, number>();
 const STORE_DEDUPE_MS = 600_000;
+
+// the cross-validation pass recalibrates every cutoff (~150 ms) and only
+// meaningfully changes when new bars land — identical queries are served
+// from a 60 s single-flight cache
+const payloadCache = ttlCache<unknown>('forecast:evaluate', 60_000);
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -45,6 +51,8 @@ export async function GET(req: Request) {
   const includeCv = url.searchParams.get('includeCv') === '1';
 
   try {
+    const cacheKey = `${asset}:${tf}:${target}:${h}:${useLevels.join(',')}:${cvWindows}:${nWindows}:${backfill}:${url.searchParams.get('models') ?? ''}:${url.searchParams.get('modelIds') ?? ''}:${includeCv ? 1 : 0}`;
+    const payload = await payloadCache.get(cacheKey, async () => {
     const panel = await buildForecastPanel(asset, tf, target, { backfill });
     const specs = (specsFromModelIds(url.searchParams.get('modelIds')) ?? DEFAULT_FC_SPECS).map((s) => ({
       ...s,
@@ -98,7 +106,7 @@ export async function GET(req: Request) {
       );
     }
 
-    return json({
+    return {
       asset,
       tf,
       target,
@@ -117,7 +125,10 @@ export async function GET(req: Request) {
       coverageTimeline,
       perStep,
       cvRows: includeCv ? cvRows : undefined,
+    };
     });
+
+    return json(payload);
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : 'evaluate failed' }, 500);
   }

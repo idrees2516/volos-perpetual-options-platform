@@ -179,18 +179,50 @@ export interface Ticker24 {
 
 /** Every USDT-perp's 24h ticker in ONE call (Binance fapi weight 40). */
 export async function tickers24h(): Promise<Ticker24[]> {
-  const r = await jget<
-    Array<{ symbol: string; lastPrice: string; priceChangePercent: string; quoteVolume: string; count: number }>
-  >(`${BINANCE_F}/fapi/v1/ticker/24hr`);
-  return r
-    .filter((t) => /^[A-Z0-9]{2,10}USDT$/.test(t.symbol))
-    .map((t) => ({
-      symbol: t.symbol,
-      lastPrice: Number(t.lastPrice),
-      changePct: Number(t.priceChangePercent),
-      quoteVolume: Number(t.quoteVolume),
-      trades: Number(t.count),
-    }))
+  try {
+    const r = await jget<
+      Array<{ symbol: string; lastPrice: string; priceChangePercent: string; quoteVolume: string; count: number }>
+    >(`${BINANCE_F}/fapi/v1/ticker/24hr`);
+    const rows = r
+      .filter((t) => /^[A-Z0-9]{2,10}USDT$/.test(t.symbol))
+      .map((t) => ({
+        symbol: t.symbol,
+        lastPrice: Number(t.lastPrice),
+        changePct: Number(t.priceChangePercent),
+        quoteVolume: Number(t.quoteVolume),
+        trades: Number(t.count),
+      }))
+      .filter((t) => Number.isFinite(t.quoteVolume) && t.quoteVolume > 0);
+    if (rows.length) return rows;
+  } catch {
+    /* rate-limited (418 auto-ban) / geo-blocked — OKX whole-market fallback */
+  }
+  return okxTickers24h();
+}
+
+/** OKX whole-market USDT-perp tickers — the Binance fallback for the breadth
+ *  treemap / screener universes. One call, every swap (530+ symbols):
+ *  quote volume = volCcy24h (base ccy) × last; 24h change from open24h;
+ *  OKX has no 24h trade count in this endpoint → 0 (display-only field). */
+async function okxTickers24h(): Promise<Ticker24[]> {
+  const r = await jget<{ code: string; data: Array<{ instId: string; last: string; open24h: string; volCcy24h: string }> }>(
+    `${OKX}/api/v5/market/tickers?instType=SWAP`,
+  );
+  if (r.code !== '0' || !r.data?.length) throw new Error('okx swap ticker sweep returned nothing');
+  return r.data
+    .filter((t) => /^[A-Z0-9]{1,10}-USDT-SWAP$/.test(t.instId))
+    .map((t) => {
+      const last = Number(t.last);
+      const open = Number(t.open24h);
+      const baseVol = Number(t.volCcy24h);
+      return {
+        symbol: t.instId.replace('-USDT-SWAP', 'USDT'),
+        lastPrice: last,
+        changePct: Number.isFinite(open) && open > 0 ? ((last - open) / open) * 100 : 0,
+        quoteVolume: baseVol * last,
+        trades: 0,
+      };
+    })
     .filter((t) => Number.isFinite(t.quoteVolume) && t.quoteVolume > 0);
 }
 

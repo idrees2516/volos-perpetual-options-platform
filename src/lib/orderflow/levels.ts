@@ -167,6 +167,9 @@ export async function getLevels(asset: OfAsset): Promise<OfLevels> {
       naked: [],
       today: { high: NaN, low: NaN, poc: null, vwap: null },
     };
+    // cache the degradation too (60 s, via a backdated stamp) — otherwise a
+    // rate-limited venue is re-swept on EVERY request until it recovers
+    levelCache.set(asset, { asset, builtAt: Date.now() - (LEVELS_TTL - 60_000), levels: fallback });
     return fallback;
   }
 

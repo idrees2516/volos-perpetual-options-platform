@@ -16,6 +16,7 @@ import { Waves, Sparkles, Radio, Rows3 } from 'lucide-react';
 import type { UnderlyingId } from '@/lib/types';
 import { ASSET_META } from '@/lib/types';
 import { useMarket } from '@/hooks/use-market';
+import { useSmoothAssets } from '@/lib/smooth-spot';
 import { useStrategy } from '@/stores/strategy-store';
 import { useCopilot } from '@/stores/copilot-store';
 import { useDensity } from '@/stores/density-store';
@@ -25,7 +26,10 @@ import { LiveNum, LivePct } from '@/components/ui/live-num';
 export type ViewId = 'strategies' | 'gamma' | 'chain' | 'trade' | 'paper' | 'quant' | 'orderflow' | 'forecast' | 'scriptlab' | 'models' | 'studio' | 'chartdesk';
 
 export function TopBar() {
-  const { market, smooth, connected, live, retry } = useMarket();
+  const { market, connected, live, retry } = useMarket();
+  // Smoothed spot via the external ticker store — re-renders ONLY this bar
+  // (30fps), never the workspace tree.
+  const smooth = useSmoothAssets();
   const { underlying, setUnderlying } = useStrategy();
   const { open: copilotOpen, toggle: toggleCopilot } = useCopilot();
   const { density, toggleDensity } = useDensity();
@@ -62,7 +66,7 @@ export function TopBar() {
                 <span className="text-[9px] text-zinc-500">{ASSET_META[a].symbol}</span>
                 <LiveNum
                   value={st.spot}
-                  format={(v) => fmtNum(v, v >= 1000 ? 0 : 1)}
+                  format={(v) => (v > 0 ? fmtNum(v, v >= 1000 ? 0 : 1) : '…')}
                   title={`${a} spot — flashes teal up / rose down`}
                 />
                 <LivePct value={st.change24h ?? 0} digits={2} />
@@ -108,10 +112,14 @@ export function TopBar() {
           AI Copilot
         </button>
 
-        {/* Engine status */}
+        {/* Real data source status — click to force an immediate re-poll */}
         <button
           onClick={retry}
-          title={connected ? 'Rust engine streaming live' : 'Client-side simulation fallback — click to retry engine'}
+          title={
+            connected
+              ? `Real exchange data · ${live?.source} · refreshed ${Math.max(0, Math.round((Date.now() - (live?.tsMs ?? Date.now())) / 1000))}s ago`
+              : 'Connecting to public exchanges — click to retry now'
+          }
           className="flex items-center gap-1.5"
         >
           <span className={`relative flex h-2 w-2`}>
@@ -119,7 +127,7 @@ export function TopBar() {
             <span className={`relative inline-flex h-2 w-2 rounded-full ${connected ? 'bg-teal-400' : 'bg-amber-400'}`} />
           </span>
           <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">
-            {connected ? 'rust engine · live' : 'local sim · fallback'}
+            {connected ? `${live?.source ?? 'live'} · real` : 'connecting…'}
           </span>
         </button>
       </div>

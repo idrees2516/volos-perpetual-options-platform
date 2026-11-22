@@ -18,10 +18,11 @@ import { AnalyticsTabs } from './analytics-tabs';
 import { fmtUsd } from '@/lib/format';
 
 export function BuilderView() {
-  const { smooth, market } = useMarket();
+  const { market } = useMarket();
   const { underlying, legs, size, overrides, showCone, showDecay, showNow, updateLeg } = useStrategy();
 
-  const asset = smooth[underlying] ?? market.assets[underlying];
+  // REAL 5s frames (the payoff chart glides on its own rAF loop).
+  const asset = market.assets[underlying];
 
   // Client-side mirror for 60fps interactivity.
   const analysis = useMemo(

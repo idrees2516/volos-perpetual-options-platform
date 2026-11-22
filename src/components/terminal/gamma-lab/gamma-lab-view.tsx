@@ -35,7 +35,7 @@ const TABS: { id: LabTab; label: string; icon: React.ReactNode }[] = [
 const FLOW_TAPE_LEN = 220;
 
 export function GammaLabView() {
-  const { market, smooth } = useMarket();
+  const { market } = useMarket();
   const [tab, setTab] = useState<LabTab>('overview');
   const [symbolId, setSymbolId] = useState('SPY');
   const [tick, setTick] = useState(() => Date.now());
@@ -49,14 +49,14 @@ export function GammaLabView() {
     return () => clearInterval(t);
   }, []);
 
-  // live spot for crypto symbols from the market feed
+  // live spot for crypto symbols from the REAL 5s market feed
   const liveSpot = useMemo(() => {
     if (symbolId === 'BTC' || symbolId === 'ETH' || symbolId === 'SOL') {
-      const a = smooth[symbolId] ?? market.assets[symbolId];
+      const a = market.assets[symbolId];
       if (a) return a.spot;
     }
     return undefined;
-  }, [symbolId, smooth, market]);
+  }, [symbolId, market]);
 
   const profile = useMemo(
     () => buildGammaProfile(symbolId, tick, liveSpot),

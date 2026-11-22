@@ -343,9 +343,9 @@ export function StrategyMetrics({ analysis, legs, underlying, market, specName }
           <Stat label="Margin est." value={fmtUsd(analysis.marginEstimate, { compact: true })} sub="10% stress buffer" />
           <Stat
             label="Funding APR"
-            value={fmtNum((market.fundingRate ?? 0) * 365 * 100, 1) + '%'}
+            value={fmtNum((market.fundingRate ?? 0) * 3 * 365 * 100, 1) + '%'}
             tone={(market.fundingRate ?? 0) >= 0 ? 'text-amber-300' : 'text-emerald-300'}
-            sub="perp carry drag"
+            sub="perp carry drag (per-8h funding × 3/day)"
           />
         </div>
         <div className="mt-2 grid gap-1.5 sm:grid-cols-3">

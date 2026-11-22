@@ -24,6 +24,7 @@ import { analyzeStrategy } from '@/lib/pricing';
 import type { Leg } from '@/lib/types';
 import type { CopilotContextSnapshot } from '@/lib/copilot-context';
 import { buildSuggestions, CAPABILITY_ACTIONS, type SuggestInput, type SuggestionChip } from '@/lib/copilot-suggest';
+import { marketRef, copilotContextRef } from './copilot-bridges';
 import { MarkdownLite } from './markdown-lite';
 import { ToolCard } from './agent-activity';
 import { ResearchView } from './research-view';
@@ -75,87 +76,6 @@ interface DeskStatus {
   memory: { sessions: number; messages: number; oldestDays?: number };
 }
 
-// --- live spot bridge -------------------------------------------------------------
-// MarketSpotBridge subscribes to the market context and mirrors it into a
-// module-level ref so strategy loading (an event handler) can read live spot.
-
-let marketRef: { assets: Record<string, { spot: number }>; tsMs: number } | null = null;
-
-export function MarketSpotBridge() {
-  const { market } = useMarket();
-  useEffect(() => {
-    marketRef = { assets: market.assets, tsMs: market.tsMs };
-  }, [market]);
-  return null;
-}
-
-// --- copilot context bridge --------------------------------------------------------
-// Mirrors the live terminal state (view · strategy · market) into a ref that
-// ships with every chat request, so the copilot answers based on the data the
-// platform is actually pulling and what the user is looking at.
-
-let copilotContextRef: { current: CopilotContextSnapshot | null } = { current: null };
-
-const VIEW_LABELS: Record<string, string> = {
-  strategies: 'Strategies',
-  models: 'Mental Models',
-  gamma: 'Gamma & Flow',
-  chain: 'Option Chain',
-  trade: 'Trading',
-  paper: 'Paper Desk',
-};
-
-export function CopilotContextBridge({ view }: { view: ViewId }) {
-  const { market, live, smooth } = useMarket();
-  const { underlying, strategyName, legs, size, catalogId, mode } = useStrategy();
-  useEffect(() => {
-    const assets = (['BTC', 'ETH', 'SOL'] as const).map((a) => {
-      const st = market.assets[a];
-      const chg = (st?.change24h ?? 0) as number;
-      return { asset: a, spot: st?.spot ?? 0, change24hPct: chg * 100 };
-    });
-    // Resolve the selected catalog strategy's legs when no custom strategy
-    // is loaded — mirrors the strategies workspace preview semantics.
-    let resolvedName = strategyName;
-    let resolvedLegs = legs;
-    const spec = catalogId ? strategyById(catalogId) : undefined;
-    if (spec && legs.length === 0) {
-      const spot = smooth[underlying]?.spot ?? market.assets[underlying]?.spot ?? 0;
-      resolvedName = spec.name;
-      resolvedLegs = resolveStrategyLegs(spec, spot);
-    }
-    copilotContextRef.current = {
-      tsIso: new Date().toISOString(),
-      activeSide: view === 'gamma' || view === 'chain' || view === 'trade' || view === 'models' ? 'analytics' : 'lab',
-      activeView: view,
-      viewLabel: VIEW_LABELS[view] ?? view,
-      underlying,
-      strategy: {
-        catalogId,
-        name: resolvedName,
-        mode,
-        size,
-        legCount: resolvedLegs.length,
-        legs: resolvedLegs.slice(0, 25).map((l) => ({
-          kind: l.kind,
-          side: l.side,
-          qty: l.qty,
-          strike: l.strike,
-          expiryDays: l.expiryDays,
-          fundingPeriodDays: l.fundingPeriodDays,
-        })),
-      },
-      market: {
-        source: live?.ok ? `live · ${live.source}` : market.source === 'rust' ? 'rust engine' : 'local sim',
-        tsMs: market.tsMs,
-        assets,
-      },
-    };
-  }, [view, market, live, smooth, underlying, strategyName, legs, size, catalogId, mode]);
-
-  return null;
-}
-
 interface CopilotPanelProps {
   view: ViewId;
   onView: (v: ViewId) => void;
@@ -165,13 +85,13 @@ interface CopilotPanelProps {
  *  the context bridge (catalog legs previewed on live spot when no custom
  *  strategy is loaded), analysed through the pricing engine. */
 function useSuggestInput(view: ViewId): SuggestInput {
-  const { market, smooth } = useMarket();
+  const { market } = useMarket();
   const { underlying, strategyName, legs, size, catalogId } = useStrategy();
   return useMemo(() => {
     let resolvedLegs = legs;
     let resolvedName = strategyName;
     const spec = legs.length === 0 && catalogId ? strategyById(catalogId) : undefined;
-    const asset = smooth[underlying] ?? market.assets[underlying];
+    const asset = market.assets[underlying];
     if (spec) {
       const spot = asset?.spot ?? 0;
       resolvedLegs = resolveStrategyLegs(spec, spot);
@@ -202,7 +122,7 @@ function useSuggestInput(view: ViewId): SuggestInput {
       maxProfitUsd,
       isCredit,
     };
-  }, [view, market, smooth, underlying, strategyName, legs, size, catalogId]);
+  }, [view, market, underlying, strategyName, legs, size, catalogId]);
 }
 
 export function CopilotPanel({ view, onView }: CopilotPanelProps) {
