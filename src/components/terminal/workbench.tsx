@@ -30,6 +30,7 @@ import type { ViewId } from './topbar';
 import type { UnderlyingId } from '@/lib/types';
 import { ASSET_META } from '@/lib/types';
 import { useMarket } from '@/hooks/use-market';
+import { useSmoothAssets } from '@/lib/smooth-spot';
 import { useStrategy } from '@/stores/strategy-store';
 import { fmtNum, fmtPctSigned } from '@/lib/format';
 
@@ -261,7 +262,10 @@ function RailButton({ item, side, view, onView, collapsed }: RailButtonProps) {
 
 /** Analytics rail footer — live market pulse from real exchange prices. */
 function AnalyticsPulse({ collapsed }: { collapsed: boolean }) {
-  const { market, smooth, live } = useMarket();
+  const { market, live } = useMarket();
+  // Smoothed spot via the external ticker store — this tiny footer (and only
+  // it) re-renders at 30fps; the workspace tree reads the 5s REAL frames.
+  const smooth = useSmoothAssets();
   const ok = live?.ok;
 
   return (

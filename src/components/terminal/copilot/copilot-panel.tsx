@@ -85,13 +85,13 @@ interface CopilotPanelProps {
  *  the context bridge (catalog legs previewed on live spot when no custom
  *  strategy is loaded), analysed through the pricing engine. */
 function useSuggestInput(view: ViewId): SuggestInput {
-  const { market, smooth } = useMarket();
+  const { market } = useMarket();
   const { underlying, strategyName, legs, size, catalogId } = useStrategy();
   return useMemo(() => {
     let resolvedLegs = legs;
     let resolvedName = strategyName;
     const spec = legs.length === 0 && catalogId ? strategyById(catalogId) : undefined;
-    const asset = smooth[underlying] ?? market.assets[underlying];
+    const asset = market.assets[underlying];
     if (spec) {
       const spot = asset?.spot ?? 0;
       resolvedLegs = resolveStrategyLegs(spec, spot);
@@ -122,7 +122,7 @@ function useSuggestInput(view: ViewId): SuggestInput {
       maxProfitUsd,
       isCredit,
     };
-  }, [view, market, smooth, underlying, strategyName, legs, size, catalogId]);
+  }, [view, market, underlying, strategyName, legs, size, catalogId]);
 }
 
 export function CopilotPanel({ view, onView }: CopilotPanelProps) {

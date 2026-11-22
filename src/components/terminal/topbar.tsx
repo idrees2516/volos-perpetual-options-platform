@@ -16,6 +16,7 @@ import { Waves, Sparkles, Radio, Rows3 } from 'lucide-react';
 import type { UnderlyingId } from '@/lib/types';
 import { ASSET_META } from '@/lib/types';
 import { useMarket } from '@/hooks/use-market';
+import { useSmoothAssets } from '@/lib/smooth-spot';
 import { useStrategy } from '@/stores/strategy-store';
 import { useCopilot } from '@/stores/copilot-store';
 import { useDensity } from '@/stores/density-store';
@@ -25,7 +26,10 @@ import { LiveNum, LivePct } from '@/components/ui/live-num';
 export type ViewId = 'strategies' | 'gamma' | 'chain' | 'trade' | 'paper' | 'quant' | 'orderflow' | 'forecast' | 'scriptlab' | 'models' | 'studio' | 'chartdesk';
 
 export function TopBar() {
-  const { market, smooth, connected, live, retry } = useMarket();
+  const { market, connected, live, retry } = useMarket();
+  // Smoothed spot via the external ticker store — re-renders ONLY this bar
+  // (30fps), never the workspace tree.
+  const smooth = useSmoothAssets();
   const { underlying, setUnderlying } = useStrategy();
   const { open: copilotOpen, toggle: toggleCopilot } = useCopilot();
   const { density, toggleDensity } = useDensity();

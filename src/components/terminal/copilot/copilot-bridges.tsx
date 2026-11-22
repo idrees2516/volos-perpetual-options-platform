@@ -47,7 +47,7 @@ const VIEW_LABELS: Record<string, string> = {
  *  ships with every chat request, so the copilot answers based on the data the
  *  platform is actually pulling and what the user is looking at. */
 export function CopilotContextBridge({ view }: { view: ViewId }) {
-  const { market, live, smooth } = useMarket();
+  const { market, live } = useMarket();
   const { underlying, strategyName, legs, size, catalogId, mode } = useStrategy();
   useEffect(() => {
     const assets = (['BTC', 'ETH', 'SOL'] as const).map((a) => {
@@ -61,7 +61,7 @@ export function CopilotContextBridge({ view }: { view: ViewId }) {
     let resolvedLegs = legs;
     const spec = catalogId ? strategyById(catalogId) : undefined;
     if (spec && legs.length === 0) {
-      const spot = smooth[underlying]?.spot ?? market.assets[underlying]?.spot ?? 0;
+      const spot = market.assets[underlying]?.spot ?? 0;
       resolvedName = spec.name;
       resolvedLegs = resolveStrategyLegs(spec, spot);
     }
@@ -92,7 +92,7 @@ export function CopilotContextBridge({ view }: { view: ViewId }) {
         assets,
       },
     };
-  }, [view, market, live, smooth, underlying, strategyName, legs, size, catalogId, mode]);
+  }, [view, market, live, underlying, strategyName, legs, size, catalogId, mode]);
 
   return null;
 }

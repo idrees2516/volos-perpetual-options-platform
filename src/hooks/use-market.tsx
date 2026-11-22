@@ -12,8 +12,14 @@
 // public venue is unreachable the frame simply stays on the last known real
 // snapshot and the status line reads "connecting…".
 //
-// Exposes smooth interpolated spot for buttery chart motion (lerp is a
-// presentation-layer effect on the REAL ticks, not a data source).
+// BUTTERY MOTION, THE SAFE WAY: the lerped spot used to live in React state
+// on a 33ms interval here — which re-rendered the whole terminal tree 30×/s
+// and, under pressure, threw "Maximum update depth exceeded" straight out of
+// `setSmooth` (confirmed via the dev-overlay stack). The interpolation now
+// lives in lib/smooth-spot.ts as an external store: only the tiny ticker
+// surfaces (topbar pills, the rail pulse) subscribe via useSmoothAssets();
+// this context carries ONLY the REAL 5s frames, which is exactly what the
+// workspace views should read.
 //
 // NOTE: this is the ONLY use-market module. A stale use-market.ts used to
 // shadow this file for TypeScript resolution (tsc resolves .ts before .tsx,
@@ -24,6 +30,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { AssetMarket, MarketData } from '@/lib/types';
 import { subscribeLivePrices, refreshLivePrices, type LivePriceSnapshot } from '@/lib/live-prices';
+import { setSmoothTarget } from '@/lib/smooth-spot';
 import { VOL_CONFIG } from '@/lib/pricing';
 
 const LIVE_ASSETS = ['BTC', 'ETH', 'SOL'] as const;
@@ -44,8 +51,6 @@ const INITIAL: MarketData = {
 
 interface MarketContextValue {
   market: MarketData;
-  /** Smoothed spot for animation (lerped toward the live value). */
-  smooth: Record<string, AssetMarket>;
   connected: boolean;
   /** Real venue serving the frames (e.g. 'Binance spot'). */
   source: string;
@@ -98,6 +103,9 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
     };
     latestRef.current = frame;
     setMarket(frame);
+    // presentation-layer glide target for the ticker surfaces (external
+    // store — never re-renders the tree from here)
+    setSmoothTarget(assets);
   }, []);
 
   useEffect(() => {
@@ -105,39 +113,8 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
     return unsubscribe;
   }, [push]);
 
-  // Smooth interpolation at 30fps for chart motion.
-  const [smooth, setSmooth] = useState<Record<string, AssetMarket>>(EMPTY_ASSETS);
-  const smoothRef = useRef<Record<string, AssetMarket>>(EMPTY_ASSETS);
-  useEffect(() => {
-    const raf = setInterval(() => {
-      const target = latestRef.current.assets;
-      const cur = smoothRef.current;
-      const next: Record<string, AssetMarket> = {};
-      let changed = false;
-      for (const k of Object.keys(target)) {
-        const t = target[k];
-        const c = cur[k] ?? t;
-        const s: AssetMarket = {
-          ...t,
-          spot: c.spot + (t.spot - c.spot) * 0.18,
-          volShift: c.volShift + (t.volShift - c.volShift) * 0.18,
-          fundingRate: c.fundingRate + (t.fundingRate - c.fundingRate) * 0.18,
-        };
-        if (Math.abs(s.spot - c.spot) > 1e-9) changed = true;
-        next[k] = s;
-      }
-      if (changed) {
-        smoothRef.current = next;
-        setSmooth(next);
-      }
-    }, 33);
-    return () => clearInterval(raf);
-  }, []);
-
   return (
-    <MarketContext.Provider
-      value={{ market, smooth, connected, source: market.source, live, retry }}
-    >
+    <MarketContext.Provider value={{ market, connected, source: market.source, live, retry }}>
       {children}
     </MarketContext.Provider>
   );

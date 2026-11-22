@@ -21,7 +21,7 @@
 
 import { useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import type React from 'react';
+import React from 'react';
 import { MarketProvider } from '@/hooks/use-market';
 import { usePersistedString } from '@/hooks/use-persisted-state';
 import { TopBar, type ViewId } from '@/components/terminal/topbar';
@@ -40,6 +40,48 @@ function ViewLoading() {
       </div>
     </div>
   );
+}
+
+/** A view chunk failed to load (dev-server restart mid-session, network
+ * hiccup behind the preview proxy…). Without a boundary this leaves either
+ * an eternal spinner or a blank workspace; with it the view recovers on the
+ * next click — automatic once, then a manual retry button. */
+class ViewErrorBoundary extends React.Component<
+  { children: React.ReactNode; viewId: string },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidUpdate(prev: { viewId: string }) {
+    if (prev.viewId !== this.props.viewId && this.state.failed) {
+      this.setState({ failed: false });
+    }
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <div className="flex max-w-md flex-col items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 px-6 py-5">
+          <p className="font-mono text-[10px] tracking-widest text-amber-400/90">TERMINAL CHUNK FAILED TO LOAD</p>
+          <p className="text-center text-[11px] leading-relaxed text-zinc-500">
+            The dev server was likely restarted mid-session. Switch views or retry —
+            the chunk re-fetches fresh.
+          </p>
+          <button
+            onClick={() => this.setState({ failed: false })}
+            className="rounded-md border border-teal-700/60 bg-teal-950/50 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-teal-200 transition hover:bg-teal-900/60"
+          >
+            retry load
+          </button>
+        </div>
+      </div>
+    );
+  }
 }
 
 /** Lazy-load a named view export (every view is a named export in this codebase). */
@@ -90,18 +132,20 @@ function Terminal() {
       <TopBar />
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <Workbench view={view} onView={(v) => setView(v)} collapsed={railCollapsed} onToggleCollapsed={toggleRail}>
-          {view === 'strategies' && <StrategiesView onOpenTrade={() => setView('trade')} />}
-          {view === 'models' && <MentalModelsView />}
-          {view === 'studio' && <StudioView />}
-          {view === 'gamma' && <GammaLabView />}
-          {view === 'quant' && <QuantLabView />}
-          {view === 'orderflow' && <OrderFlowView />}
-          {view === 'forecast' && <ForecastView />}
-          {view === 'chain' && <ChainView onOpenBuilder={() => setView('strategies')} />}
-          {view === 'trade' && <TradeView onOpenBuilder={() => setView('strategies')} />}
-          {view === 'paper' && <PaperView />}
-          {view === 'scriptlab' && <ScriptLabView />}
-          {view === 'chartdesk' && <PriceChartView />}
+          <ViewErrorBoundary key={view} viewId={view}>
+            {view === 'strategies' && <StrategiesView onOpenTrade={() => setView('trade')} />}
+            {view === 'models' && <MentalModelsView />}
+            {view === 'studio' && <StudioView />}
+            {view === 'gamma' && <GammaLabView />}
+            {view === 'quant' && <QuantLabView />}
+            {view === 'orderflow' && <OrderFlowView />}
+            {view === 'forecast' && <ForecastView />}
+            {view === 'chain' && <ChainView onOpenBuilder={() => setView('strategies')} />}
+            {view === 'trade' && <TradeView onOpenBuilder={() => setView('strategies')} />}
+            {view === 'paper' && <PaperView />}
+            {view === 'scriptlab' && <ScriptLabView />}
+            {view === 'chartdesk' && <PriceChartView />}
+          </ViewErrorBoundary>
         </Workbench>
         <CopilotPanel view={view} onView={setView} />
       </div>
