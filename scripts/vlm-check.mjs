@@ -7,13 +7,14 @@ const prompt = process.argv[3];
 async function main() {
   const zai = await ZAI.create();
   const b64 = fs.readFileSync(img).toString('base64');
-  const res = await zai.chat.completions.create({
+  const res = await zai.chat.completions.createVision({
     messages: [
       { role: 'user', content: [
-        { type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } },
         { type: 'text', text: prompt },
+        { type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } },
       ]},
     ],
+    thinking: { type: 'disabled' },
   });
   console.log(res.choices[0]?.message?.content ?? '(no content)');
 }
