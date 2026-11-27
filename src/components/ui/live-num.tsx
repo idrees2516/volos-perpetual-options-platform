@@ -66,7 +66,7 @@ export function LivePct({
   return (
     <LiveNum
       value={Number.isFinite(value) ? value : NaN}
-      format={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(digits)}%`}
+      format={(v) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(digits)}%`}
       className={`${tone} ${className}`}
     />
   );

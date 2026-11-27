@@ -17,7 +17,7 @@ interface ModelsReply {
 }
 
 export async function GET() {
-  const status = providerStatus();
+  const status = await providerStatus();
   const memory = await memoryStats();
 
   let gatewayReachable: boolean | null = null;
